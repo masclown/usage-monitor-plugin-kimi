@@ -58,17 +58,10 @@
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
                         <Border Background="{StaticResource SurfaceBrush}" 
-                                CornerRadius="10" Padding="20" Margin="0,0,0,12"
-                                Opacity="{Binding IsEnabled, Converter={StaticResource BoolToOpacity}}">
-                            <Grid>
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
-                                </Grid.RowDefinitions>
-
+                                CornerRadius="10" Padding="20" Margin="0,0,0,12">
+                            <StackPanel>
                                 <!-- 服务商名称和状态 -->
-                                <DockPanel Grid.Row="0" Margin="0,0,0,8">
+                                <DockPanel Margin="0,0,0,8">
                                     <TextBlock Text="{Binding DisplayName}" FontSize="18" FontWeight="SemiBold"
                                                Foreground="{StaticResource TextPrimaryBrush}" />
                                     <TextBlock Text="{Binding StatusText}" FontSize="13"
@@ -78,21 +71,20 @@
                                 </DockPanel>
 
                                 <!-- 进度条 -->
-                                <Border Grid.Row="1" Height="8" CornerRadius="4" 
-                                        Background="#FF3D3D52" Margin="0,0,0,12">
-                                    <Border CornerRadius="4" HorizontalAlignment="Left"
-                                            Background="{StaticResource PrimaryBrush}">
+                                <Grid Height="8" Margin="0,0,0,12">
+                                    <Border CornerRadius="4" Background="#FF3D3D52" />
+                                    <Border CornerRadius="4" Background="{StaticResource PrimaryBrush}"
+                                            HorizontalAlignment="Left">
                                         <Border.Width>
-                                            <MultiBinding Converter="{StaticResource PercentageWidthConverter}">
-                                                <Binding Path="UsagePercentage" />
-                                                <Binding RelativeSource="{RelativeSource AncestorType=Border}" Path="ActualWidth" />
-                                            </MultiBinding>
+                                            <Binding Path="UsagePercentage" Mode="OneWay"
+                                                     Converter="{StaticResource PercentageToWidthConverter}"
+                                                     ConverterParameter="700" />
                                         </Border.Width>
                                     </Border>
-                                </Border>
+                                </Grid>
 
                                 <!-- 详细信息 -->
-                                <UniformGrid Grid.Row="2" Columns="3">
+                                <UniformGrid Columns="3">
                                     <StackPanel>
                                         <TextBlock Text="已使用" FontSize="11" 
                                                    Foreground="{StaticResource TextSecondaryBrush}" />
@@ -117,12 +109,12 @@
                                 </UniformGrid>
 
                                 <!-- 错误信息 -->
-                                <TextBlock Grid.Row="2" Text="{Binding ErrorMessage}"
+                                <TextBlock Text="{Binding ErrorMessage}"
                                            Foreground="{StaticResource DangerBrush}"
                                            FontSize="12" TextWrapping="Wrap"
                                            Visibility="{Binding IsError, Converter={StaticResource BoolToVisibility}}"
                                            Margin="0,8,0,0" />
-                            </Grid>
+                            </StackPanel>
                         </Border>
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
@@ -131,12 +123,14 @@
 
         <!-- 底部状态栏 -->
         <Border Grid.Row="2" Margin="0,12,0,0">
-            <TextBlock Foreground="{StaticResource TextSecondaryBrush}" FontSize="12">
-                <Run Text="刷新间隔: " />
-                <Run Text="{Binding RefreshInterval, StringFormat={}{0}秒}" />
-                <Run Text=" | 插件数量: " />
-                <Run Text="{Binding Usages.Count}" />
-            </TextBlock>
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Foreground="{StaticResource TextSecondaryBrush}" FontSize="12">
+                    <Run Text="刷新间隔: " />
+                    <Run Text="{Binding RefreshInterval, Mode=OneWay, StringFormat={}{0}秒}" />
+                    <Run Text="  |  插件数量: " />
+                    <Run Text="{Binding Usages.Count, Mode=OneWay}" />
+                </TextBlock>
+            </StackPanel>
         </Border>
     </Grid>
 </Window>

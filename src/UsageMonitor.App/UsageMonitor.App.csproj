@@ -12,6 +12,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\UsageMonitor.Core\UsageMonitor.Core.csproj" />
+    <ProjectReference Include="..\Plugins\UsageMonitor.Plugin.Deepseek\UsageMonitor.Plugin.Deepseek.csproj" />
+    <ProjectReference Include="..\Plugins\UsageMonitor.Plugin.MiMo\UsageMonitor.Plugin.MiMo.csproj" />
+    <ProjectReference Include="..\Plugins\UsageMonitor.Plugin.OpenAI\UsageMonitor.Plugin.OpenAI.csproj" />
   </ItemGroup>
 
   <ItemGroup>

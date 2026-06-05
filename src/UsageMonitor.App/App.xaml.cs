@@ -10,7 +10,7 @@ namespace UsageMonitor.App;
 /// <summary>
 /// 应用程序入口 - 初始化系统托盘、插件管理器和核心服务
 /// </summary>
-public partial class App : Application
+public partial class App : System.Windows.Application
 {
     private NotifyIcon? _notifyIcon;
     private PluginManager _pluginManager = null!;
@@ -30,11 +30,11 @@ public partial class App : Application
 
         _pluginManager = new PluginManager();
 
-        // 注册内置插件
-        RegisterBuiltinPlugins();
-
-        // 加载外部插件
+        // 先加载外部插件（会清空列表）
         _pluginManager.LoadPlugins();
+
+        // 再注册内置插件（不会被清空）
+        RegisterBuiltinPlugins();
 
         // 同步插件启用状态
         foreach (var plugin in _pluginManager.Plugins)
@@ -130,7 +130,7 @@ public partial class App : Application
     private void InitializeTaskbarWindow()
     {
         _taskbarWindow = new Views.TaskbarWindow(_viewModel);
-        _taskbarWindow.ShowInTaskbar();
+        _taskbarWindow.ShowInTaskbarDisplay();
     }
 
     /// <summary>

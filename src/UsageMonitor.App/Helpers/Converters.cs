@@ -43,8 +43,8 @@ public class ErrorColorConverter : IValueConverter
     {
         var isError = value is bool b && b;
         return isError
-            ? new SolidColorBrush(Color.FromRgb(220, 38, 38))   // 红色
-            : new SolidColorBrush(Color.FromRgb(148, 163, 184)); // 灰色
+            ? new SolidColorBrush(System.Windows.Media.Color.FromRgb(220, 38, 38))   // 红色
+            : new SolidColorBrush(System.Windows.Media.Color.FromRgb(148, 163, 184)); // 灰色
     }
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
@@ -52,7 +52,7 @@ public class ErrorColorConverter : IValueConverter
 }
 
 /// <summary>
-/// 百分比宽度转换器（用于进度条）
+/// 百分比宽度转换器（用于进度条，将百分比转换为固定像素宽度）
 /// </summary>
 public class PercentageWidthConverter : IMultiValueConverter
 {
@@ -65,5 +65,23 @@ public class PercentageWidthConverter : IMultiValueConverter
     }
 
     public object[] ConvertBack(object value, Type[] targetTypes, object parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
+/// <summary>
+/// 百分比转宽度转换器（单值转换器，通过 ConverterParameter 指定最大宽度）
+/// </summary>
+public class PercentageToWidthConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        if (value is not double percentage) return 0.0;
+        double maxWidth = 700;
+        if (parameter is string paramStr && double.TryParse(paramStr, out var parsed))
+            maxWidth = parsed;
+        return Math.Max(0, maxWidth * percentage / 100.0);
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
         => throw new NotSupportedException();
 }
