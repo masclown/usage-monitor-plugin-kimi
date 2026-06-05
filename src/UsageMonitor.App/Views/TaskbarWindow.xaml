@@ -1,0 +1,39 @@
+<Window x:Class="UsageMonitor.App.Views.TaskbarWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="UsageMonitor Taskbar"
+        Height="40" Width="300"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        ShowInTaskbar="False"
+        ResizeMode="NoResize"
+        Topmost="False">
+    <Border Background="#CC1E1E2E" CornerRadius="4" Padding="8,4" Margin="2">
+        <ItemsControl ItemsSource="{Binding Usages}">
+            <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center" />
+                </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                    <Border Margin="4,0" Visibility="{Binding IsEnabled, Converter={StaticResource BoolToVisibility}}">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center"
+                                    ToolTip="{Binding StatusText}">
+                            <TextBlock Text="{Binding DisplayName}" 
+                                       FontSize="11" FontWeight="Medium"
+                                       Foreground="#FFE2E8F0" 
+                                       VerticalAlignment="Center"
+                                       Margin="0,0,4,0" />
+                            <TextBlock Text="{Binding RemainingText}" 
+                                       FontSize="11"
+                                       Foreground="#FF60A5FA" 
+                                       VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Border>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+    </Border>
+</Window>

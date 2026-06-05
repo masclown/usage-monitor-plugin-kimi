@@ -1,0 +1,18 @@
+# 开发临时文档
+## 开发说明文档
+.devdoc/
+
+# 开发工具目录
+## Qoder
+.qoder/
+
+# .NET
+bin/
+obj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+.vs/
+packages/
+*.nupkg
