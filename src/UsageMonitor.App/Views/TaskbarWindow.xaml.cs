@@ -1,13 +1,16 @@
 using System.Windows;
-using System.Windows.Interop;
 using UsageMonitor.App.Helpers;
 using UsageMonitor.App.ViewModels;
+using UsageMonitor.Core.Models;
 
 namespace UsageMonitor.App.Views;
 
 /// <summary>
 /// 任务栏浮动窗口 - 在 Windows 任务栏上方显示 AI 用量摘要信息
-/// 使用浮动定位方式，避免 SetParent 嵌入的兼容性问题
+/// 支持三种显示模式（每 Provider 独立）：
+/// - Text: DisplayName + 剩余额度
+/// - MiniLineChart: 上方文字 + 下方迷你折线图
+/// - RingChart: 圆环进度图 + 名称
 /// </summary>
 public partial class TaskbarWindow : Window
 {
@@ -42,16 +45,15 @@ public partial class TaskbarWindow : Window
 
             // 获取屏幕工作区域（排除任务栏后的区域）
             var screenWidth = SystemParameters.PrimaryScreenWidth;
-            var screenHeight = SystemParameters.PrimaryScreenHeight;
             var workArea = SystemParameters.WorkArea;
 
-            // 定位到任务栏上方右侧
-            // 使用工作区域的右边界（已排除任务栏宽度）
-            var windowWidth = 350;
-            var windowHeight = 36;
+            // 根据各 Provider 模式计算窗口高度
+            var windowHeight = ComputeWindowHeight();
+            // 根据各 Provider 模式计算窗口宽度（按固定宽度估算，可被 ScrollViewer 接管）
+            var windowWidth = ComputeWindowWidth();
 
             // 如果任务栏在底部
-            if (taskbarRect.Top > screenHeight / 2)
+            if (taskbarRect.Top > screenWidth / 2)
             {
                 Left = workArea.Right - windowWidth - 10;
                 Top = workArea.Bottom - windowHeight - 4;
@@ -66,6 +68,55 @@ public partial class TaskbarWindow : Window
             Width = windowWidth;
             Height = windowHeight;
         }
+    }
+
+    /// <summary>
+    /// 根据各 Provider 模式计算所需窗口高度（取最大值）
+    /// </summary>
+    private double ComputeWindowHeight()
+    {
+        double max = 36; // 文字模式基础高度
+        foreach (var usage in _viewModel.Usages)
+        {
+            var h = usage.DisplayMode switch
+            {
+                TaskbarDisplayMode.MiniLineChart => 56,
+                TaskbarDisplayMode.RingChart => 56,
+                _ => 36
+            };
+            if (h > max) max = h;
+        }
+        return max;
+    }
+
+    /// <summary>
+    /// 根据各 Provider 模式计算窗口宽度
+    /// - 文字模式每项约 120px，折线图每项 132px，圆环图每项 96px
+    /// </summary>
+    private double ComputeWindowWidth()
+    {
+        if (_viewModel.Usages.Count == 0) return 240;
+
+        double total = 24; // 左右 padding
+        foreach (var usage in _viewModel.Usages)
+        {
+            total += usage.DisplayMode switch
+            {
+                TaskbarDisplayMode.MiniLineChart => 132,
+                TaskbarDisplayMode.RingChart => 96,
+                _ => 120
+            };
+        }
+        // 上限不超过 1200，避免窗口过宽
+        return Math.Min(1200, Math.Max(280, total));
+    }
+
+    /// <summary>
+    /// 刷新窗口位置和大小（在 Provider 模式改变或数量变化时调用）
+    /// </summary>
+    public void RecalculateSize()
+    {
+        PositionNearTaskbar();
     }
 
     /// <summary>

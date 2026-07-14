@@ -32,6 +32,24 @@ public class AppSettings
 
     /// <summary>各插件是否启用的映射</summary>
     public Dictionary<string, bool> PluginEnabled { get; set; } = new();
+
+    /// <summary>历史数据保留点数（默认 60，可调 30/60/120）</summary>
+    public int HistoryPointCount { get; set; } = 60;
+
+    /// <summary>是否启用托盘悬浮窗（鼠标悬停托盘图标时弹出）</summary>
+    public bool ShowTrayTooltip { get; set; } = true;
+
+    /// <summary>托盘悬浮窗关闭延迟（毫秒）</summary>
+    public int TrayTooltipHideDelayMs { get; set; } = 500;
+
+    /// <summary>各 Provider 在任务栏的显示模式（key=ProviderId，缺省时为 Text）</summary>
+    public Dictionary<string, TaskbarDisplayMode> ProviderTaskbarModes { get; set; } = new();
+
+    /// <summary>圆环图警告阈值（百分比，达到后切到琥珀色，默认 60）</summary>
+    public int RingChartWarningThreshold { get; set; } = 60;
+
+    /// <summary>圆环图危险阈值（百分比，达到后切到红色，默认 85）</summary>
+    public int RingChartDangerThreshold { get; set; } = 85;
 }
 
 /// <summary>
@@ -49,6 +67,17 @@ public class ConfigService
 
     /// <summary>配置变更事件</summary>
     public event EventHandler? ConfigChanged;
+
+    /// <summary>
+    /// 上次 Save() 失败的错误信息（null 表示成功）。
+    /// UI 可以在保存后检查这个字段，提示用户磁盘满/权限不足等问题。
+    /// </summary>
+    public string? LastSaveError { get; private set; }
+
+    /// <summary>
+    /// 上次 Load() 失败的错误信息（null 表示成功）。
+    /// </summary>
+    public string? LastLoadError { get; private set; }
 
     /// <summary>
     /// 创建配置服务实例
@@ -94,6 +123,7 @@ public class ConfigService
     /// </summary>
     public void Save()
     {
+        LastSaveError = null;
         try
         {
             if (!Directory.Exists(_configDirectory))
@@ -115,7 +145,44 @@ public class ConfigService
         }
         catch (Exception ex)
         {
+            // 重要：记录真实错误信息，让 UI 能提示用户（磁盘满/权限不足/文件被占用）
+            LastSaveError = $"{ex.GetType().Name}: {ex.Message}";
             System.Diagnostics.Debug.WriteLine($"保存配置失败: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Re-load provider config from disk into memory. Used after external tools (e.g. the
+    /// BrowserLoginService) write <c>config.json</c> directly without going through
+    /// <see cref="UpdateProviderConfig"/>, so the in-memory <see cref="ProviderConfig"/>
+    /// for the same provider must be refreshed.
+    /// <para>
+    /// Implementation: re-read the file, replace <c>_settings.ProviderConfigs</c> with the
+    /// freshly-loaded provider configs (preserves any other app settings). Triggers
+    /// <see cref="ConfigChanged"/> so subscribers re-read state.
+    /// </para>
+    /// </summary>
+    public void ReloadProviderConfigsFromDisk()
+    {
+        try
+        {
+            if (!File.Exists(_configFilePath)) return;
+            var json = File.ReadAllText(_configFilePath, Encoding.UTF8);
+            var fresh = JsonSerializer.Deserialize<AppSettings>(json,
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            if (fresh?.ProviderConfigs != null)
+            {
+                // Replace only the ProviderConfigs dict, keep other settings
+                _settings.ProviderConfigs = fresh.ProviderConfigs;
+                FileLogger.Info("ConfigService",
+                    $"Reloaded ProviderConfigs from disk. Count={fresh.ProviderConfigs.Count}");
+            }
+            ConfigChanged?.Invoke(this, EventArgs.Empty);
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Error("ConfigService",
+                $"ReloadProviderConfigsFromDisk failed: {ex.Message}", ex);
         }
     }
 
@@ -198,7 +265,7 @@ public class ConfigService
     /// <summary>判断是否为敏感配置键</summary>
     private static bool IsSensitiveKey(string key)
     {
-        var sensitiveKeywords = new[] { "apikey", "token", "secret", "password", "key" };
+        var sensitiveKeywords = new[] { "apikey", "token", "secret", "password", "key", "cookie" };
         return sensitiveKeywords.Any(k => key.Contains(k, StringComparison.OrdinalIgnoreCase));
     }
 

@@ -29,5 +29,6 @@
         <helpers:ErrorColorConverter x:Key="ErrorColorConverter" />
         <helpers:PercentageWidthConverter x:Key="PercentageWidthConverter" />
         <helpers:PercentageToWidthConverter x:Key="PercentageToWidthConverter" />
+        <helpers:StringToVisibilityConverter x:Key="StringToVisibility" />
     </Application.Resources>
 </Application>

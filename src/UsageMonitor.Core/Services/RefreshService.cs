@@ -10,6 +10,7 @@ public class RefreshService : IDisposable
 {
     private readonly PluginManager _pluginManager;
     private readonly ConfigService _configService;
+    private readonly UsageHistoryStore _historyStore;
     private Timer? _timer;
     private bool _isRefreshing;
 
@@ -22,10 +23,12 @@ public class RefreshService : IDisposable
     /// <summary>
     /// 创建刷新服务实例
     /// </summary>
-    public RefreshService(PluginManager pluginManager, ConfigService configService)
+    public RefreshService(PluginManager pluginManager, ConfigService configService, UsageHistoryStore? historyStore = null)
     {
         _pluginManager = pluginManager;
         _configService = configService;
+        _historyStore = historyStore ?? new UsageHistoryStore();
+        _historyStore.MaxPoints = Math.Max(1, _configService.Settings.HistoryPointCount);
     }
 
     /// <summary>
@@ -34,6 +37,8 @@ public class RefreshService : IDisposable
     public void Start()
     {
         Stop();
+        // 同步历史点数设置
+        _historyStore.MaxPoints = Math.Max(1, _configService.Settings.HistoryPointCount);
         var intervalMs = _configService.Settings.RefreshIntervalSeconds * 1000;
         _timer = new Timer(OnTimerTick, null, 0, intervalMs);
     }
@@ -93,6 +98,12 @@ public class RefreshService : IDisposable
             plugin.LastUsage = usage;
             plugin.LastQueryTime = DateTime.Now;
             plugin.LastQuerySuccess = usage.IsSuccess;
+
+            // 记录历史点（仅成功且有额度数据时）
+            if (usage.IsSuccess)
+            {
+                _historyStore.AddPoint(plugin.Provider.ProviderId, usage.GetUsagePercentage());
+            }
         }
         catch (Exception ex)
         {

@@ -9,6 +9,13 @@
 
   <ItemGroup>
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
+    <!--
+      Microsoft.Playwright: 替代裸 CDP，复刻销项数据助手 browser-cookie-manager Skill。
+      Playwright 提供高级 API（page.goto / context.cookies / page.wait_for_url），
+      复用系统已安装的 Microsoft Edge（channel=msedge），不下载 Chromium。
+      解决反复出现的 5+ Bug：页面太小、navigate 丢失、URL 关键字误判、Cookie 提取失败等。
+    -->
+    <PackageReference Include="Microsoft.Playwright" Version="1.50.0" />
   </ItemGroup>
 
 </Project>

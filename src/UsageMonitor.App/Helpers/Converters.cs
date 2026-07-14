@@ -85,3 +85,19 @@ public class PercentageToWidthConverter : IValueConverter
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
         => throw new NotSupportedException();
 }
+
+/// <summary>
+/// 字符串转可见性转换器：非空且非 null 时显示，否则折叠。
+/// 用于可选附加信息的折叠面板（如余额详情）。
+/// </summary>
+public class StringToVisibilityConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        var s = value as string;
+        return !string.IsNullOrWhiteSpace(s) ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}

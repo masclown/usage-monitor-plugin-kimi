@@ -33,6 +33,20 @@ public interface IUsageProvider
     IReadOnlyList<ConfigField> ConfigFields { get; }
 
     /// <summary>
+    /// 可选的浏览器登录配置 - 声明此插件是否需要通过临时 Edge 窗口获取登录态 Cookie。
+    /// <para>
+    /// 返回 <c>null</c> 表示此插件无需浏览器登录（如纯 API Key 鉴权）。
+    /// 设置界面会据此自动显示"🌐 获取登录态"按钮，调用
+    /// <see cref="Services.BrowserLoginService"/> 启动临时 Edge 窗口并提取 Cookie。
+    /// </para>
+    /// <para>
+    /// 设计参考：销项数据助手项目的 <c>browser-cookie-manager</c> Skill 采用的通用 Cookie
+    /// 获取方案；本项目在此基础上用 Edge + CDP 替代 Playwright，降低外部依赖。
+    /// </para>
+    /// </summary>
+    Models.BrowserLoginConfig? LoginConfig => null;
+
+    /// <summary>
     /// 查询当前用量信息
     /// </summary>
     /// <param name="config">服务商配置（包含API Key等信息）</param>

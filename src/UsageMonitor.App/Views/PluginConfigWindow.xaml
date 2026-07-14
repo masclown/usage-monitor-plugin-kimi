@@ -1,0 +1,79 @@
+<Window x:Class="UsageMonitor.App.Views.PluginConfigWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="插件配置" 
+        Height="Auto" Width="500"
+        SizeToContent="Height"
+        MinWidth="400"
+        Background="{StaticResource BgBrush}"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize">
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- 标题 -->
+        <TextBlock x:Name="TitleText" Grid.Row="0" 
+                   FontSize="20" FontWeight="Bold"
+                   Foreground="{StaticResource TextPrimaryBrush}" 
+                   Margin="0,0,0,20" />
+
+        <!-- 动态表单区域 -->
+        <StackPanel x:Name="FormPanel" Grid.Row="1" Margin="0,0,0,20" />
+
+        <!-- 底部按钮 -->
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
+            <!-- 通用 "获取登录态" 按钮：
+                 只要插件在 LoginConfig 中声明了登录需求（不限于 MiniMax）就显示。
+                 提示文本由插件的 LoginConfig.UiButtonText 决定，默认 "🌐 获取登录态"。
+                 点击后由 BrowserLoginService 启动临时 Edge 窗口（不强制关闭用户现有 Edge）。
+                 参考：销项数据助手项目的 browser-cookie-manager Skill。 -->
+            <Button x:Name="GetCookieButton" Content="🌐 获取登录态"
+                    Padding="16,10" Margin="0,0,12,0" Click="OnGetCookieClick"
+                    Background="#FF10B981" Foreground="White"
+                    BorderThickness="0" Cursor="Hand" FontSize="13"
+                    Visibility="Collapsed"
+                    ToolTip="自动启动独立 Edge 窗口并打开登录页，登录完成后自动获取 Cookie（复刻自销项数据助手 browser-cookie-manager Skill）">
+                <Button.Template>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}"
+                                CornerRadius="6" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                    </ControlTemplate>
+                </Button.Template>
+            </Button>
+            <Button Content="取消" Padding="20,10" Margin="0,0,12,0"
+                    Click="OnCancelClick"
+                    Background="{StaticResource SurfaceBrush}" 
+                    Foreground="{StaticResource TextPrimaryBrush}" 
+                    BorderThickness="0" Cursor="Hand" FontSize="13">
+                <Button.Template>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" 
+                                CornerRadius="6" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                    </ControlTemplate>
+                </Button.Template>
+            </Button>
+            <Button Content="保存" Padding="20,10"
+                    Click="OnSaveClick"
+                    Background="{StaticResource PrimaryBrush}" 
+                    Foreground="White" BorderThickness="0" Cursor="Hand"
+                    FontSize="13">
+                <Button.Template>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" 
+                                CornerRadius="6" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                    </ControlTemplate>
+                </Button.Template>
+            </Button>
+        </StackPanel>
+    </Grid>
+</Window>

@@ -52,9 +52,9 @@
             </StackPanel>
         </DockPanel>
 
-        <!-- 用量卡片列表 -->
+        <!-- 用量卡片列表（仅展示已启用插件，被取消勾选的插件会立即从主窗口消失） -->
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
-            <ItemsControl ItemsSource="{Binding Usages}">
+            <ItemsControl ItemsSource="{Binding EnabledUsages}">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
                         <Border Background="{StaticResource SurfaceBrush}" 
@@ -63,7 +63,30 @@
                                 <!-- 服务商名称和状态 -->
                                 <DockPanel Margin="0,0,0,8">
                                     <TextBlock Text="{Binding DisplayName}" FontSize="18" FontWeight="SemiBold"
-                                               Foreground="{StaticResource TextPrimaryBrush}" />
+                                               Foreground="{StaticResource TextPrimaryBrush}"
+                                               VerticalAlignment="Center" />
+                                    <Button DockPanel.Dock="Right"
+                                            Command="{Binding ConfigCommand}"
+                                            Content="⚙ 设置"
+                                            Padding="10,4"
+                                            Margin="8,0,0,0"
+                                            Background="#FF3D3D52"
+                                            Foreground="{StaticResource TextPrimaryBrush}"
+                                            BorderThickness="0"
+                                            Cursor="Hand"
+                                            FontSize="12"
+                                            ToolTip="打开此服务商的配置窗口（输入 API Key、获取登录态等）">
+                                        <Button.Template>
+                                            <ControlTemplate TargetType="Button">
+                                                <Border Background="{TemplateBinding Background}"
+                                                        CornerRadius="4"
+                                                        Padding="{TemplateBinding Padding}">
+                                                    <ContentPresenter HorizontalAlignment="Center"
+                                                                      VerticalAlignment="Center" />
+                                                </Border>
+                                            </ControlTemplate>
+                                        </Button.Template>
+                                    </Button>
                                     <TextBlock Text="{Binding StatusText}" FontSize="13"
                                                Foreground="{Binding IsError, Converter={StaticResource ErrorColorConverter}}"
                                                DockPanel.Dock="Right" HorizontalAlignment="Right"
@@ -114,6 +137,30 @@
                                            FontSize="12" TextWrapping="Wrap"
                                            Visibility="{Binding IsError, Converter={StaticResource BoolToVisibility}}"
                                            Margin="0,8,0,0" />
+
+                                <!-- 用量汇总（仅在 HasBalanceInfo 为 true 时显示。MiniMax 由 DomExtractor 汇总/其他由 BalanceFetcher 填充） -->
+                                <Border Background="#FF2D2D3F"
+                                        CornerRadius="6" Padding="10,6"
+                                        Margin="0,8,0,0"
+                                        Visibility="{Binding HasBalanceInfo, Converter={StaticResource BoolToVisibility}}">
+                                    <StackPanel>
+                                        <DockPanel>
+                                            <TextBlock Text="💰 余额快照" FontSize="11"
+                                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                                       VerticalAlignment="Center" />
+                                            <TextBlock Text="{Binding BalanceText}" FontSize="12"
+                                                       Foreground="{StaticResource SuccessBrush}"
+                                                       FontWeight="SemiBold"
+                                                       DockPanel.Dock="Right" HorizontalAlignment="Right" />
+                                        </DockPanel>
+                                        <TextBlock Text="{Binding BalanceDetailText}"
+                                                   FontSize="10"
+                                                   Foreground="{StaticResource TextSecondaryBrush}"
+                                                   TextWrapping="Wrap"
+                                                   Margin="0,4,0,0"
+                                                   Visibility="{Binding BalanceDetailText, Converter={StaticResource StringToVisibility}}" />
+                                    </StackPanel>
+                                </Border>
                             </StackPanel>
                         </Border>
                     </DataTemplate>
@@ -128,7 +175,7 @@
                     <Run Text="刷新间隔: " />
                     <Run Text="{Binding RefreshInterval, Mode=OneWay, StringFormat={}{0}秒}" />
                     <Run Text="  |  插件数量: " />
-                    <Run Text="{Binding Usages.Count, Mode=OneWay}" />
+                    <Run Text="{Binding EnabledUsages.Count, Mode=OneWay}" />
                 </TextBlock>
             </StackPanel>
         </Border>

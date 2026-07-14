@@ -1,39 +1,93 @@
 <Window x:Class="UsageMonitor.App.Views.TaskbarWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:UsageMonitor.App.Controls"
+        xmlns:views="clr-namespace:UsageMonitor.App.Views"
         Title="UsageMonitor Taskbar"
-        Height="36" Width="400"
+        Height="56" Width="500"
         WindowStyle="None"
         AllowsTransparency="True"
         Background="Transparent"
         ShowInTaskbar="False"
         ResizeMode="NoResize"
         Topmost="True">
+    <Window.Resources>
+        <!-- 文字模式模板：DisplayName + 剩余额度 -->
+        <DataTemplate x:Key="TaskbarTextTemplate">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center"
+                        Margin="0,0,16,0"
+                        ToolTip="{Binding StatusText, Mode=OneWay}">
+                <TextBlock FontSize="12" FontWeight="SemiBold"
+                           Foreground="#FFE2E8F0"
+                           VerticalAlignment="Center">
+                    <Run Text="{Binding DisplayName, Mode=OneWay}" />
+                </TextBlock>
+                <TextBlock FontSize="12" Foreground="#FF60A5FA"
+                           VerticalAlignment="Center" Margin="4,0,0,0">
+                    <Run Text="{Binding RemainingText, Mode=OneWay}" />
+                </TextBlock>
+            </StackPanel>
+        </DataTemplate>
+
+        <!-- 折线图模式模板：上方文字 + 下方迷你折线图 -->
+        <DataTemplate x:Key="TaskbarLineChartTemplate">
+            <Grid Width="120" Height="44" Margin="0,0,12,0" VerticalAlignment="Center"
+                  ToolTip="{Binding StatusText, Mode=OneWay}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="22" />
+                </Grid.RowDefinitions>
+                <DockPanel Grid.Row="0" LastChildFill="False" VerticalAlignment="Center">
+                    <TextBlock FontSize="11" FontWeight="SemiBold"
+                               Foreground="#FFE2E8F0"
+                               DockPanel.Dock="Left" VerticalAlignment="Center">
+                        <Run Text="{Binding DisplayName, Mode=OneWay}" />
+                    </TextBlock>
+                    <TextBlock FontSize="11" Foreground="#FF94A3B8"
+                               DockPanel.Dock="Right" VerticalAlignment="Center" Margin="6,0,0,0"
+                               Text="{Binding UsagePercentage, Mode=OneWay, StringFormat={}{0:F0}%}" />
+                </DockPanel>
+                <controls:MiniLineChartControl Grid.Row="1"
+                                                Values="{Binding HistoryValues, Mode=OneWay}"
+                                                StrokeThickness="1.5" />
+            </Grid>
+        </DataTemplate>
+
+        <!-- 圆环图模式模板：圆环 + 名称 -->
+        <DataTemplate x:Key="TaskbarRingChartTemplate">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center"
+                        Margin="0,0,12,0"
+                        ToolTip="{Binding StatusText, Mode=OneWay}">
+                <controls:RingChartControl Width="44" Height="44"
+                                            Percent="{Binding UsagePercentage, Mode=OneWay}"
+                                            Size="44" StrokeThickness="5" />
+                <TextBlock FontSize="11" FontWeight="SemiBold"
+                           Foreground="#FFE2E8F0"
+                           VerticalAlignment="Center" Margin="6,0,0,0"
+                           Text="{Binding DisplayName, Mode=OneWay}" />
+            </StackPanel>
+        </DataTemplate>
+
+        <!-- 模板选择器，绑定到上面三种模板 -->
+        <views:TaskbarItemTemplateSelector x:Key="TaskbarItemTemplateSelector"
+                                            TextTemplate="{StaticResource TaskbarTextTemplate}"
+                                            LineChartTemplate="{StaticResource TaskbarLineChartTemplate}"
+                                            RingChartTemplate="{StaticResource TaskbarRingChartTemplate}" />
+    </Window.Resources>
+
     <Border Background="#EE1E1E2E" CornerRadius="6" Padding="12,6" Margin="2"
             BorderBrush="#FF3D3D52" BorderThickness="1">
-        <ItemsControl ItemsSource="{Binding Usages, Mode=OneWay}">
-            <ItemsControl.ItemsPanel>
-                <ItemsPanelTemplate>
-                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center" />
-                </ItemsPanelTemplate>
-            </ItemsControl.ItemsPanel>
-            <ItemsControl.ItemTemplate>
-                <DataTemplate>
-                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center"
-                                Margin="0,0,16,0"
-                                ToolTip="{Binding StatusText, Mode=OneWay}">
-                        <TextBlock FontSize="12" FontWeight="SemiBold"
-                                   Foreground="#FFE2E8F0" 
-                                   VerticalAlignment="Center">
-                            <Run Text="{Binding DisplayName, Mode=OneWay}" />
-                        </TextBlock>
-                        <TextBlock FontSize="12" Foreground="#FF60A5FA"
-                                   VerticalAlignment="Center" Margin="4,0,0,0">
-                            <Run Text="{Binding RemainingText, Mode=OneWay}" />
-                        </TextBlock>
-                    </StackPanel>
-                </DataTemplate>
-            </ItemsControl.ItemTemplate>
-        </ItemsControl>
+        <ScrollViewer HorizontalScrollBarVisibility="Auto"
+                      VerticalScrollBarVisibility="Disabled"
+                      Padding="0">
+            <ItemsControl ItemsSource="{Binding Usages, Mode=OneWay}"
+                          ItemTemplateSelector="{StaticResource TaskbarItemTemplateSelector}">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center" />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+            </ItemsControl>
+        </ScrollViewer>
     </Border>
 </Window>
