@@ -126,14 +126,22 @@ public static class FileLogger
     }
 
     /// <summary>
-    /// 优雅停止后台写线程：置停止标志、关闭队列、等待线程排空后退出。
-    /// 应在应用退出时（Flush 之前）调用，确保关闭时不丢队列中的日志。
+    /// 优雅停止后台写线程并确保队列排空：置停止标志 → CompleteAdding（仅禁止新增，已入队项仍可取出）
+    /// → 等待后台线程排空剩余项后退出 → 若 Join 超时则同步写完残留，兜底不丢日志。
+    /// 本方法自洽：调用它即可保证关闭时日志不丢，无需再配合 Flush，也不依赖调用顺序。
     /// </summary>
     public static void Stop()
     {
         _stop = true;
         try { Queue.CompleteAdding(); } catch { }
         try { WriterThread.Join(2000); } catch { }
+        // Join 超时兜底：CompleteAdding 后 TryTake 仍能取出队列中残留项，同步写完。
+        try
+        {
+            while (Queue.TryTake(out var entry, 0))
+                WriteEntry(entry);
+        }
+        catch { /* never crash on shutdown */ }
     }
 
     private static void WriterLoop()

@@ -379,8 +379,8 @@ public partial class App : Application
         _notifyIcon?.Dispose();
         _configService.Save();
         _historyRepository?.Dispose();
-        FileLogger.Stop();   // 优雅停止日志后台线程，确保关闭时不丢队列中的日志
-        FileLogger.Flush();
+        // FileLogger.Stop() 自洽：内部已完成队列排空 + 兽底，无需再单独 Flush，也消除了 Stop/Flush 顺序依赖。
+        FileLogger.Stop();
         base.OnExit(e);
     }
 }
