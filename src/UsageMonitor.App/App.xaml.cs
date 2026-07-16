@@ -379,7 +379,7 @@ public partial class App : Application
         _notifyIcon?.Dispose();
         _configService.Save();
         _historyRepository?.Dispose();
-        // FileLogger.Stop() 自洽：内部已完成队列排空 + 兽底，无需再单独 Flush，也消除了 Stop/Flush 顺序依赖。
+        // FileLogger.Stop() 自洽：内部已完成队列排空 + 兜底，无需再单独 Flush，也消除了 Stop/Flush 顺序依赖。
         FileLogger.Stop();
         base.OnExit(e);
     }
