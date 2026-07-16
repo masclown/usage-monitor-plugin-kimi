@@ -174,7 +174,8 @@ public class ConfigService
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"加载配置失败: {ex.Message}");
+                LastLoadError = $"{ex.GetType().Name}: {ex.Message}";
+                FileLogger.Error("ConfigService", $"加载配置失败: {ex.Message}", ex);
                 _settings = new AppSettings();
             }
         }
@@ -334,9 +335,11 @@ public class ConfigService
                     {
                         config.Values[key] = Decrypt(config.Values[key]);
                     }
-                    catch
+                    catch (Exception ex)
                     {
-                        // 解密失败则保留原值（可能是未加密的旧配置）
+                        // 解密失败则保留原值（可能是未加密的旧配置）；记录告警便于诊断，绝不记明文值。
+                        FileLogger.Warn("ConfigService",
+                            $"解密字段失败，已保留原值。key={key}, 原因={ex.GetType().Name}: {ex.Message}");
                     }
                 }
             }

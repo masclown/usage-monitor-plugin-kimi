@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using UsageMonitor.Core.Models;
 using UsageMonitor.Core.Plugins;
 
@@ -13,6 +14,9 @@ public class RefreshService : IDisposable
     private readonly UsageHistoryStore _historyStore;
     private Timer? _timer;
     private bool _isRefreshing;
+
+    /// <summary>每个 provider 的刷新互斥锁：同一 provider 的全量刷新与单卡片刷新互斥，不同 provider 仍可并行。</summary>
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _providerLocks = new();
 
     /// <summary>
     /// 用量数据更新事件
@@ -97,29 +101,42 @@ public class RefreshService : IDisposable
     /// </summary>
     public async Task RefreshPluginAsync(LoadedPlugin plugin)
     {
+        var providerId = plugin.Provider.ProviderId;
+        // per-provider 锁：同一 provider 的全量刷新与单卡片刷新互斥，不同 provider 仍可并行。
+        var gate = _providerLocks.GetOrAdd(providerId, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync();
         try
         {
-            var config = _configService.GetProviderConfig(plugin.Provider.ProviderId, plugin.Provider);
-            var usage = await plugin.Provider.GetUsageAsync(config);
-
-            plugin.LastUsage = usage;
-            plugin.LastQueryTime = DateTime.Now;
-            plugin.LastQuerySuccess = usage.IsSuccess;
-
-            // 记录历史点（仅成功且有额度数据时）
-            if (usage.IsSuccess)
+            try
             {
-                _historyStore.AddPoint(plugin.Provider.ProviderId, usage.GetUsagePercentage());
+                var config = _configService.GetProviderConfig(providerId, plugin.Provider);
+                var usage = await plugin.Provider.GetUsageAsync(config);
+
+                plugin.LastUsage = usage;
+                plugin.LastQueryTime = DateTime.Now;
+                plugin.LastQuerySuccess = usage.IsSuccess;
+
+                // 成功记有效历史点；失败记一个 IsError 点（避免折线无痕断裂）。
+                if (usage.IsSuccess)
+                    _historyStore.AddPoint(providerId, usage.GetUsagePercentage());
+                else
+                    _historyStore.AddErrorPoint(providerId);
+            }
+            catch (Exception ex)
+            {
+                plugin.LastUsage = UsageInfo.CreateError(
+                    providerId,
+                    plugin.Provider.DisplayName,
+                    ex.Message);
+                plugin.LastQueryTime = DateTime.Now;
+                plugin.LastQuerySuccess = false;
+                // 异常同样记失败点。
+                _historyStore.AddErrorPoint(providerId);
             }
         }
-        catch (Exception ex)
+        finally
         {
-            plugin.LastUsage = UsageInfo.CreateError(
-                plugin.Provider.ProviderId,
-                plugin.Provider.DisplayName,
-                ex.Message);
-            plugin.LastQueryTime = DateTime.Now;
-            plugin.LastQuerySuccess = false;
+            gate.Release();
         }
     }
 

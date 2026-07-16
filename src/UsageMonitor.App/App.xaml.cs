@@ -379,6 +379,7 @@ public partial class App : Application
         _notifyIcon?.Dispose();
         _configService.Save();
         _historyRepository?.Dispose();
+        FileLogger.Stop();   // 优雅停止日志后台线程，确保关闭时不丢队列中的日志
         FileLogger.Flush();
         base.OnExit(e);
     }

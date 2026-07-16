@@ -13,6 +13,9 @@ public class HistoryPoint
 
     /// <summary>记录时间</summary>
     public DateTime Timestamp { get; set; } = DateTime.Now;
+
+    /// <summary>是否为失败/数据缺失点（刷新失败时记录，供图表呈现断点/缺口）。</summary>
+    public bool IsError { get; set; }
 }
 
 /// <summary>
@@ -127,6 +130,33 @@ public class UsageHistoryStore
             };
             _ = Task.Run(() => _repository.UpsertPoint(dummy));
         }
+    }
+
+    /// <summary>
+    /// 记录一个“失败/数据缺失”历史点（IsError=true）。仅写内存序列并触发变更事件，不写 SQLite。
+    /// UsagePercent 沿用该 provider 上一个有效值（无则 0），供图表在阶段三呈现断点/缺口。
+    /// </summary>
+    /// <param name="providerId">服务商唯一标识</param>
+    public void AddErrorPoint(string providerId)
+    {
+        if (string.IsNullOrEmpty(providerId)) return;
+
+        var queue = _histories.GetOrAdd(providerId, _ => new Queue<HistoryPoint>());
+        lock (queue)
+        {
+            var last = queue.Count > 0 ? queue.Last().UsagePercent : 0;
+            queue.Enqueue(new HistoryPoint
+            {
+                UsagePercent = last,
+                Timestamp = DateTime.Now,
+                IsError = true
+            });
+            while (queue.Count > _maxPoints)
+                queue.Dequeue();
+        }
+
+        ProviderHistoryChanged?.Invoke(this, providerId);
+        HistoryChanged?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>

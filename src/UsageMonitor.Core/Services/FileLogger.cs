@@ -38,9 +38,7 @@ public static class FileLogger
     private const int MaxFiles = 7;
 
     /// <summary>Stop signal.</summary>
-#pragma warning disable CS0649 // unused but reserved for future shutdown signaling
     private static volatile bool _stop;
-#pragma warning restore CS0649
 
     static FileLogger()
     {
@@ -125,6 +123,17 @@ public static class FileLogger
         {
             WriteEntry(entry);
         }
+    }
+
+    /// <summary>
+    /// 优雅停止后台写线程：置停止标志、关闭队列、等待线程排空后退出。
+    /// 应在应用退出时（Flush 之前）调用，确保关闭时不丢队列中的日志。
+    /// </summary>
+    public static void Stop()
+    {
+        _stop = true;
+        try { Queue.CompleteAdding(); } catch { }
+        try { WriterThread.Join(2000); } catch { }
     }
 
     private static void WriterLoop()

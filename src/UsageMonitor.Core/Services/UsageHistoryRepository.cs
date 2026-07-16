@@ -96,6 +96,9 @@ public class UsageHistoryRepository : IDisposable
     private readonly string _connectionString;
     private readonly string _dbFilePath;
 
+    /// <summary>最近一次读写操作的错误信息（null 表示正常），供上层感知 DB 健康。</summary>
+    public string? LastError { get; private set; }
+
     /// <summary>
     /// 创建仓库实例。dbFilePath 通常传 %AppData%/UsageMonitor/history.db
     /// </summary>
@@ -111,7 +114,8 @@ public class UsageHistoryRepository : IDisposable
         {
             DataSource = dbFilePath,
             Mode = SqliteOpenMode.ReadWriteCreate,
-            Cache = SqliteCacheMode.Shared
+            Cache = SqliteCacheMode.Shared,
+            DefaultTimeout = 10
         }.ToString();
     }
 
@@ -243,8 +247,12 @@ VALUES
         }
         catch (Exception ex)
         {
+            LastError = $"{ex.GetType().Name}: {ex.Message}";
             FileLogger.Error("UsageHistoryRepository",
                 $"UpsertPoint({usage.ProviderId}) failed", ex);
+            // 疑似数据库损坏时备份并重建，下次 EnsureSchema 生效。
+            if (ex is SqliteException)
+                TryRecoverFromCorruptedDb(ex);
         }
     }
 
