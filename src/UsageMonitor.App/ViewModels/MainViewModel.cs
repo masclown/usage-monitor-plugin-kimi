@@ -1,6 +1,8 @@
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Input;
@@ -28,11 +30,30 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
     private bool _isError;
     private string? _errorMessage;
     private TaskbarDisplayMode _displayMode = TaskbarDisplayMode.Text;
+    private CardChartKind _cardChartKind = CardChartKind.None;
     private IReadOnlyList<double> _historyValues = Array.Empty<double>();
     private string _balanceText = "--";
     private string _balanceDetailText = "";
     private bool _hasBalanceInfo;
     private Action? _openConfigAction;
+    private Func<Task>? _refreshCardAction;
+    // 卡片多进度条与订阅档位相关字段
+    private string _subscriptionTitle = "Token Plan 订阅";
+    private bool _isSubscriptionActive;
+    private double _primaryBarPercent;
+    private double _weeklyBarPercent;
+    private string _primaryResetText = "--";
+    private string _weeklyResetText = "--";
+    private string _videoQuotaText = "--";
+    private string _videoWeeklyText = "--";
+    private double _remainingCredits;
+    private double _videoIntervalPercent;
+    private double _videoWeeklyPercent;
+    private IReadOnlyList<string> _renderKinds = Array.Empty<string>();
+    private bool _show5hBar = true;
+    private bool _showWeeklyBar = true;
+    private bool _showVideo5hBar = true;
+    private bool _showVideoWeeklyBar = true;
 
     /// <summary>
     /// 创建用量显示 VM。
@@ -41,16 +62,82 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
     /// 点击卡片上"⚙ 设置"按钮时触发的回调。
     /// 不传时点击按钮不会有反应（插件没配置项的情况）。
     /// </param>
-    public ProviderUsageViewModel(Action? openConfigAction = null)
+    /// <param name="refreshCardAction">
+    /// 点击卡片右上角"⟳ 刷新"按钮时触发的回调（仅刷新本卡片对应服务商）。
+    /// 不传时刷新按钮为禁用态。
+    /// </param>
+    public ProviderUsageViewModel(Action? openConfigAction = null, Func<Task>? refreshCardAction = null)
     {
         _openConfigAction = openConfigAction;
+        _refreshCardAction = refreshCardAction;
         ConfigCommand = new RelayCommand(OpenConfig, () => _openConfigAction != null);
+        RefreshCardCommand = new AsyncRelayCommand(RefreshCardAsync, () => _refreshCardAction != null);
+    }
+
+    /// <summary>
+    /// 供 MainViewModel 在创建时注入的 ConfigService。
+    /// 负责把 PluginConfigWindow 中改的 4 个进度条可见性开关同步到当前 VM 的属性。
+    /// </summary>
+    public UsageMonitor.Core.Services.ConfigService? ConfigService { get; private set; }
+
+    /// <summary>
+    /// 主 VM 装配时调用一次：注入 ConfigService 并首次从最新配置读取 4 个进度条开关。
+    /// 之后订阅 ConfigChanged 事件，配置变更时自动重新读取。
+    /// </summary>
+    public void AttachConfigService(UsageMonitor.Core.Services.ConfigService? configService)
+    {
+        if (ConfigService != null)
+            ConfigService.ConfigChanged -= OnConfigChanged;
+        ConfigService = configService;
+        if (configService != null)
+        {
+            configService.ConfigChanged += OnConfigChanged;
+            ReloadBarToggles();
+        }
+    }
+
+    /// <summary>
+    /// 配置变更时重新读取 MiniMax ProviderConfig 中 4 个进度条开关并通知属性变更。
+    /// </summary>
+    private void OnConfigChanged(object? sender, EventArgs e)
+    {
+        ReloadBarToggles();
+    }
+
+    /// <summary>
+    /// 从当前 ConfigService 拉取 MiniMax 的 ProviderConfig，按 key 取 Show5hBar 等字段。
+    /// 缺省时维持属性当前值（首次初始化为 true）。
+    /// </summary>
+    private void ReloadBarToggles()
+    {
+        if (ConfigService == null || string.IsNullOrEmpty(_providerId)) return;
+        var cfg = ConfigService.Settings.ProviderConfigs.Values
+            .FirstOrDefault(p => p.ProviderId == _providerId);
+        if (cfg == null) return;
+        Show5hBar = ReadBool(cfg, "Show5hBar", _show5hBar);
+        ShowWeeklyBar = ReadBool(cfg, "ShowWeeklyBar", _showWeeklyBar);
+        ShowVideo5hBar = ReadBool(cfg, "ShowVideo5hBar", _showVideo5hBar);
+        ShowVideoWeeklyBar = ReadBool(cfg, "ShowVideoWeeklyBar", _showVideoWeeklyBar);
+    }
+
+    /// <summary>读取 boolean 配置项，缺省时使用 currentDefault。</summary>
+    private static bool ReadBool(ProviderConfig cfg, string key, bool currentDefault)
+    {
+        var raw = cfg.GetValue(key);
+        if (string.IsNullOrWhiteSpace(raw)) return currentDefault;
+        return bool.TryParse(raw, out var b) ? b : currentDefault;
     }
 
     /// <summary>
     /// 主窗口中卡片右上角"⚙ 设置"按钮绑定的命令（调用构造时传入的回调）。
     /// </summary>
     public RelayCommand ConfigCommand { get; }
+
+    /// <summary>
+    /// 主窗口中卡片右上角"⟳ 刷新"按钮绑定的命令（仅刷新本卡片对应服务商）。
+    /// 使用 AsyncRelayCommand：执行期间自动禁用按钮，避免重复点击导致并发请求。
+    /// </summary>
+    public IAsyncRelayCommand RefreshCardCommand { get; }
 
     /// <summary>
     /// 主窗口卡片点击设置按钮时调用外部逻辑（打开 PluginConfigWindow）。
@@ -60,8 +147,66 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         _openConfigAction?.Invoke();
     }
 
+    /// <summary>
+    /// 触发构造时注入的"刷新本卡片"回调；未注入时返回已完成任务，不做任何事。
+    /// </summary>
+    private Task RefreshCardAsync() => _refreshCardAction?.Invoke() ?? Task.CompletedTask;
+
     public string ProviderId { get => _providerId; set { _providerId = value; OnPropertyChanged(); } }
     public string DisplayName { get => _displayName; set { _displayName = value; OnPropertyChanged(); } }
+
+    /// <summary>Provider 图标的文件路径，用于在卡片、任务栏、悬浮窗中显示 logo</summary>
+    public string? IconPath { get => _iconPath; set { _iconPath = value; OnPropertyChanged(); } }
+    private string? _iconPath;
+
+    /// <summary>
+    /// 根据 ProviderId 解析对应的图标文件路径。
+    /// 图标文件通过 csproj Content 项复制到输出目录的 Assets/Providers/ 下。
+    /// SVG 格式 WPF 不原生支持，返回 null 跳过。
+    /// </summary>
+    public static string? ResolveIconPath(string providerId)
+    {
+        // ProviderId -> 图标文件名（不含扩展名）
+        var name = providerId.ToLowerInvariant() switch
+        {
+            "minimax" => "minimax",
+            "deepseek" => "deepseek",
+            "mimo" => "mimo",
+            "kimi" => "kimi",
+            "volcengine" => "volcengine",
+            "zhipu" => "zhipu",
+            "ollama" => "ollama",
+            "openrouter" => "openrouter",
+            "openai" => "openai",
+            "anthropic" => "anthropic",
+            "step" => null,       // SVG 格式，WPF 不原生支持，暂跳过
+            "siliconflow" => "siliconflow",
+            _ => null
+        };
+        if (name == null) return null;
+
+        // 根据实际文件扩展名构造文件路径
+        var ext = name switch
+        {
+            "minimax" => ".ico",
+            "deepseek" => ".png",
+            "mimo" => ".jpg",
+            "kimi" => ".ico",
+            "volcengine" => ".png",
+            "zhipu" => ".png",
+            "ollama" => ".png",
+            "openrouter" => ".ico",
+            "openai" => ".png",
+            "anthropic" => ".ico",
+            "siliconflow" => ".png",
+            _ => ".png"
+        };
+
+        // 图标文件通过 csproj Content 项复制到输出目录，使用文件路径加载
+        var basePath = AppDomain.CurrentDomain.BaseDirectory;
+        var filePath = Path.Combine(basePath, "Assets", "Providers", $"{name}{ext}");
+        return File.Exists(filePath) ? filePath : null;
+    }
     public string StatusText { get => _statusText; set { _statusText = value; OnPropertyChanged(); } }
     public double UsagePercentage { get => _usagePercentage; set { _usagePercentage = value; OnPropertyChanged(); } }
     public string UsedText { get => _usedText; set { _usedText = value; OnPropertyChanged(); } }
@@ -77,6 +222,62 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
     public string BalanceDetailText { get => _balanceDetailText; set { _balanceDetailText = value; OnPropertyChanged(); } }
     /// <summary>是否已抓取到余额/账单信息（控制 UI 折叠面板显示）</summary>
     public bool HasBalanceInfo { get => _hasBalanceInfo; set { _hasBalanceInfo = value; OnPropertyChanged(); } }
+
+    /// <summary>订阅档位胶囊文案：已订阅返回具体档位名，未订阅或未抓到返回默认占位</summary>
+    public string SubscriptionTitle { get => _subscriptionTitle; set { _subscriptionTitle = value; OnPropertyChanged(); } }
+
+    /// <summary>是否已订阅（按后端 combo_id 是否存在判断）</summary>
+    public bool IsSubscriptionActive { get => _isSubscriptionActive; set { _isSubscriptionActive = value; OnPropertyChanged(); } }
+
+    /// <summary>5h 限额进度条已使用百分比（0-100）</summary>
+    public double PrimaryBarPercent { get => _primaryBarPercent; set { _primaryBarPercent = value; OnPropertyChanged(); } }
+
+    /// <summary>周限额进度条已使用百分比（0-100）</summary>
+    public double WeeklyBarPercent { get => _weeklyBarPercent; set { _weeklyBarPercent = value; OnPropertyChanged(); } }
+
+    /// <summary>5h 限额重置剩余文案（"2 小时 21 分钟后重置"）</summary>
+    public string PrimaryResetText { get => _primaryResetText; set { _primaryResetText = value; OnPropertyChanged(); } }
+
+    /// <summary>周限额重置剩余文案（"5 天 2 小时后重置"）</summary>
+    public string WeeklyResetText { get => _weeklyResetText; set { _weeklyResetText = value; OnPropertyChanged(); } }
+
+    /// <summary>视频赠送 5h 维度已用/总额（"0/3"）</summary>
+    public string VideoQuotaText { get => _videoQuotaText; set { _videoQuotaText = value; OnPropertyChanged(); } }
+
+    /// <summary>视频赠送 周维度已用/总额（"0/21"）</summary>
+    public string VideoWeeklyText { get => _videoWeeklyText; set { _videoWeeklyText = value; OnPropertyChanged(); } }
+
+    /// <summary>剩余积分余额</summary>
+    public double RemainingCredits { get => _remainingCredits; set { _remainingCredits = value; OnPropertyChanged(); } }
+
+    /// <summary>视频赠送 5h 维度已用百分比（0-100），分母为 0 时为 0。</summary>
+    public double VideoIntervalPercent { get => _videoIntervalPercent; set { _videoIntervalPercent = value; OnPropertyChanged(); } }
+
+    /// <summary>视频赠送 周 维度已用百分比（0-100），分母为 0 时为 0。</summary>
+    public double VideoWeeklyPercent { get => _videoWeeklyPercent; set { _videoWeeklyPercent = value; OnPropertyChanged(); } }
+
+    /// <summary>用户设置：5h 限额进度条是否在卡片中显示（默认 true）。</summary>
+    public bool Show5hBar { get => _show5hBar; set { _show5hBar = value; OnPropertyChanged(); } }
+
+    /// <summary>用户设置：周限额进度条是否在卡片中显示（默认 true）。</summary>
+    public bool ShowWeeklyBar { get => _showWeeklyBar; set { _showWeeklyBar = value; OnPropertyChanged(); } }
+
+    /// <summary>用户设置：视频赠送 5h 进度条是否在卡片中显示（默认 true）。</summary>
+    public bool ShowVideo5hBar { get => _showVideo5hBar; set { _showVideo5hBar = value; OnPropertyChanged(); } }
+
+    /// <summary>用户设置：视频赠送 周 进度条是否在卡片中显示（默认 true）。</summary>
+    public bool ShowVideoWeeklyBar { get => _showVideoWeeklyBar; set { _showVideoWeeklyBar = value; OnPropertyChanged(); } }
+
+    /// <summary>该插件声明的渲染能力集合，供 XAML 决定是否呈现特定段落。</summary>
+    public IReadOnlyList<string> RenderKinds
+    {
+        get => _renderKinds;
+        set
+        {
+            _renderKinds = value ?? Array.Empty<string>();
+            OnPropertyChanged();
+        }
+    }
 
     /// <summary>
     /// 任务栏显示模式（影响任务栏窗口中的呈现样式）
@@ -101,6 +302,25 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         TaskbarDisplayMode.RingChart => "圆环图",
         _ => "文字"
     };
+
+    /// <summary>
+    /// 主窗口卡片中展示的图表类型（None=仅进度条）。由 PluginItemViewModel 负责持久化，
+    /// 这里仅驱动卡片图表区的显隐与内容切换。
+    /// </summary>
+    public CardChartKind CardChartKind
+    {
+        get => _cardChartKind;
+        set
+        {
+            if (_cardChartKind == value) return;
+            _cardChartKind = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(HasCardChart));
+        }
+    }
+
+    /// <summary>是否显示卡片图表区（非 None 时为 true）。</summary>
+    public bool HasCardChart => _cardChartKind != CardChartKind.None;
 
     /// <summary>
     /// 历史已用百分比数据点（用于折线图绘制，0-100 数值）
@@ -191,8 +411,8 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
 
     /// <summary>
     /// 渲染 MiniMax 通过 DOM/网页 API 抓取的用量到卡片。
-    /// 数据来源：MiniMaxDomExtractor 写入 UsageInfo.Extra 的 mm_* 键（
-    /// remains_percent 的 5h/周/视频 + usage_summary 的累计/排名/活跃天 + credit 积分）。
+    /// 数据来源：MiniMaxDomExtractor 写入 UsageInfo.Extra 的 mm_* 键
+    /// （5h/周/视频的用量百分比、重置时间、订阅档位、积分、调用汇总）。
     /// </summary>
     private void UpdateFromMiniMaxDom(UsageInfo usage)
     {
@@ -205,26 +425,66 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
             ? Convert.ToInt64(v) : 0;
         string S(string k) => extra.TryGetValue(k, out var v) ? v?.ToString() ?? "" : "";
 
-        var p5 = D("mm_5hUsedPercent");
-        var pw = D("mm_weeklyUsedPercent");
+        // 1. 渲染需求（mm_render_kinds）传给 XAML，用于控制“订阅胶囊/5h/周进度条/汇总面板”是否呈现。
+        if (extra.TryGetValue("mm_render_kinds", out var rk) && rk is IEnumerable<string> kinds)
+        {
+            RenderKinds = kinds.ToArray();
+        }
+        else if (rk is IEnumerable<object> kindsObj)
+        {
+            // JsonElement 数组等也会实现 IEnumerable，兼容转换。
+            RenderKinds = kindsObj.Select(x => x?.ToString() ?? "").Where(x => x.Length > 0).ToArray();
+        }
+        else
+        {
+            RenderKinds = Array.Empty<string>();
+        }
 
-        // 进度条用 5h 已用百分比（GetUsagePercentage 已由 UsedAmount/TotalAmount 算出，这里保险重设）。
-        UsagePercentage = p5 >= 0 ? p5 : (pw >= 0 ? pw : 0);
-        StatusText = (p5 >= 0 || pw >= 0)
-            ? $"5h 已用 {(p5 >= 0 ? p5 : 0):0}% · 周 {(pw >= 0 ? pw : 0):0}%"
+        // 2. 订阅档位胶囊。
+        IsSubscriptionActive = extra.TryGetValue("mm_subscriptionActive", out var sa) && sa is bool sab && sab;
+        var subTitle = S("mm_subscriptionTitle");
+        SubscriptionTitle = !string.IsNullOrWhiteSpace(subTitle)
+            ? $"Token Plan · {subTitle}"
+            : "Token Plan 订阅";
+
+        // 3. 5h 限额进度条（主进度条，绿色主题）。
+        var p5 = D("mm_5hUsedPercent");
+        PrimaryBarPercent = p5 >= 0 ? Math.Min(100, p5) : 0;
+        UsagePercentage = PrimaryBarPercent; // 遗留逻辑：保留卡片顶部主进度条的取值
+        PrimaryResetText = BuildRemainText(extra, "mm_5hResetAt");
+
+        // 4. 周限额进度条。
+        var pw = D("mm_weeklyUsedPercent");
+        WeeklyBarPercent = pw >= 0 ? Math.Min(100, pw) : 0;
+        WeeklyResetText = BuildRemainText(extra, "mm_weeklyResetAt");
+
+        // 5. 状态行（保留 StatusText，包含 5h + 周概要）。
+        StatusText = (PrimaryBarPercent > 0 || WeeklyBarPercent > 0)
+            ? $"5h 已用 {PrimaryBarPercent:0}% · 周 已用 {WeeklyBarPercent:0}%"
             : "已登录";
 
-        // 三列（值自带说明，避免与固定标签不符）：5h / 周 / 视频赠送。
-        UsedText = p5 >= 0 ? $"5h {p5:0}%" : "--";
-        TotalText = pw >= 0 ? $"周 {pw:0}%" : "--";
-        var vUsed = L("mm_videoIntervalUsed");
-        var vTotal = L("mm_videoIntervalTotal");
-        RemainingText = vTotal > 0 ? $"视频 {vTotal - vUsed}/{vTotal}" : "--";
+        // 6. 视频赠送 5h + 周。
+        var v5Used = L("mm_videoIntervalUsed");
+        var v5Total = L("mm_videoIntervalTotal");
+        VideoQuotaText = v5Total > 0 ? $"{v5Used}/{v5Total}" : "--";
+        VideoIntervalPercent = v5Total > 0 ? Math.Min(100, 100.0 * v5Used / v5Total) : 0;
+        var vwUsed = L("mm_videoWeeklyUsed");
+        var vwTotal = L("mm_videoWeeklyTotal");
+        VideoWeeklyText = vwTotal > 0 ? $"{vwUsed}/{vwTotal}" : "--";
+        VideoWeeklyPercent = vwTotal > 0 ? Math.Min(100, 100.0 * vwUsed / vwTotal) : 0;
 
-        // 下方汇总面板（复用余额快照 UI）：积分/累计/排名/活跃天/重置时间。
+        // 7. 卡片顶一行的 “已使用 / 总额度 / 剩余额度” 仍保留供未适配卡片主题的插件使用；
+        //    本插件额外叠加为信息性文本，不会被三列 UI 误读。
+        UsedText = PrimaryBarPercent > 0 ? $"{PrimaryBarPercent:0}%" : "--";
+        TotalText = "100%";
+        RemainingText = $"{Math.Max(0, 100 - PrimaryBarPercent):0}%";
+
+        // 8. 汇总面板（积分/累计/排名/活跃天/重置时间）。
         HasBalanceInfo = true;
         var credits = D("mm_remainingCredits");
-        BalanceText = credits > 0 ? $"{credits:N0} 积分" : "Token Plan 订阅";
+        RemainingCredits = credits;
+        // 不再回退到 SubscriptionTitle，避免与顶部订阅胶囊重复显示。
+        BalanceText = credits > 0 ? $"{credits:N0} 积分" : "暂无积分";
 
         var sb = new System.Text.StringBuilder();
         var totalTokens = S("mm_totalTokens");
@@ -236,11 +496,40 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         if (totalDays > 0) sb.Append($" · 活跃 {activeDays}/{totalDays} 天");
         var mostActive = S("mm_mostActiveDay");
         if (!string.IsNullOrEmpty(mostActive)) sb.Append($" · 峰值 {mostActive}");
-        if (extra.TryGetValue("mm_5hResetAt", out var r5) && r5 is DateTime r5d)
-            sb.Append($"\n5h 重置 {r5d:MM-dd HH:mm}");
-        if (extra.TryGetValue("mm_weeklyResetAt", out var rw) && rw is DateTime rwd)
-            sb.Append($" · 周重置 {rwd:MM-dd HH:mm}");
+
+        // 订阅到期时间（仅在已订阅时拼接）
+        if (IsSubscriptionActive && extra.TryGetValue("mm_subscriptionEndTime", out var se) && se is DateTime sed)
+            sb.Append($"\n订阅续期至 {sed:yyyy-MM-dd}");
         BalanceDetailText = sb.ToString().TrimStart(' ', '·');
+    }
+
+    /// <summary>
+    /// 根据 Extra 中的 DateTime 重置时间生成“X 小时 X 分钟后重置”形式的文案，
+    /// 与用量页前端 o(remains_time) 逻辑保持一致。
+    /// </summary>
+    /// <param name="extra">Extra 字典</param>
+    /// <param name="key">超时字段名（"mm_5hResetAt" / "mm_weeklyResetAt"）</param>
+    private static string BuildRemainText(Dictionary<string, object> extra, string key)
+    {
+        if (!extra.TryGetValue(key, out var v) || v is not DateTime dt) return "--";
+        var diff = dt - DateTime.Now;
+        if (diff.TotalMinutes < 0) return "即将重置";
+
+        // 参考 JS 函数 o(remains_time)：1 天以上显示"X 天 后重置"，1 小时以上显示"X 小时 Y 分钟后重置"，否则只显示分钟。
+        if (diff.TotalDays >= 1)
+        {
+            var d = (int)Math.Floor(diff.TotalDays);
+            var h = diff.Hours;
+            return h > 0 ? $"{d} 天 {h} 小时后重置" : $"{d} 天后重置";
+        }
+        if (diff.TotalHours >= 1)
+        {
+            var h = (int)Math.Floor(diff.TotalHours);
+            var m = diff.Minutes;
+            return m > 0 ? $"{h} 小时 {m} 分钟后重置" : $"{h} 小时后重置";
+        }
+        var mins = Math.Max(1, (int)Math.Ceiling(diff.TotalMinutes));
+        return $"{mins} 分钟后重置";
     }
 
     /// <summary>
@@ -370,6 +659,24 @@ public class PluginItemViewModel : INotifyPropertyChanged
         new KeyValuePair<TaskbarDisplayMode, string>(TaskbarDisplayMode.RingChart, "圆环图"),
     };
 
+    private CardChartKind _cardChartKind = CardChartKind.None;
+
+    /// <summary>
+    /// 卡片图表类型。设置时写入配置字典并保存；由 MainViewModel 订阅同步到对应的 ProviderUsageViewModel。
+    /// </summary>
+    public CardChartKind CardChartKind
+    {
+        get => _cardChartKind;
+        set
+        {
+            if (_cardChartKind == value) return;
+            _cardChartKind = value;
+            _configService.Settings.ProviderCardCharts[ProviderId] = value;
+            _configService.Save();
+            OnPropertyChanged();
+        }
+    }
+
     /// <summary>插件定义的配置字段列表</summary>
     public IReadOnlyList<ConfigField> ConfigFields { get; set; } = Array.Empty<ConfigField>();
 
@@ -393,15 +700,20 @@ public class PluginItemViewModel : INotifyPropertyChanged
     public void OpenConfigDialog()
     {
         var config = _configService.GetProviderConfig(ProviderId, _provider);
+        // 读取该 Provider 当前的卡片图表类型，传入配置窗口用于回显 + 预览
+        var currentCardChart = _configService.Settings.ProviderCardCharts
+            .GetValueOrDefault(ProviderId, CardChartKind.None);
         // 通用登录配置：只要插件声明了 LoginConfig（不限于 MiniMax），配置窗口就显示"获取登录态"按钮
         var configWindow = new Views.PluginConfigWindow(
-            DisplayName, ConfigFields, config, _provider.LoginConfig);
+            DisplayName, ConfigFields, config, _provider.LoginConfig, currentCardChart);
         configWindow.Owner = System.Windows.Application.Current.Windows
             .OfType<Window>().FirstOrDefault(w => w.IsActive);
 
         if (configWindow.ShowDialog() == true)
         {
             _configService.UpdateProviderConfig(ProviderId, config);
+            // 持久化并同步卡片图表类型选择（setter 内部写配置 + Save + 通知）
+            CardChartKind = configWindow.SelectedCardChartKind;
             // 检查保存是否真的成功（ConfigService.Save 失败时会被 catch 吞掉）
             if (!string.IsNullOrEmpty(_configService.LastSaveError))
             {
@@ -499,6 +811,32 @@ public class MainViewModel : INotifyPropertyChanged
         }
     }
 
+    /// <summary>托盘悬浮窗触发区域宽度（像素，屏幕右下角向左延伸）。下限 20 避免设为 0 后无法触发。</summary>
+    public int TrayTriggerWidth
+    {
+        get => _configService.Settings.TrayTriggerWidth;
+        set
+        {
+            var v = Math.Max(20, value);
+            _configService.Settings.TrayTriggerWidth = v;
+            _configService.Save();
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>托盘悬浮窗触发区域高度（像素，工作区底部向下延伸）。下限 10 避免设为 0 后无法触发。</summary>
+    public int TrayTriggerHeight
+    {
+        get => _configService.Settings.TrayTriggerHeight;
+        set
+        {
+            var v = Math.Max(10, value);
+            _configService.Settings.TrayTriggerHeight = v;
+            _configService.Save();
+            OnPropertyChanged();
+        }
+    }
+
     /// <summary>历史数据保留点数</summary>
     public int HistoryPointCount
     {
@@ -537,6 +875,36 @@ public class MainViewModel : INotifyPropertyChanged
         }
     }
 
+    /// <summary>外观主题（深色 / 浅色）。设置时写入配置、保存并即时应用换肤。</summary>
+    public ThemeMode ThemeMode
+    {
+        get => _configService.Settings.Theme;
+        set
+        {
+            if (_configService.Settings.Theme == value) return;
+            _configService.Settings.Theme = value;
+            _configService.Save();
+            UsageMonitor.App.Helpers.ThemeManager.Apply(value);
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(IsDarkTheme));
+            OnPropertyChanged(nameof(IsLightTheme));
+        }
+    }
+
+    /// <summary>是否深色主题（供设置窗口分段开关的 RadioButton 双向绑定）。</summary>
+    public bool IsDarkTheme
+    {
+        get => _configService.Settings.Theme == ThemeMode.Dark;
+        set { if (value) ThemeMode = ThemeMode.Dark; }
+    }
+
+    /// <summary>是否浅色主题。</summary>
+    public bool IsLightTheme
+    {
+        get => _configService.Settings.Theme == ThemeMode.Light;
+        set { if (value) ThemeMode = ThemeMode.Light; }
+    }
+
     /// <summary>刷新命令</summary>
     public IRelayCommand RefreshCommand { get; }
 
@@ -560,6 +928,8 @@ public class MainViewModel : INotifyPropertyChanged
             // 读取已保存的显示模式
             var savedMode = _configService.Settings.ProviderTaskbarModes
                 .GetValueOrDefault(plugin.Provider.ProviderId, TaskbarDisplayMode.Text);
+            var savedCardChart = _configService.Settings.ProviderCardCharts
+                .GetValueOrDefault(plugin.Provider.ProviderId, CardChartKind.None);
 
             var item = new PluginItemViewModel(plugin.Provider, _configService)
             {
@@ -569,7 +939,8 @@ public class MainViewModel : INotifyPropertyChanged
                 Author = plugin.Provider.Author,
                 Description = plugin.Provider.Description,
                 IsEnabled = plugin.IsEnabled,
-                DisplayMode = savedMode
+                DisplayMode = savedMode,
+                CardChartKind = savedCardChart
             };
             // 双向同步：PluginItem 变更时同步到 UsageVM 与配置
             item.PropertyChanged += (_, e) =>
@@ -583,17 +954,31 @@ public class MainViewModel : INotifyPropertyChanged
                     // 设置窗口中勾选/取消勾选插件时，同步到配置/插件管理器/用量列表
                     UpdatePluginEnabled(item.ProviderId, item.IsEnabled);
                 }
+                else if (e.PropertyName == nameof(PluginItemViewModel.CardChartKind))
+                {
+                    // 卡片图表类型变更：同步到对应的用量卡片 VM，立即切换卡片图表区
+                    var target = Usages.FirstOrDefault(u => u.ProviderId == item.ProviderId);
+                    if (target != null) target.CardChartKind = item.CardChartKind;
+                }
             };
             PluginItems.Add(item);
 
-            // 初始化用量显示（传入打开配置的回调，让卡片上"⚙ 设置"按钮能复用现有逻辑）
-            var usageVm = new ProviderUsageViewModel(item.OpenConfigDialog)
+            // 初始化用量显示（传入打开配置的回调 + ConfigService 让 VM 跟踪“仅 x 个进度条”开关变化）
+            var usageVm = new ProviderUsageViewModel(
+                item.OpenConfigDialog,
+                // 卡片右上角“⟳ 刷新”按钮回调：仅刷新当前服务商，复用刷新事件链路更新 UI/托盘。
+                () => _refreshService.RefreshProviderAsync(plugin.Provider.ProviderId))
             {
                 ProviderId = plugin.Provider.ProviderId,
                 DisplayName = plugin.Provider.DisplayName,
+                IconPath = ProviderUsageViewModel.ResolveIconPath(plugin.Provider.ProviderId),
                 IsEnabled = plugin.IsEnabled,
-                DisplayMode = savedMode
+                DisplayMode = savedMode,
+                CardChartKind = savedCardChart,
+                // 立刻写入插件声明的默认渲染能力，避免首次渲染时被“未声明 render_kind”折叠。
+                RenderKinds = plugin.Provider.DefaultRenderKinds
             };
+            usageVm.AttachConfigService(_configService);
             Usages.Add(usageVm);
         }
 

@@ -16,6 +16,13 @@
       解决反复出现的 5+ Bug：页面太小、navigate 丢失、URL 关键字误判、Cookie 提取失败等。
     -->
     <PackageReference Include="Microsoft.Playwright" Version="1.50.0" />
+    <!--
+      Microsoft.Data.Sqlite: 用量历史数据持久化。
+      - 文件位于 %AppData%/UsageMonitor/history.db（与 config.json 同目录）
+      - 通过 Microsoft.Data.Sqlite.Core 原生 API 操作，避免引入 EF Core 重量级依赖
+      - 仅依赖 Microsoft.Data.Sqlite.Core 8.0.0，自动拉取 SQLitePCLRaw.bundle_e_sqlite3
+    -->
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.0" />
   </ItemGroup>
 
 </Project>

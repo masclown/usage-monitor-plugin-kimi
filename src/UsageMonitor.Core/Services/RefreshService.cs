@@ -14,7 +14,9 @@ public class RefreshService : IDisposable
     private Timer? _timer;
     private bool _isRefreshing;
 
-    /// <summary>用量数据更新事件</summary>
+    /// <summary>
+    /// 用量数据更新事件
+    /// </summary>
     public event EventHandler<UsageRefreshedEventArgs>? UsageRefreshed;
 
     /// <summary>刷新开始事件</summary>
@@ -23,6 +25,11 @@ public class RefreshService : IDisposable
     /// <summary>
     /// 创建刷新服务实例
     /// </summary>
+    /// <param name="pluginManager">插件管理器</param>
+    /// <param name="configService">配置服务</param>
+    /// <param name="historyStore">
+    /// 历史仓库（可选）。传入后刷新过程中会同时将数据点入 SQLite（需在 historyStore 内部持有 Repository）。
+    /// </param>
     public RefreshService(PluginManager pluginManager, ConfigService configService, UsageHistoryStore? historyStore = null)
     {
         _pluginManager = pluginManager;
@@ -114,6 +121,25 @@ public class RefreshService : IDisposable
             plugin.LastQueryTime = DateTime.Now;
             plugin.LastQuerySuccess = false;
         }
+    }
+
+    /// <summary>
+    /// 立即刷新指定服务商（供主窗口卡片右上角"刷新本卡片"按钮调用）。
+    /// 仅刷新单个 Provider，并复用 UsageRefreshed 事件让卡片 UI 与托盘文本自动更新。
+    /// </summary>
+    /// <param name="providerId">要刷新的服务商 Id</param>
+    public async Task RefreshProviderAsync(string providerId)
+    {
+        // 按 Id 取插件；卡片存在即插件存在，理论不会为 null，仍做空判防御。
+        var plugin = _pluginManager.GetPlugin(providerId);
+        if (plugin == null) return;
+
+        // 复用单插件刷新逻辑（内部会写 LastUsage 并在成功时记录历史点）。
+        await RefreshPluginAsync(plugin);
+
+        // 触发与全量刷新相同的事件，App.OnUsageRefreshed 据此更新卡片 UI 与托盘提示。
+        if (plugin.LastUsage != null)
+            UsageRefreshed?.Invoke(this, new UsageRefreshedEventArgs(new[] { plugin.LastUsage }));
     }
 
     /// <summary>

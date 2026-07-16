@@ -36,79 +36,46 @@ public static class BrowserLoginService
         FileLogger.Info("BrowserLoginService", "ConfigService registered for auto-reload after login.");
     }
 
-    /// <summary>Main config.json path: %APPDATA%/UsageMonitor/config.json</summary>
-    private static readonly string ConfigPath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "UsageMonitor", "config.json");
-
-    /// <summary>Persist newly captured cookies into the main config.json's ProviderConfigs entry.</summary>
+    /// <summary>
+    /// 将新捕获的 Cookie 持久化到主 config.json 的对应 ProviderConfigs 条目。
+    /// <para>
+    /// 安全要求（req-001）：必须经由 <see cref="ConfigService"/> 的加密保存路径写入，
+    /// 使 Cookie 等敏感字段以 DPAPI 密文落盘，杜绝明文泄露。
+    /// 若未注册 ConfigService（例如未调用 <see cref="RegisterConfigService"/> 的独立进程），
+    /// 则跳过主配置写入（Cookie 仍由 <see cref="SaveCookieData"/> 存于 cookies/*.json），绝不明文写 config.json。
+    /// </para>
+    /// </summary>
     private static void PersistToMainConfig(BrowserLoginConfig config, BrowserCookieData data)
     {
         try
         {
-            FileLogger.Info("BrowserLoginService",
-                $"Persisting new cookies to {ConfigPath} (providerId={config.ProviderId})");
-            string raw;
-            // Read existing config (may or may not exist)
-            if (File.Exists(ConfigPath))
-            {
-                raw = File.ReadAllText(ConfigPath, System.Text.Encoding.UTF8);
-            }
-            else
-            {
-                raw = "{\"ProviderConfigs\":{}}";
-            }
-            // Deserialize as raw JsonNode to preserve unrelated fields
-            var doc = System.Text.Json.Nodes.JsonNode.Parse(raw, new System.Text.Json.Nodes.JsonNodeOptions { PropertyNameCaseInsensitive = true }) as System.Text.Json.Nodes.JsonObject;
-            if (doc == null)
-            {
-                FileLogger.Warn("BrowserLoginService", "Main config.json could not be parsed; skipping persistence");
-                return;
-            }
-            var providerConfigs = doc["ProviderConfigs"] as System.Text.Json.Nodes.JsonObject;
-            if (providerConfigs == null)
-            {
-                providerConfigs = new System.Text.Json.Nodes.JsonObject();
-                doc["ProviderConfigs"] = providerConfigs;
-            }
-            var miniCfg = providerConfigs[config.ProviderId] as System.Text.Json.Nodes.JsonObject;
-            if (miniCfg == null)
-            {
-                miniCfg = new System.Text.Json.Nodes.JsonObject
-                {
-                    ["ProviderId"] = config.ProviderId,
-                    ["IsEnabled"] = true,
-                    ["Values"] = new System.Text.Json.Nodes.JsonObject()
-                };
-                providerConfigs[config.ProviderId] = miniCfg;
-            }
-            var values = miniCfg["Values"] as System.Text.Json.Nodes.JsonObject;
-            if (values == null)
-            {
-                values = new System.Text.Json.Nodes.JsonObject();
-                miniCfg["Values"] = values;
-            }
-            values["Cookie"] = data.Cookie;
-            values["_userAgent"] = data.UserAgent;
-            // Ensure ApiKey/BaseUrl don't get wiped if user never set them
-            values["Region"] = values["Region"]?.GetValue<string>() ?? "CN";
-
-            var options = new System.Text.Json.JsonSerializerOptions { WriteIndented = true };
-            File.WriteAllText(ConfigPath, doc.ToJsonString(options), System.Text.Encoding.UTF8);
-            FileLogger.Info("BrowserLoginService", $"Persisted cookies. Cookie length={data.Cookie.Length}");
-
-            // CRITICAL: rehydrate the in-memory ConfigService so the next RefreshService
-            // tick sees the new cookie (otherwise the old in-memory dict is reused and
-            // the user must restart the app).
-            try
-            {
-                _configService?.ReloadProviderConfigsFromDisk();
-            }
-            catch (Exception reloadEx)
+            if (_configService == null)
             {
                 FileLogger.Warn("BrowserLoginService",
-                    $"Reload after persist failed (non-fatal): {reloadEx.Message}");
+                    "ConfigService 未注册，跳过主配置持久化（Cookie 已保存到 cookies 目录，不写明文 config.json）");
+                return;
             }
+
+            FileLogger.Info("BrowserLoginService",
+                $"Persisting cookies via ConfigService (encrypted) for providerId={config.ProviderId}");
+
+            // 经 ConfigService 加密路径写入：GetProviderConfig -> SetValue -> UpdateProviderConfig
+            // （UpdateProviderConfig 内部 EncryptSensitiveFields + Save，Cookie 命中敏感词表被 DPAPI 加密）。
+            var cfg = _configService.GetProviderConfig(config.ProviderId);
+            cfg.SetValue("Cookie", data.Cookie);
+            cfg.SetValue("_userAgent", data.UserAgent);
+            // 保底 Region，避免用户从未设置时缺字段（不覆盖已有值）
+            if (string.IsNullOrEmpty(cfg.GetValue("Region")))
+                cfg.SetValue("Region", "CN");
+
+            _configService.UpdateProviderConfig(config.ProviderId, cfg);
+
+            if (!string.IsNullOrEmpty(_configService.LastSaveError))
+                FileLogger.Warn("BrowserLoginService",
+                    $"UpdateProviderConfig 报告保存错误：{_configService.LastSaveError}");
+            else
+                FileLogger.Info("BrowserLoginService",
+                    $"Persisted cookies (encrypted). Cookie length={data.Cookie.Length}");
         }
         catch (Exception ex)
         {

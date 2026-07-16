@@ -114,15 +114,18 @@ internal static class MiniMaxDomExtractor
             var page = context.Pages.Count > 0 ? context.Pages[0] : await context.NewPageAsync();
 
             // Capture network responses for /backend/account/token_plan/* endpoints
-            // (the trend chart, heatmap, credit all come from here).
+            // (the trend chart, heatmap, credit all come from here)
+            // 另订阅档位来自 /v1/api/openplatform/charge/combo/cycle_audio_resource_package
             var capturedResponses = new Dictionary<string, string>();
             page.Response += async (_, response) =>
             {
                 try
                 {
                     var url = response.Url;
-                    if (response.Status == 200 &&
-                        url.Contains("/backend/account/token_plan", StringComparison.OrdinalIgnoreCase))
+                    // 同时命中用量相关接口与订阅档位接口
+                    var isUsageApi = url.Contains("/backend/account/token_plan", StringComparison.OrdinalIgnoreCase);
+                    var isSubscriptionApi = url.Contains("cycle_audio_resource_package", StringComparison.OrdinalIgnoreCase);
+                    if (response.Status == 200 && (isUsageApi || isSubscriptionApi))
                     {
                         var body = await response.TextAsync();
                         capturedResponses[url] = body;
@@ -408,6 +411,57 @@ internal static class MiniMaxDomExtractor
                     if (root.TryGetProperty("total_credits", out var tcc) && tcc.ValueKind == JsonValueKind.Number)
                         extras["mm_totalCredits"] = tcc.GetDouble();
                 }
+                else if (url.Contains("cycle_audio_resource_package", StringComparison.OrdinalIgnoreCase))
+                {
+                    // 当前订阅档位（"Token Plan · TokenPlanMax-年度会员" 等）
+                    // 响应里包含 current_subscribe 对象，字段名、语义遵循用量页 JS bundle 调研结论。
+                    using var doc = JsonDocument.Parse(kv.Value);
+                    var root = doc.RootElement;
+                    if (root.TryGetProperty("current_subscribe", out var cs) &&
+                        cs.ValueKind == JsonValueKind.Object)
+                    {
+                        // 是否已订阅：以 curr_subscribe_combo_id 是否存在且非空为准
+                        var hasCombo = cs.TryGetProperty("curr_subscribe_combo_id", out var cc) &&
+                                       cc.ValueKind != JsonValueKind.Null &&
+                                       !string.IsNullOrWhiteSpace(cc.ToString());
+                        extras["mm_subscriptionActive"] = hasCombo;
+
+                        string GetStr(string prop)
+                        {
+                            if (cs.TryGetProperty(prop, out var v) && v.ValueKind == JsonValueKind.String)
+                                return v.GetString() ?? "";
+                            return "";
+                        }
+                        var title = GetStr("current_subscribe_title");
+                        // 仅在已订阅且标题存在时写入，未订阅或不返回标题的场景交给前端回退。
+                        if (hasCombo && !string.IsNullOrWhiteSpace(title))
+                        {
+                            extras["mm_subscriptionTitle"] = title;
+                            FileLogger.Info(LogSource, $"Current subscription title: {title}");
+                        }
+
+                        var priceText = GetStr("current_subscribe_price");
+                        if (!string.IsNullOrWhiteSpace(priceText))
+                        {
+                            extras["mm_subscriptionPrice"] = priceText;
+                        }
+
+                        // 周期类型（1=月度、3=年度）在订阅文案中体现
+                        if (cs.TryGetProperty("current_subscribe_cycle_type", out var cyc) &&
+                            cyc.ValueKind == JsonValueKind.Number)
+                        {
+                            extras["mm_subscriptionCycleType"] = cyc.GetInt32();
+                        }
+
+                        // 到期时间（毫秒，应用长期记录遵循项目毫秒约定）
+                        if (cs.TryGetProperty("current_subscribe_end_time", out var et) &&
+                            et.ValueKind == JsonValueKind.Number && et.TryGetInt64(out var etMs) && etMs > 0)
+                        {
+                            extras["mm_subscriptionEndTime"] =
+                                DateTimeOffset.FromUnixTimeMilliseconds(etMs).LocalDateTime;
+                        }
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -422,6 +476,21 @@ internal static class MiniMaxDomExtractor
         usageInfo.Unit = "%";
         extras["intervalUsedPercent"] = interval5hUsed;
         extras["weeklyUsedPercent"] = weeklyUsed;
+
+        // 声明当前插件能交给主窗口UI的渲染能力。
+        // 主窗口卡片按这个集合决定是否展示订阅胶囊、5h/周进度条、视频赠送、汇总信息。
+        // 后续接入折线图 / 热力图时，仅需向本数组追加 "trendLine" / "heatMap" 等关键字并准备数据。
+        var renderKinds = new List<string>
+        {
+            "subscriptionTitle",   // 订阅档位胶囊（仅当 mm_subscriptionTitle 存在时显示具体文案）
+            "primaryBar",          // 5h 限额进度条
+            "weeklyBar",           // 周限额进度条
+            "videoProgress",       // 视频赠送已用/总额（5h 与周维度）
+            "summary",             // 累计 token / 最活跃日
+            "ranking",             // 排名百分比 / 活跃天数
+            "credits"              // 积分余额
+        };
+        extras["mm_render_kinds"] = renderKinds;
 
         usageInfo.Extra = extras;
     }

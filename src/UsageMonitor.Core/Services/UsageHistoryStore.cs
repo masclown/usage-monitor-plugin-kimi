@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using UsageMonitor.Core.Models;
 
 namespace UsageMonitor.Core.Services;
 
@@ -20,10 +21,12 @@ public class HistoryPoint
 /// - 默认 60 个点（约 5 分钟间隔下覆盖 5 小时）
 /// - 可在 AppSettings.HistoryPointCount 中调整为 30/60/120
 /// - 线程安全（UI 与刷新服务并发访问）
+/// - 可选注入 UsageHistoryRepository，AddPoint 后 fire-and-forget 异步写 SQLite
 /// </summary>
 public class UsageHistoryStore
 {
     private readonly ConcurrentDictionary<string, Queue<HistoryPoint>> _histories = new();
+    private readonly UsageHistoryRepository? _repository;
     private int _maxPoints = 60;
 
     /// <summary>
@@ -62,7 +65,17 @@ public class UsageHistoryStore
     public event EventHandler<string>? ProviderHistoryChanged;
 
     /// <summary>
+    /// 创建内存历史仓库。可选传入持久化仓库，传入后会自动调择写 SQLite。
+    /// </summary>
+    public UsageHistoryStore(UsageHistoryRepository? repository = null)
+    {
+        _repository = repository;
+    }
+
+    /// <summary>
     /// 添加一个用量历史点（线程安全）
+    /// - 同步：内存队列 + MaxPoints 裁剪 + 触发事件
+    /// - 异步（可选）：fire-and-forget 写 SQLite，供历史窗口回看
     /// </summary>
     /// <param name="providerId">服务商唯一标识</param>
     /// <param name="usagePercent">已用百分比（0-100）</param>
@@ -74,6 +87,7 @@ public class UsageHistoryStore
         if (usagePercent < 0) usagePercent = 0;
         if (usagePercent > 100) usagePercent = 100;
 
+        // 同步入内存队列
         var queue = _histories.GetOrAdd(providerId, _ => new Queue<HistoryPoint>());
         lock (queue)
         {
@@ -87,6 +101,71 @@ public class UsageHistoryStore
         }
 
         ProviderHistoryChanged?.Invoke(this, providerId);
+        HistoryChanged?.Invoke(this, EventArgs.Empty);
+
+        // 异步写库（fire-and-forget）。仓库内部已 try/catch + FileLogger，这里不需要再包装。
+        if (_repository != null)
+        {
+            // 构造最小可用的 UsageInfo，避免引入插件路径所产生的额外查询。
+            // 历史窗口仅需 (providerId, used_percent, recorded_at)，仓库 UpsertPoint 仅读取这些字段。
+            //
+            // 注意：为了让 GetUsagePercentage() 返回我们手头这个 usagePercent，
+            // 必须让 UsedAmount / TotalAmount 形成比例 (usagePercent / 100)，
+            // 然后由 Repository 中的钳制（0-100）保证范围。
+            // 不要设 UsedAmount = 0 / TotalAmount = 100，那样 percent 永远是 0。
+            var dummy = new UsageInfo
+            {
+                ProviderId = providerId,
+                ProviderName = providerId, // 持久层不使用 name，仅占位
+                UsedAmount = (decimal)usagePercent,
+                TotalAmount = 100m,
+                UsedTokens = 0,
+                TotalTokens = -1,
+                LastUpdated = DateTime.Now,
+                IsSuccess = true,
+                ErrorMessage = null
+            };
+            _ = Task.Run(() => _repository.UpsertPoint(dummy));
+        }
+    }
+
+    /// <summary>
+    /// 从持久化仓库加载并填充指定 provider 的初始内存数据。
+    /// 启动时一次性调用，避免重启后历史曲线从头画起。
+    /// </summary>
+    public async Task LoadFromRepositoryAsync(UsageHistoryRepository repository,
+                                              IEnumerable<string> providerIds,
+                                              int pointsPerProvider)
+    {
+        if (repository == null || pointsPerProvider <= 0) return;
+        foreach (var pid in providerIds)
+        {
+            if (string.IsNullOrEmpty(pid)) continue;
+            try
+            {
+                var records = await repository.LoadLatestPointsAsync(pid, pointsPerProvider);
+                if (records.Count == 0) continue;
+
+                var queue = _histories.GetOrAdd(pid, _ => new Queue<HistoryPoint>());
+                lock (queue)
+                {
+                    // 先清空避免与遗留数据混合
+                    queue.Clear();
+                    foreach (var r in records)
+                    {
+                        queue.Enqueue(UsageHistoryRepository.ToInMemoryPoint(r));
+                    }
+                    while (queue.Count > _maxPoints)
+                        queue.Dequeue();
+                }
+                ProviderHistoryChanged?.Invoke(this, pid);
+            }
+            catch (Exception ex)
+            {
+                FileLogger.Error("UsageHistoryStore",
+                    $"LoadFromRepositoryAsync({pid}) failed", ex);
+            }
+        }
         HistoryChanged?.Invoke(this, EventArgs.Empty);
     }
 

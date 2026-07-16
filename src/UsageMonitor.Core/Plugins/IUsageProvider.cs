@@ -47,6 +47,18 @@ public interface IUsageProvider
     Models.BrowserLoginConfig? LoginConfig => null;
 
     /// <summary>
+    /// 插件声明的默认渲染能力集合（在首次加载、未收到任何刷新数据前生效）。
+    /// <para>
+    /// 卡片可见性绑定 "插件声明 render_kind" 与 "用户开关"。如果插件未实现，
+    /// 主窗口会在第一次渲染时就折叠对应区块，导致"数据未到则卡片残缺"。
+    /// 由插件自己声明一组最常声明的能力，主窗口装配 VM 时立即写入 RenderKinds，
+    /// 让首屏显示与数据到位后的显示保持一致；运行时真正收到的 mm_render_kinds
+    /// 仍会通过 <c>UpdateFromMiniMaxDom</c> 等覆盖。
+    /// </para>
+    /// </summary>
+    IReadOnlyList<string> DefaultRenderKinds => System.Array.Empty<string>();
+
+    /// <summary>
     /// 查询当前用量信息
     /// </summary>
     /// <param name="config">服务商配置（包含API Key等信息）</param>

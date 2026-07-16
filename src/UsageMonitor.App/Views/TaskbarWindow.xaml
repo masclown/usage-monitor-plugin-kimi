@@ -10,21 +10,32 @@
         Background="Transparent"
         ShowInTaskbar="False"
         ResizeMode="NoResize"
-        Topmost="True">
+        Topmost="True"
+        TextElement.FontFamily="{DynamicResource AppFontFamily}"
+        Cursor="SizeAll">
+    <!--
+        拖拽入口走 override OnPreviewMouseXxx 虚方法（与 Stage-14.3 一致），
+        不在 XAML 绑 routed event，因为 override 是 100% 触发的入口，比 XAML 订阅更可靠。
+    -->
     <Window.Resources>
-        <!-- 文字模式模板：DisplayName + 剩余额度 -->
+        <!-- 文字模式模板：Logo + DisplayName + 剩余额度 -->
         <DataTemplate x:Key="TaskbarTextTemplate">
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center"
                         Margin="0,0,16,0"
                         ToolTip="{Binding StatusText, Mode=OneWay}">
+                <Image Source="{Binding IconPath, Mode=OneWay}" Width="14" Height="14"
+                       VerticalAlignment="Center" Margin="0,0,4,0"
+                       RenderOptions.BitmapScalingMode="HighQuality"
+                       Visibility="{Binding IconPath, Converter={StaticResource StringToVisibility}}" />
                 <TextBlock FontSize="12" FontWeight="SemiBold"
-                           Foreground="#FFE2E8F0"
+                           Foreground="{DynamicResource TextPrimaryBrush}"
                            VerticalAlignment="Center">
                     <Run Text="{Binding DisplayName, Mode=OneWay}" />
                 </TextBlock>
-                <TextBlock FontSize="12" Foreground="#FF60A5FA"
+                <TextBlock FontSize="12" Foreground="{DynamicResource AccentBrush}"
                            VerticalAlignment="Center" Margin="4,0,0,0">
-                    <Run Text="{Binding RemainingText, Mode=OneWay}" />
+                    <!-- 任务栏文字模式显示“剩余”百分比，加前缀避免与已用%混淆 -->
+                    <Run Text="{Binding RemainingText, Mode=OneWay, Converter={StaticResource RemainingPrefix}}" />
                 </TextBlock>
             </StackPanel>
         </DataTemplate>
@@ -38,32 +49,48 @@
                     <RowDefinition Height="22" />
                 </Grid.RowDefinitions>
                 <DockPanel Grid.Row="0" LastChildFill="False" VerticalAlignment="Center">
+                    <Image Source="{Binding IconPath, Mode=OneWay}" Width="12" Height="12"
+                           VerticalAlignment="Center" Margin="0,0,4,0"
+                           RenderOptions.BitmapScalingMode="HighQuality"
+                           Visibility="{Binding IconPath, Converter={StaticResource StringToVisibility}}"
+                           DockPanel.Dock="Left" />
                     <TextBlock FontSize="11" FontWeight="SemiBold"
-                               Foreground="#FFE2E8F0"
+                               Foreground="{DynamicResource TextPrimaryBrush}"
                                DockPanel.Dock="Left" VerticalAlignment="Center">
                         <Run Text="{Binding DisplayName, Mode=OneWay}" />
                     </TextBlock>
-                    <TextBlock FontSize="11" Foreground="#FF94A3B8"
+                    <TextBlock FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
                                DockPanel.Dock="Right" VerticalAlignment="Center" Margin="6,0,0,0"
                                Text="{Binding UsagePercentage, Mode=OneWay, StringFormat={}{0:F0}%}" />
                 </DockPanel>
                 <controls:MiniLineChartControl Grid.Row="1"
                                                 Values="{Binding HistoryValues, Mode=OneWay}"
-                                                StrokeThickness="1.5" />
+                                                StrokeThickness="1.6"
+                                                LowBrush="{DynamicResource UsageLowBrush}"
+                                                MidBrush="{DynamicResource UsageMidBrush}"
+                                                HighBrush="{DynamicResource UsageHighBrush}" />
             </Grid>
         </DataTemplate>
 
-        <!-- 圆环图模式模板：圆环 + 名称 -->
+        <!-- 圆环图模式模板：圆环 + Logo + 名称 -->
         <DataTemplate x:Key="TaskbarRingChartTemplate">
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center"
                         Margin="0,0,12,0"
                         ToolTip="{Binding StatusText, Mode=OneWay}">
                 <controls:RingChartControl Width="44" Height="44"
                                             Percent="{Binding UsagePercentage, Mode=OneWay}"
-                                            Size="44" StrokeThickness="5" />
+                                            Size="44" StrokeThickness="5"
+                                            TrackBrush="{DynamicResource TrackBrush}"
+                                            ProgressBrush="{DynamicResource AccentBrush}"
+                                            WarningBrush="{DynamicResource WarningBrush}"
+                                            DangerBrush="{DynamicResource DangerBrush}" />
+                <Image Source="{Binding IconPath, Mode=OneWay}" Width="14" Height="14"
+                       VerticalAlignment="Center" Margin="6,0,4,0"
+                       RenderOptions.BitmapScalingMode="HighQuality"
+                       Visibility="{Binding IconPath, Converter={StaticResource StringToVisibility}}" />
                 <TextBlock FontSize="11" FontWeight="SemiBold"
-                           Foreground="#FFE2E8F0"
-                           VerticalAlignment="Center" Margin="6,0,0,0"
+                           Foreground="{DynamicResource TextPrimaryBrush}"
+                           VerticalAlignment="Center" Margin="0,0,0,0"
                            Text="{Binding DisplayName, Mode=OneWay}" />
             </StackPanel>
         </DataTemplate>
@@ -75,12 +102,12 @@
                                             RingChartTemplate="{StaticResource TaskbarRingChartTemplate}" />
     </Window.Resources>
 
-    <Border Background="#EE1E1E2E" CornerRadius="6" Padding="12,6" Margin="2"
-            BorderBrush="#FF3D3D52" BorderThickness="1">
+    <Border Background="{DynamicResource OverlayBackgroundBrush}" CornerRadius="8" Padding="12,6" Margin="2"
+            BorderBrush="{DynamicResource OverlayBorderBrush}" BorderThickness="1">
         <ScrollViewer HorizontalScrollBarVisibility="Auto"
                       VerticalScrollBarVisibility="Disabled"
                       Padding="0">
-            <ItemsControl ItemsSource="{Binding Usages, Mode=OneWay}"
+            <ItemsControl ItemsSource="{Binding EnabledUsages, Mode=OneWay}"
                           ItemTemplateSelector="{StaticResource TaskbarItemTemplateSelector}">
                 <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate>

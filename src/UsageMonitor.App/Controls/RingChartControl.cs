@@ -162,6 +162,16 @@ public class RingChartControl : FrameworkElement
         // 3. 进度弧（从 12 点钟方向开始，顺时针）
         var progressGeometry = CreateArcGeometry(center, radius, percent / 100.0);
         var progressBrush = SelectBrush(percent);
+
+        // 发光：更宽的半透明弧衬在进度弧下方，提升高级感
+        var glowPen = new Pen(MakeTranslucent(progressBrush, 0x40), stroke + 3)
+        {
+            StartLineCap = PenLineCap.Round,
+            EndLineCap = PenLineCap.Round
+        };
+        if (glowPen.CanFreeze) glowPen.Freeze();
+        dc.DrawGeometry(null, glowPen, progressGeometry);
+
         var pen = new Pen(progressBrush, stroke)
         {
             StartLineCap = PenLineCap.Round,
@@ -240,5 +250,18 @@ public class RingChartControl : FrameworkElement
         if (percent >= DangerThreshold) return DangerBrush;
         if (percent >= WarningThreshold) return WarningBrush;
         return ProgressBrush;
+    }
+
+    /// <summary>派生同色半透明画笔（用于进度弧发光）。</summary>
+    private static Brush MakeTranslucent(Brush source, byte alpha)
+    {
+        if (source is SolidColorBrush scb)
+        {
+            var col = scb.Color;
+            var b = new SolidColorBrush(Color.FromArgb(alpha, col.R, col.G, col.B));
+            b.Freeze();
+            return b;
+        }
+        return source;
     }
 }

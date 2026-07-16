@@ -1,0 +1,44 @@
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:sys="clr-namespace:System;assembly=mscorlib">
+
+    <!--
+        主题无关设计 Token（深浅主题共用）。
+        仅放"不随明暗变化"的量：圆角、间距、字号、字体族、语义用量色。
+        随明暗变化的颜色一律放 Dark.xaml / Light.xaml。
+    -->
+
+    <!-- 圆角 -->
+    <CornerRadius x:Key="RadiusCard">14</CornerRadius>
+    <CornerRadius x:Key="RadiusButton">9</CornerRadius>
+    <CornerRadius x:Key="RadiusSmall">6</CornerRadius>
+    <CornerRadius x:Key="RadiusPill">999</CornerRadius>
+
+    <!-- 内边距 / 间距（Thickness） -->
+    <Thickness x:Key="PagePadding">22</Thickness>
+    <Thickness x:Key="CardPadding">20</Thickness>
+    <Thickness x:Key="CardMargin">0,0,0,14</Thickness>
+
+    <!-- 字体族：中文优先 YaHei UI，回退到 Segoe，覆盖中英文 -->
+    <FontFamily x:Key="AppFontFamily">Microsoft YaHei UI, Segoe UI Variable Text, Segoe UI</FontFamily>
+
+    <!-- 字号阶梯 -->
+    <sys:Double x:Key="FontSizeDisplay">25</sys:Double>
+    <sys:Double x:Key="FontSizeTitle">18</sys:Double>
+    <sys:Double x:Key="FontSizeSubtitle">15</sys:Double>
+    <sys:Double x:Key="FontSizeBody">13</sys:Double>
+    <sys:Double x:Key="FontSizeCaption">11</sys:Double>
+
+    <!--
+        语义用量色（低/中/高）。红绿橙在深浅两底上都有足够对比，做成共享 Token。
+        与 PercentToBrushConverter 的三档阈值（60 / 85）对应。
+    -->
+    <Color x:Key="UsageLowColor">#FF22C55E</Color>
+    <Color x:Key="UsageMidColor">#FFF59E0B</Color>
+    <Color x:Key="UsageHighColor">#FFEF4444</Color>
+    <SolidColorBrush x:Key="UsageLowBrush" Color="{StaticResource UsageLowColor}" />
+    <SolidColorBrush x:Key="UsageMidBrush" Color="{StaticResource UsageMidColor}" />
+    <SolidColorBrush x:Key="UsageHighBrush" Color="{StaticResource UsageHighColor}" />
+
+</ResourceDictionary>

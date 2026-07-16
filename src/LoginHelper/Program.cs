@@ -1,7 +1,4 @@
-﻿using System.IO;
-using System.Text;
-using System.Text.Json;
-using UsageMonitor.Core.Services;
+﻿using UsageMonitor.Core.Services;
 using UsageMonitor.Plugin.MiniMax;
 
 namespace UsageMonitor.LoginHelper;
@@ -86,61 +83,5 @@ public class Program
             Console.WriteLine($"X Error: {ex.Message}");
             return 1;
         }
-    }
-
-    private static void SaveCookieToConfig(string cookie)
-    {
-        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        var configDir = Path.Combine(appData, "UsageMonitor");
-        Directory.CreateDirectory(configDir);
-        var configPath = Path.Combine(configDir, "config.json");
-
-        var configJson = File.Exists(configPath)
-            ? File.ReadAllText(configPath, Encoding.UTF8)
-            : "{}";
-
-        using var doc = JsonDocument.Parse(configJson);
-        var root = doc.RootElement;
-
-        using var ms = new MemoryStream();
-        using (var writer = new Utf8JsonWriter(ms, new JsonWriterOptions { Indented = true }))
-        {
-            writer.WriteStartObject();
-
-            foreach (var prop in root.EnumerateObject())
-            {
-                if (prop.Name == "ProviderConfigs") continue;
-                prop.WriteTo(writer);
-            }
-
-            writer.WritePropertyName("ProviderConfigs");
-            writer.WriteStartObject();
-
-            if (root.TryGetProperty("ProviderConfigs", out var providerConfigs))
-            {
-                foreach (var prop in providerConfigs.EnumerateObject())
-                {
-                    if (prop.Name == "MiniMax") continue;
-                    prop.WriteTo(writer);
-                }
-            }
-
-            writer.WritePropertyName("MiniMax");
-            writer.WriteStartObject();
-            writer.WriteString("ProviderId", "MiniMax");
-            writer.WriteBoolean("IsEnabled", true);
-            writer.WritePropertyName("Values");
-            writer.WriteStartObject();
-            writer.WriteString("ApiKey", "");
-            writer.WriteString("Cookie", cookie);
-            writer.WriteString("Region", "CN");
-            writer.WriteEndObject();
-            writer.WriteEndObject();
-
-            writer.WriteEndObject();
-            writer.WriteEndObject();
-        }
-
-        File.WriteAllText(configPath, Encoding.UTF8.GetString(ms.ToArray()));
     }
 }

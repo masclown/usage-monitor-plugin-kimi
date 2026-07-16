@@ -1,129 +1,115 @@
 <Window x:Class="UsageMonitor.App.Views.SettingsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:sys="clr-namespace:System;assembly=mscorlib"
         Title="UsageMonitor - 设置"
-        Height="600" Width="700"
-        MinHeight="450" MinWidth="550"
-        Background="{StaticResource BgBrush}"
+        Height="640" Width="720"
+        MinHeight="480" MinWidth="580"
+        Background="{DynamicResource AppBackgroundBrush}"
+        TextElement.Foreground="{DynamicResource TextPrimaryBrush}"
+        TextElement.FontFamily="{DynamicResource AppFontFamily}"
         WindowStartupLocation="CenterOwner">
-    <TabControl Margin="16" Background="Transparent" BorderThickness="0"
-                Foreground="{StaticResource TextPrimaryBrush}">
+    <TabControl Margin="16">
 
         <!-- 常规设置 -->
-        <TabItem Header="常规设置" Foreground="{StaticResource TextPrimaryBrush}">
-            <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <TabItem Header="常规设置">
+            <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,6,0">
                 <StackPanel Margin="16">
                     <TextBlock Text="常规设置" FontSize="20" FontWeight="Bold"
-                               Foreground="{StaticResource TextPrimaryBrush}" Margin="0,0,0,20" />
+                               Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,20" />
+
+                    <!-- 外观主题 -->
+                    <TextBlock Text="外观主题" FontSize="13"
+                               Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,6" />
+                    <Border Background="{DynamicResource MutedBrush}" CornerRadius="{DynamicResource RadiusButton}"
+                            Padding="3" HorizontalAlignment="Left" Margin="0,0,0,18">
+                        <StackPanel Orientation="Horizontal">
+                            <RadioButton Content="深色" GroupName="Theme"
+                                         Style="{StaticResource SegmentRadioStyle}"
+                                         IsChecked="{Binding IsDarkTheme, Mode=TwoWay}" />
+                            <RadioButton Content="浅色" GroupName="Theme"
+                                         Style="{StaticResource SegmentRadioStyle}"
+                                         IsChecked="{Binding IsLightTheme, Mode=TwoWay}" />
+                        </StackPanel>
+                    </Border>
 
                     <!-- 刷新间隔 -->
                     <StackPanel Margin="0,0,0,16">
                         <TextBlock Text="刷新间隔（秒）" FontSize="13"
-                                   Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,4" />
-                        <TextBox Text="{Binding RefreshInterval}" Width="120"
-                                 HorizontalAlignment="Left" Padding="8,6"
-                                 Background="{StaticResource SurfaceBrush}"
-                                 Foreground="{StaticResource TextPrimaryBrush}"
-                                 BorderBrush="#FF3D3D52" />
+                                   Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,4" />
+                        <TextBox Text="{Binding RefreshInterval}" Width="120" HorizontalAlignment="Left" />
                     </StackPanel>
 
-                    <!-- 任务栏显示 -->
-                    <CheckBox Content="启用任务栏显示" IsChecked="{Binding ShowInTaskbar}"
-                              Foreground="{StaticResource TextPrimaryBrush}" Margin="0,0,0,12"
-                              FontSize="13" />
+                    <CheckBox Content="启用任务栏显示" IsChecked="{Binding ShowInTaskbar}" Margin="0,0,0,12" />
+                    <CheckBox Content="开机自动启动" IsChecked="{Binding AutoStart}" Margin="0,0,0,12" />
 
-                    <!-- 开机自启 -->
-                    <CheckBox Content="开机自动启动" IsChecked="{Binding AutoStart}"
-                              Foreground="{StaticResource TextPrimaryBrush}" Margin="0,0,0,12"
-                              FontSize="13" />
+                    <Separator Margin="0,8,0,16" />
 
-                    <Separator Margin="0,8,0,16" Background="#FF3D3D52" />
-
-                    <!-- 托盘悬浮窗分组 -->
                     <TextBlock Text="托盘悬浮窗" FontSize="15" FontWeight="SemiBold"
-                               Foreground="{StaticResource TextPrimaryBrush}" Margin="0,0,0,12" />
-
-                    <CheckBox Content="鼠标悬停托盘图标时显示悬浮窗" IsChecked="{Binding ShowTrayTooltip}"
-                              Foreground="{StaticResource TextPrimaryBrush}" Margin="0,0,0,12"
-                              FontSize="13" />
-
+                               Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,12" />
+                    <CheckBox Content="鼠标悬停托盘图标时显示悬浮窗" IsChecked="{Binding ShowTrayTooltip}" Margin="0,0,0,12" />
                     <StackPanel Margin="0,0,0,16">
                         <TextBlock Text="悬浮窗关闭延迟（毫秒）" FontSize="13"
-                                   Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,4" />
-                        <TextBox Text="{Binding TrayTooltipHideDelayMs}" Width="120"
-                                 HorizontalAlignment="Left" Padding="8,6"
-                                 Background="{StaticResource SurfaceBrush}"
-                                 Foreground="{StaticResource TextPrimaryBrush}"
-                                 BorderBrush="#FF3D3D52" />
+                                   Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,4" />
+                        <TextBox Text="{Binding TrayTooltipHideDelayMs}" Width="120" HorizontalAlignment="Left" />
                     </StackPanel>
 
-                    <Separator Margin="0,8,0,16" Background="#FF3D3D52" />
+                    <TextBlock Text="触发区域位于屏幕右下角托盘区：宽度向左延伸、高度自任务栏顶部向下延伸" FontSize="12"
+                               Foreground="{DynamicResource TextTertiaryBrush}" TextWrapping="Wrap" Margin="0,0,0,8" />
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
+                        <StackPanel Margin="0,0,16,0">
+                            <TextBlock Text="触发区域宽度（像素，默认 200）" FontSize="13"
+                                       Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,4" />
+                            <TextBox Text="{Binding TrayTriggerWidth}" Width="120" HorizontalAlignment="Left" />
+                        </StackPanel>
+                        <StackPanel>
+                            <TextBlock Text="触发区域高度（像素，默认 40）" FontSize="13"
+                                       Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,4" />
+                            <TextBox Text="{Binding TrayTriggerHeight}" Width="120" HorizontalAlignment="Left" />
+                        </StackPanel>
+                    </StackPanel>
 
-                    <!-- 折线图历史数据分组 -->
+                    <Separator Margin="0,8,0,16" />
+
                     <TextBlock Text="折线图历史数据" FontSize="15" FontWeight="SemiBold"
-                               Foreground="{StaticResource TextPrimaryBrush}" Margin="0,0,0,12" />
-
+                               Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,12" />
                     <StackPanel Margin="0,0,0,16">
                         <TextBlock Text="历史数据保留点数（30 / 60 / 120）" FontSize="13"
-                                   Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,4" />
+                                   Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,4" />
                         <ComboBox SelectedItem="{Binding HistoryPointCount}"
-                                  Width="120" HorizontalAlignment="Left" Padding="8,6"
-                                  Background="{StaticResource SurfaceBrush}"
-                                  Foreground="{StaticResource TextPrimaryBrush}"
-                                  BorderBrush="#FF3D3D52">
-                            <sys:Int32 xmlns:sys="clr-namespace:System;assembly=mscorlib">30</sys:Int32>
-                            <sys:Int32 xmlns:sys="clr-namespace:System;assembly=mscorlib">60</sys:Int32>
-                            <sys:Int32 xmlns:sys="clr-namespace:System;assembly=mscorlib">120</sys:Int32>
+                                  Width="120" HorizontalAlignment="Left">
+                            <sys:Int32>30</sys:Int32>
+                            <sys:Int32>60</sys:Int32>
+                            <sys:Int32>120</sys:Int32>
                         </ComboBox>
                     </StackPanel>
 
-                    <Separator Margin="0,8,0,16" Background="#FF3D3D52" />
+                    <Separator Margin="0,8,0,16" />
 
-                    <!-- 圆环图阈值分组 -->
                     <TextBlock Text="圆环图阈值（达到百分比时切换颜色）" FontSize="15" FontWeight="SemiBold"
-                               Foreground="{StaticResource TextPrimaryBrush}" Margin="0,0,0,12" />
-
+                               Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,12" />
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
                         <StackPanel Margin="0,0,16,0">
                             <TextBlock Text="警告阈值（% 默认 60）" FontSize="13"
-                                       Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,4" />
-                            <TextBox Text="{Binding RingChartWarningThreshold}" Width="100"
-                                     HorizontalAlignment="Left" Padding="8,6"
-                                     Background="{StaticResource SurfaceBrush}"
-                                     Foreground="{StaticResource TextPrimaryBrush}"
-                                     BorderBrush="#FF3D3D52" />
+                                       Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,4" />
+                            <TextBox Text="{Binding RingChartWarningThreshold}" Width="100" HorizontalAlignment="Left" />
                         </StackPanel>
                         <StackPanel>
                             <TextBlock Text="危险阈值（% 默认 85）" FontSize="13"
-                                       Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,4" />
-                            <TextBox Text="{Binding RingChartDangerThreshold}" Width="100"
-                                     HorizontalAlignment="Left" Padding="8,6"
-                                     Background="{StaticResource SurfaceBrush}"
-                                     Foreground="{StaticResource TextPrimaryBrush}"
-                                     BorderBrush="#FF3D3D52" />
+                                       Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,4" />
+                            <TextBox Text="{Binding RingChartDangerThreshold}" Width="100" HorizontalAlignment="Left" />
                         </StackPanel>
                     </StackPanel>
 
-                    <Button Content="保存设置" Padding="20,10" HorizontalAlignment="Left"
+                    <Button Content="保存设置" HorizontalAlignment="Left"
                             Command="{Binding SaveSettingsCommand}"
-                            Background="{StaticResource PrimaryBrush}"
-                            Foreground="White" BorderThickness="0" Cursor="Hand"
-                            FontSize="13" Margin="0,16,0,0">
-                        <Button.Template>
-                            <ControlTemplate TargetType="Button">
-                                <Border Background="{TemplateBinding Background}"
-                                        CornerRadius="6" Padding="{TemplateBinding Padding}">
-                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                </Border>
-                            </ControlTemplate>
-                        </Button.Template>
-                    </Button>
+                            Style="{StaticResource PrimaryButtonStyle}" Margin="0,16,0,0" />
                 </StackPanel>
             </ScrollViewer>
         </TabItem>
 
         <!-- 插件管理 -->
-        <TabItem Header="插件管理" Foreground="{StaticResource TextPrimaryBrush}">
+        <TabItem Header="插件管理">
             <Grid Margin="16">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
@@ -131,76 +117,71 @@
                 </Grid.RowDefinitions>
 
                 <TextBlock Grid.Row="0" Text="已安装插件" FontSize="20" FontWeight="Bold"
-                           Foreground="{StaticResource TextPrimaryBrush}" Margin="0,0,0,16" />
+                           Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,16" />
 
                 <ListView Grid.Row="1" ItemsSource="{Binding PluginItems}"
-                          Background="{StaticResource SurfaceBrush}"
-                          BorderThickness="0"
-                          Foreground="{StaticResource TextPrimaryBrush}">
+                          Background="Transparent" BorderThickness="0"
+                          ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                    <ListView.ItemContainerStyle>
+                        <Style TargetType="ListViewItem">
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                            <Setter Property="Background" Value="Transparent" />
+                            <Setter Property="Margin" Value="0,0,0,10" />
+                            <Setter Property="Padding" Value="0" />
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="ListViewItem">
+                                        <Border Background="{DynamicResource SurfaceBrush}"
+                                                CornerRadius="{DynamicResource RadiusCard}" Padding="14">
+                                            <ContentPresenter />
+                                        </Border>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </ListView.ItemContainerStyle>
                     <ListView.ItemTemplate>
                         <DataTemplate>
-                            <Border Padding="12" Margin="0,4">
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
 
-                                    <CheckBox Grid.Column="0" IsChecked="{Binding IsEnabled}"
-                                              VerticalAlignment="Center" Margin="0,0,12,0" />
+                                <CheckBox Grid.Column="0" IsChecked="{Binding IsEnabled}"
+                                          VerticalAlignment="Center" Margin="0,0,14,0" />
 
-                                    <StackPanel Grid.Column="1">
-                                        <TextBlock FontSize="15" FontWeight="SemiBold"
-                                                   Foreground="{StaticResource TextPrimaryBrush}">
-                                            <Run Text="{Binding DisplayName}" />
-                                            <Run Text=" v" Foreground="{StaticResource TextSecondaryBrush}" />
-                                            <Run Text="{Binding Version}" Foreground="{StaticResource TextSecondaryBrush}" />
-                                        </TextBlock>
-                                        <TextBlock Text="{Binding Description}" FontSize="12"
-                                                   Foreground="{StaticResource TextSecondaryBrush}" />
-                                        <TextBlock FontSize="11"
-                                                   Foreground="{StaticResource TextSecondaryBrush}">
-                                            <Run Text="作者: " />
-                                            <Run Text="{Binding Author}" />
-                                        </TextBlock>
-                                    </StackPanel>
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                    <TextBlock FontSize="15" FontWeight="SemiBold"
+                                               Foreground="{DynamicResource TextPrimaryBrush}">
+                                        <Run Text="{Binding DisplayName}" />
+                                        <Run Text=" v" Foreground="{DynamicResource TextSecondaryBrush}" />
+                                        <Run Text="{Binding Version}" Foreground="{DynamicResource TextSecondaryBrush}" />
+                                    </TextBlock>
+                                    <TextBlock Text="{Binding Description}" FontSize="12"
+                                               Foreground="{DynamicResource TextSecondaryBrush}" />
+                                    <TextBlock FontSize="11" Foreground="{DynamicResource TextTertiaryBrush}">
+                                        <Run Text="作者: " />
+                                        <Run Text="{Binding Author}" />
+                                    </TextBlock>
+                                </StackPanel>
 
-                                    <!-- 任务栏显示模式选择 -->
-                                    <StackPanel Grid.Column="2" VerticalAlignment="Center" Margin="0,0,8,0">
-                                        <TextBlock Text="任务栏显示" FontSize="11"
-                                                   Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,2" />
-                                        <ComboBox ItemsSource="{Binding AvailableDisplayModes}"
-                                                  DisplayMemberPath="Value"
-                                                  SelectedValuePath="Key"
-                                                  SelectedValue="{Binding DisplayMode, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                                  Width="100" Padding="6,3"
-                                                  Background="{StaticResource BgBrush}"
-                                                  Foreground="{StaticResource TextPrimaryBrush}"
-                                                  BorderBrush="#FF3D3D52" />
-                                    </StackPanel>
+                                <StackPanel Grid.Column="2" VerticalAlignment="Center" Margin="0,0,8,0">
+                                    <TextBlock Text="任务栏显示" FontSize="11"
+                                               Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,3" />
+                                    <ComboBox ItemsSource="{Binding AvailableDisplayModes}"
+                                              DisplayMemberPath="Value" SelectedValuePath="Key"
+                                              SelectedValue="{Binding DisplayMode, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                              Width="110" />
+                                </StackPanel>
 
-                                    <!-- 配置按钮 -->
-                                    <Button Grid.Column="3" Content="配置"
-                                            Command="{Binding ConfigCommand}"
-                                            Padding="14,6" Margin="8,0,0,0"
-                                            VerticalAlignment="Center"
-                                            FontSize="12"
-                                            Background="{StaticResource PrimaryBrush}"
-                                            Foreground="White"
-                                            BorderThickness="0" Cursor="Hand">
-                                        <Button.Template>
-                                            <ControlTemplate TargetType="Button">
-                                                <Border Background="{TemplateBinding Background}"
-                                                        CornerRadius="4" Padding="{TemplateBinding Padding}">
-                                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                                </Border>
-                                            </ControlTemplate>
-                                        </Button.Template>
-                                    </Button>
-                                </Grid>
-                            </Border>
+                                <Button Grid.Column="3" Content="配置"
+                                        Command="{Binding ConfigCommand}"
+                                        VerticalAlignment="Center" Margin="8,0,0,0"
+                                        Style="{StaticResource AccentSoftButtonStyle}" />
+                            </Grid>
                         </DataTemplate>
                     </ListView.ItemTemplate>
                 </ListView>
@@ -208,70 +189,31 @@
         </TabItem>
 
         <!-- 诊断 / 日志 -->
-        <TabItem Header="诊断 / 日志" Foreground="{StaticResource TextPrimaryBrush}">
-            <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <TabItem Header="诊断 / 日志">
+            <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,6,0">
                 <StackPanel Margin="16">
                     <TextBlock Text="诊断与运行日志" FontSize="20" FontWeight="Bold"
-                               Foreground="{StaticResource TextPrimaryBrush}" Margin="0,0,0,20" />
+                               Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,20" />
 
                     <TextBlock Text="运行日志路径" FontSize="13" FontWeight="SemiBold"
-                               Foreground="{StaticResource TextPrimaryBrush}" Margin="0,0,0,6" />
-                    <TextBox x:Name="LogPathTextBox"
-                             IsReadOnly="True"
-                             Background="{StaticResource SurfaceBrush}"
-                             Foreground="{StaticResource TextPrimaryBrush}"
-                             BorderBrush="#FF3D3D52" Padding="8,6" Margin="0,0,0,16" />
+                               Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,6" />
+                    <TextBox x:Name="LogPathTextBox" IsReadOnly="True" Margin="0,0,0,16" />
 
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
-                        <Button Content="打开日志文件夹" Padding="16,8" Margin="0,0,8,0"
-                                Background="{StaticResource PrimaryBrush}"
-                                Foreground="White" BorderThickness="0" Cursor="Hand"
-                                Click="OpenLogsFolder_Click">
-                            <Button.Template>
-                                <ControlTemplate TargetType="Button">
-                                    <Border Background="{TemplateBinding Background}"
-                                            CornerRadius="6" Padding="{TemplateBinding Padding}">
-                                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    </Border>
-                                </ControlTemplate>
-                            </Button.Template>
-                        </Button>
-                        <Button Content="打开 debug 文件夹" Padding="16,8" Margin="0,0,8,0"
-                                Background="{StaticResource SurfaceBrush}"
-                                Foreground="{StaticResource TextPrimaryBrush}" BorderBrush="#FF3D3D52" Cursor="Hand"
-                                Click="OpenDebugFolder_Click">
-                            <Button.Template>
-                                <ControlTemplate TargetType="Button">
-                                    <Border Background="{TemplateBinding Background}"
-                                            CornerRadius="6" Padding="{TemplateBinding Padding}"
-                                            BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1">
-                                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    </Border>
-                                </ControlTemplate>
-                            </Button.Template>
-                        </Button>
-                        <Button Content="复制最新日志到剪贴板" Padding="16,8" Margin="0,0,8,0"
-                                Background="{StaticResource SurfaceBrush}"
-                                Foreground="{StaticResource TextPrimaryBrush}" BorderBrush="#FF3D3D52" Cursor="Hand"
-                                Click="CopyLatestLog_Click">
-                            <Button.Template>
-                                <ControlTemplate TargetType="Button">
-                                    <Border Background="{TemplateBinding Background}"
-                                            CornerRadius="6" Padding="{TemplateBinding Padding}"
-                                            BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1">
-                                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    </Border>
-                                </ControlTemplate>
-                            </Button.Template>
-                        </Button>
+                        <Button Content="打开日志文件夹" Margin="0,0,8,0"
+                                Style="{StaticResource PrimaryButtonStyle}" Click="OpenLogsFolder_Click" />
+                        <Button Content="打开 debug 文件夹" Margin="0,0,8,0"
+                                Style="{StaticResource GhostButtonStyle}" Click="OpenDebugFolder_Click" />
+                        <Button Content="复制最新日志到剪贴板" Margin="0,0,8,0"
+                                Style="{StaticResource GhostButtonStyle}" Click="CopyLatestLog_Click" />
                     </StackPanel>
 
-                    <Separator Margin="0,8,0,16" Background="#FF3D3D52" />
+                    <Separator Margin="0,8,0,16" />
 
                     <TextBlock Text="日志说明" FontSize="13" FontWeight="SemiBold"
-                               Foreground="{StaticResource TextPrimaryBrush}" Margin="0,0,0,6" />
+                               Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,6" />
                     <TextBlock TextWrapping="Wrap" FontSize="12"
-                               Foreground="{StaticResource TextSecondaryBrush}" LineHeight="20">
+                               Foreground="{DynamicResource TextSecondaryBrush}" LineHeight="20">
                         <Run Text="Logs saved to: &lt;projectRoot&gt;\logs\UsageMonitor-YYYY-MM-DD.log" />
                         <LineBreak /><LineBreak />
                         <Run Text="每个 MiniMax 用量查询的关键检查点都会写入日志，方便定位问题。" />

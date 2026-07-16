@@ -83,7 +83,27 @@ public class MiniMaxProvider : IUsageProvider
             placeholder: "Optional. If Key fails, try the Cookie from your logged-in browser"),
         new ConfigField("Region", "API Region", ConfigFieldType.Select, false,
             defaultValue: "CN",
-            options: new[] { "CN", "Global" })
+            options: new[] { "CN", "Global" }),
+        // 卡片显示控制 - 默认全开
+        new ConfigField("Show5hBar", "显示 5h 限额进度条", ConfigFieldType.Boolean, false,
+            defaultValue: "true"),
+        new ConfigField("ShowWeeklyBar", "显示 周限额 进度条", ConfigFieldType.Boolean, false,
+            defaultValue: "true"),
+        new ConfigField("ShowVideo5hBar", "显示 视频赠送 5h 进度条", ConfigFieldType.Boolean, false,
+            defaultValue: "true"),
+        new ConfigField("ShowVideoWeeklyBar", "显示 视频赠送 周 进度条", ConfigFieldType.Boolean, false,
+            defaultValue: "true")
+    };
+
+    /// <summary>
+    /// MiniMax 卡片在数据未到位时即应展示的渲染能力集合。
+    /// 与 <see cref="MiniMaxDomExtractor.BuildUsageInfo"/> 末段写入的 mm_render_kinds 保持一致，
+    /// 让首屏渲染时 5h/周/视频赠送/订阅胶囊等区块就先可见，数据刷新后再由运行时实际值覆盖。
+    /// </summary>
+    public IReadOnlyList<string> DefaultRenderKinds => new[]
+    {
+        "subscriptionTitle", "primaryBar", "weeklyBar", "videoProgress",
+        "summary", "ranking", "credits"
     };
 
     /// <summary>

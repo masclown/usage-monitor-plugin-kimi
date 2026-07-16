@@ -12,9 +12,10 @@ using Size = System.Windows.Size;
 namespace UsageMonitor.App.Controls;
 
 /// <summary>
-/// 迷你折线图控件
+/// 迷你折线图控件（任务栏 / 卡片使用）。
 /// - 展示用量历史趋势（X 轴：时间，Y 轴：已用百分比 0-100）
 /// - 自动根据最新数据点的百分比切换颜色：低（绿）→ 中（黄）→ 高（红）
+/// - 现代化：折线下方绘制同色低透明渐变面积填充，最新点带柔和发光圆点
 /// - 数据源为 IReadOnlyList&lt;double&gt;，通过 Values 依赖属性传入
 /// </summary>
 public class MiniLineChartControl : FrameworkElement
@@ -34,7 +35,7 @@ public class MiniLineChartControl : FrameworkElement
     /// <summary>线宽（像素）</summary>
     public static readonly DependencyProperty StrokeThicknessProperty = DependencyProperty.Register(
         nameof(StrokeThickness), typeof(double), typeof(MiniLineChartControl),
-        new FrameworkPropertyMetadata(1.5, FrameworkPropertyMetadataOptions.AffectsRender));
+        new FrameworkPropertyMetadata(1.8, FrameworkPropertyMetadataOptions.AffectsRender));
 
     /// <summary>低用量颜色（&lt; 60%）</summary>
     public static readonly DependencyProperty LowBrushProperty = DependencyProperty.Register(
@@ -110,7 +111,7 @@ public class MiniLineChartControl : FrameworkElement
         => InvalidateVisual();
 
     /// <summary>
-    /// 绘制折线图
+    /// 绘制折线图：渐变面积填充 + 折线 + 最新点发光圆点
     /// </summary>
     protected override void OnRender(DrawingContext dc)
     {
@@ -122,34 +123,49 @@ public class MiniLineChartControl : FrameworkElement
         if (values == null || values.Count < 2) return;
 
         var max = MaxValue <= 0 ? 100 : MaxValue;
-        var padding = StrokeThickness / 2.0;
+        var padding = StrokeThickness / 2.0 + 1.0;
         var plotWidth = Math.Max(0, width - padding * 2);
         var plotHeight = Math.Max(0, height - padding * 2);
+        var baseline = padding + plotHeight;
 
         // X 步长
         var stepX = plotWidth / (values.Count - 1);
 
-        // 计算点坐标
-        var figure = new StreamGeometry { FillRule = FillRule.EvenOdd };
-        using (var ctx = figure.Open())
+        // 计算所有点坐标
+        var points = new Point[values.Count];
+        for (int i = 0; i < values.Count; i++)
         {
-            for (int i = 0; i < values.Count; i++)
-            {
-                var v = values[i];
-                if (v < 0) v = 0;
-                if (v > max) v = max;
-                var x = padding + i * stepX;
-                var y = padding + plotHeight * (1.0 - v / max);
-                if (i == 0)
-                    ctx.BeginFigure(new Point(x, y), false, false);
-                else
-                    ctx.LineTo(new Point(x, y), true, false);
-            }
+            var v = values[i];
+            if (v < 0) v = 0;
+            if (v > max) v = max;
+            points[i] = new Point(padding + i * stepX, padding + plotHeight * (1.0 - v / max));
         }
-        figure.Freeze();
 
-        // 根据最新点确定颜色
         var brush = SelectBrush(values[values.Count - 1]);
+
+        // 1) 面积填充（折线 → 右下 → 左下 闭合），同色低透明
+        var areaFill = MakeTranslucent(brush, 0x33);
+        var area = new StreamGeometry { FillRule = FillRule.EvenOdd };
+        using (var ctx = area.Open())
+        {
+            ctx.BeginFigure(new Point(points[0].X, baseline), true, true);
+            ctx.LineTo(points[0], true, false);
+            for (int i = 1; i < points.Length; i++)
+                ctx.LineTo(points[i], true, false);
+            ctx.LineTo(new Point(points[^1].X, baseline), true, false);
+        }
+        area.Freeze();
+        dc.DrawGeometry(areaFill, null, area);
+
+        // 2) 折线
+        var line = new StreamGeometry();
+        using (var ctx = line.Open())
+        {
+            ctx.BeginFigure(points[0], false, false);
+            for (int i = 1; i < points.Length; i++)
+                ctx.LineTo(points[i], true, false);
+        }
+        line.Freeze();
         var pen = new Pen(brush, StrokeThickness)
         {
             LineJoin = PenLineJoin.Round,
@@ -157,17 +173,13 @@ public class MiniLineChartControl : FrameworkElement
             EndLineCap = PenLineCap.Round
         };
         if (pen.CanFreeze) pen.Freeze();
+        dc.DrawGeometry(null, pen, line);
 
-        dc.DrawGeometry(null, pen, figure);
-
-        // 在最新点绘制一个小圆点强调
-        var lastV = values[values.Count - 1];
-        if (lastV < 0) lastV = 0;
-        if (lastV > max) lastV = max;
-        var lastX = padding + (values.Count - 1) * stepX;
-        var lastY = padding + plotHeight * (1.0 - lastV / max);
-        var dotRadius = Math.Max(1.5, StrokeThickness);
-        dc.DrawEllipse(brush, null, new Point(lastX, lastY), dotRadius, dotRadius);
+        // 3) 最新点发光圆点：外圈低透明 + 内圈实心
+        var last = points[^1];
+        var dot = Math.Max(1.6, StrokeThickness);
+        dc.DrawEllipse(MakeTranslucent(brush, 0x40), null, last, dot * 2.2, dot * 2.2);
+        dc.DrawEllipse(brush, null, last, dot, dot);
     }
 
     /// <summary>
@@ -178,5 +190,23 @@ public class MiniLineChartControl : FrameworkElement
         if (percent >= 85) return HighBrush;
         if (percent >= 60) return MidBrush;
         return LowBrush;
+    }
+
+    /// <summary>
+    /// 从一个 Brush 派生出指定透明度的同色画笔（用于面积填充/发光）。
+    /// 非 SolidColorBrush 时回退为半透明灰。
+    /// </summary>
+    private static Brush MakeTranslucent(Brush source, byte alpha)
+    {
+        if (source is SolidColorBrush scb)
+        {
+            var c = scb.Color;
+            var b = new SolidColorBrush(Color.FromArgb(alpha, c.R, c.G, c.B));
+            b.Freeze();
+            return b;
+        }
+        var fallback = new SolidColorBrush(Color.FromArgb(alpha, 0x94, 0xA3, 0xB8));
+        fallback.Freeze();
+        return fallback;
     }
 }

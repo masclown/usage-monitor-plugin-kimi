@@ -3,6 +3,8 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using UsageMonitor.Core.Models;
 using UsageMonitor.Core.Services;
+using UsageMonitor.App.Controls;
+using UsageMonitor.App.Helpers;
 using UsageMonitor.Plugin.MiniMax;
 
 // WinForms/WPF命名空间冲突解决：使用别名
@@ -33,6 +35,12 @@ public partial class PluginConfigWindow : Window
     private readonly BrowserLoginConfig? _loginConfig;
     private readonly Dictionary<string, FrameworkElement> _inputControls = new();
 
+    /// <summary>当前选中的卡片图表类型（保存时由调用方读取持久化）。</summary>
+    private CardChartKind _selectedCardChart;
+
+    /// <summary>用户在本窗口选择的卡片图表类型。调用方在 ShowDialog 返回 true 后读取。</summary>
+    public CardChartKind SelectedCardChartKind => _selectedCardChart;
+
     /// <summary>
     /// 正在登录中的 ProviderId 集合（进程级共享，避免同一插件重复触发登录）。
     /// <para>
@@ -60,15 +68,18 @@ public partial class PluginConfigWindow : Window
         string pluginName,
         IReadOnlyList<ConfigField> configFields,
         ProviderConfig config,
-        BrowserLoginConfig? loginConfig = null)
+        BrowserLoginConfig? loginConfig = null,
+        CardChartKind currentCardChart = CardChartKind.None)
     {
         InitializeComponent();
         _configFields = configFields;
         _config = config;
         _loginConfig = loginConfig;
+        _selectedCardChart = currentCardChart;
 
         TitleText.Text = $"{pluginName} 配置";
         BuildForm();
+        BuildCardChartSection();
 
         // 当插件声明了登录需求时，显示通用的"获取登录态"按钮
         if (_loginConfig != null)
@@ -76,6 +87,103 @@ public partial class PluginConfigWindow : Window
             GetCookieButton.Content = _loginConfig.UiButtonText ?? "🌐 获取登录态";
             GetCookieButton.Visibility = Visibility.Visible;
         }
+    }
+
+    /// <summary>构建"卡片图表"下拉选项并渲染初始预览。</summary>
+    private void BuildCardChartSection()
+    {
+        var options = new[]
+        {
+            new KeyValuePair<CardChartKind, string>(CardChartKind.None, "不显示"),
+            new KeyValuePair<CardChartKind, string>(CardChartKind.Line, "折线图"),
+            new KeyValuePair<CardChartKind, string>(CardChartKind.Bar, "柱状图"),
+            new KeyValuePair<CardChartKind, string>(CardChartKind.Ring, "圆环图"),
+            new KeyValuePair<CardChartKind, string>(CardChartKind.HeatMap, "热力图"),
+            new KeyValuePair<CardChartKind, string>(CardChartKind.DayNightArc, "编程时段"),
+        };
+        CardChartCombo.ItemsSource = options;
+        CardChartCombo.SelectedValue = _selectedCardChart;
+        RefreshCardChartPreview();
+    }
+
+    /// <summary>下拉选择变化：更新选中值并刷新预览。</summary>
+    private void OnCardChartSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (CardChartCombo.SelectedValue is CardChartKind kind)
+        {
+            _selectedCardChart = kind;
+            RefreshCardChartPreview();
+        }
+    }
+
+    /// <summary>
+    /// 按当前选择用示例数据重建预览控件（主题感知；真实数据接入后只需替换数据源）。
+    /// </summary>
+    private void RefreshCardChartPreview()
+    {
+        if (CardChartPreviewHost == null) return;
+        FrameworkElement child;
+        switch (_selectedCardChart)
+        {
+            case CardChartKind.Line:
+            {
+                var c = new MiniLineChartControl { Values = SampleChartData.UsageTrend, StrokeThickness = 2.4 };
+                c.SetResourceReference(MiniLineChartControl.LowBrushProperty, "UsageLowBrush");
+                c.SetResourceReference(MiniLineChartControl.MidBrushProperty, "UsageMidBrush");
+                c.SetResourceReference(MiniLineChartControl.HighBrushProperty, "UsageHighBrush");
+                child = c;
+                break;
+            }
+            case CardChartKind.Bar:
+            {
+                var c = new BarChartControl { Values = SampleChartData.DailyBars };
+                c.SetResourceReference(BarChartControl.BarBrushProperty, "AccentGradientBrush");
+                c.SetResourceReference(BarChartControl.GridLineBrushProperty, "ChartAxisBrush");
+                c.SetResourceReference(BarChartControl.TextBrushProperty, "TextSecondaryBrush");
+                child = c;
+                break;
+            }
+            case CardChartKind.Ring:
+            {
+                var c = new RingChartControl
+                {
+                    Percent = 68, Size = 120, StrokeThickness = 12,
+                    HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
+                    VerticalAlignment = System.Windows.VerticalAlignment.Center
+                };
+                c.SetResourceReference(RingChartControl.TrackBrushProperty, "TrackBrush");
+                c.SetResourceReference(RingChartControl.ProgressBrushProperty, "AccentBrush");
+                c.SetResourceReference(RingChartControl.WarningBrushProperty, "WarningBrush");
+                c.SetResourceReference(RingChartControl.DangerBrushProperty, "DangerBrush");
+                child = c;
+                break;
+            }
+            case CardChartKind.HeatMap:
+                child = new HeatMapPlaceholder();
+                break;
+            case CardChartKind.DayNightArc:
+            {
+                var c = new DayNightArcControl { HourlyActivity = SampleChartData.HourlyActivity };
+                c.SetResourceReference(DayNightArcControl.TrackBrushProperty, "TextTertiaryBrush");
+                c.SetResourceReference(DayNightArcControl.AccentBrushProperty, "AccentBrush");
+                c.SetResourceReference(DayNightArcControl.TextBrushProperty, "TextSecondaryBrush");
+                child = c;
+                break;
+            }
+            default:
+            {
+                var tb = new TextBlock
+                {
+                    Text = "不显示图表（仅保留进度条）", FontSize = 13,
+                    HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
+                    VerticalAlignment = System.Windows.VerticalAlignment.Center
+                };
+                tb.SetResourceReference(TextBlock.ForegroundProperty, "TextSecondaryBrush");
+                child = tb;
+                break;
+            }
+        }
+        CardChartPreviewHost.Child = child;
     }
 
     /// <summary>
@@ -97,9 +205,9 @@ public partial class PluginConfigWindow : Window
             var emptyText = new TextBlock
             {
                 Text = "此插件无需配置",
-                FontSize = 14,
-                Foreground = new SolidColorBrush(Color.FromRgb(148, 163, 184))
+                FontSize = 14
             };
+            emptyText.SetResourceReference(TextBlock.ForegroundProperty, "TextSecondaryBrush");
             FormPanel.Children.Add(emptyText);
         }
     }
@@ -115,19 +223,17 @@ public partial class PluginConfigWindow : Window
         var label = new TextBlock
         {
             FontSize = 13,
-            Foreground = new SolidColorBrush(Color.FromRgb(148, 163, 184)),
             Margin = new Thickness(0, 0, 0, 4)
         };
+        label.SetResourceReference(TextBlock.ForegroundProperty, "TextSecondaryBrush");
 
         var labelRun = new System.Windows.Documents.Run(field.DisplayName);
         label.Inlines.Add(labelRun);
 
         if (field.IsRequired)
         {
-            var requiredRun = new System.Windows.Documents.Run(" *")
-            {
-                Foreground = new SolidColorBrush(Color.FromRgb(220, 38, 38))
-            };
+            var requiredRun = new System.Windows.Documents.Run(" *");
+            requiredRun.SetResourceReference(System.Windows.Documents.Run.ForegroundProperty, "DangerBrush");
             label.Inlines.Add(requiredRun);
         }
 
@@ -153,9 +259,9 @@ public partial class PluginConfigWindow : Window
             {
                 Text = field.Placeholder,
                 FontSize = 11,
-                Foreground = new SolidColorBrush(Color.FromRgb(100, 116, 139)),
                 Margin = new Thickness(0, 2, 0, 0)
             };
+            hint.SetResourceReference(TextBlock.ForegroundProperty, "TextTertiaryBrush");
             panel.Children.Add(hint);
         }
 
@@ -176,12 +282,6 @@ public partial class PluginConfigWindow : Window
         return new WpfTextBox
         {
             Text = currentValue,
-            Padding = new Thickness(10, 8, 10, 8),
-            FontSize = 14,
-            Background = new SolidColorBrush(Color.FromRgb(45, 45, 63)),
-            Foreground = new SolidColorBrush(Color.FromRgb(226, 232, 240)),
-            BorderBrush = new SolidColorBrush(Color.FromRgb(61, 61, 82)),
-            BorderThickness = new Thickness(1),
             Tag = field.Key
         };
     }
@@ -200,12 +300,6 @@ public partial class PluginConfigWindow : Window
         var passwordBox = new WpfPasswordBox
         {
             Password = currentValue,
-            Padding = new Thickness(10, 8, 10, 8),
-            FontSize = 14,
-            Background = new SolidColorBrush(Color.FromRgb(45, 45, 63)),
-            Foreground = new SolidColorBrush(Color.FromRgb(226, 232, 240)),
-            BorderBrush = new SolidColorBrush(Color.FromRgb(61, 61, 82)),
-            BorderThickness = new Thickness(1),
             Tag = field.Key
         };
         Grid.SetColumn(passwordBox, 0);
@@ -214,25 +308,14 @@ public partial class PluginConfigWindow : Window
         var toggleBtn = new WpfButton
         {
             Content = "显示",
-            Padding = new Thickness(10, 8, 10, 8),
             Margin = new Thickness(8, 0, 0, 0),
-            FontSize = 12,
-            Background = new SolidColorBrush(Color.FromRgb(45, 45, 63)),
-            Foreground = new SolidColorBrush(Color.FromRgb(148, 163, 184)),
-            BorderThickness = new Thickness(0),
-            Cursor = System.Windows.Input.Cursors.Hand
+            Style = (Style)FindResource("GhostButtonStyle")
         };
 
         var textBox = new WpfTextBox
         {
             Text = currentValue,
-            Padding = new Thickness(10, 8, 10, 8),
-            FontSize = 14,
             Visibility = Visibility.Collapsed,
-            Background = new SolidColorBrush(Color.FromRgb(45, 45, 63)),
-            Foreground = new SolidColorBrush(Color.FromRgb(226, 232, 240)),
-            BorderBrush = new SolidColorBrush(Color.FromRgb(61, 61, 82)),
-            BorderThickness = new Thickness(1),
             Tag = field.Key
         };
 
@@ -261,9 +344,7 @@ public partial class PluginConfigWindow : Window
         Grid.SetColumn(toggleBtn, 1);
         grid.Children.Add(toggleBtn);
 
-        // 设置 Template 使按钮圆角
-        toggleBtn.Template = CreateRoundedButtonTemplate();
-
+        // 将包装器保存到 Tag 供取值（按钮样式已改用全局 GhostButtonStyle）
         grid.Tag = new PasswordBoxWrapper(passwordBox, textBox);
         return grid;
     }
@@ -291,10 +372,6 @@ public partial class PluginConfigWindow : Window
         var currentValue = _config.GetValue(field.Key) ?? field.DefaultValue ?? "";
         var comboBox = new WpfComboBox
         {
-            Padding = new Thickness(10, 8, 10, 8),
-            FontSize = 14,
-            Background = new SolidColorBrush(Color.FromRgb(45, 45, 63)),
-            Foreground = new SolidColorBrush(Color.FromRgb(226, 232, 240)),
             Tag = field.Key
         };
 

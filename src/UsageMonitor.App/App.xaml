@@ -4,31 +4,34 @@
              xmlns:helpers="clr-namespace:UsageMonitor.App.Helpers"
              ShutdownMode="OnExplicitShutdown">
     <Application.Resources>
-        <!-- 全局颜色资源 -->
-        <Color x:Key="PrimaryColor">#FF2563EB</Color>
-        <Color x:Key="SuccessColor">#FF16A34A</Color>
-        <Color x:Key="WarningColor">#FFD97706</Color>
-        <Color x:Key="DangerColor">#FFDC2626</Color>
-        <Color x:Key="BgColor">#FF1E1E2E</Color>
-        <Color x:Key="SurfaceColor">#FF2D2D3F</Color>
-        <Color x:Key="TextPrimaryColor">#FFE2E8F0</Color>
-        <Color x:Key="TextSecondaryColor">#FF94A3B8</Color>
-        
-        <SolidColorBrush x:Key="PrimaryBrush" Color="{StaticResource PrimaryColor}" />
-        <SolidColorBrush x:Key="SuccessBrush" Color="{StaticResource SuccessColor}" />
-        <SolidColorBrush x:Key="WarningBrush" Color="{StaticResource WarningColor}" />
-        <SolidColorBrush x:Key="DangerBrush" Color="{StaticResource DangerColor}" />
-        <SolidColorBrush x:Key="BgBrush" Color="{StaticResource BgColor}" />
-        <SolidColorBrush x:Key="SurfaceBrush" Color="{StaticResource SurfaceColor}" />
-        <SolidColorBrush x:Key="TextPrimaryBrush" Color="{StaticResource TextPrimaryColor}" />
-        <SolidColorBrush x:Key="TextSecondaryBrush" Color="{StaticResource TextSecondaryColor}" />
+        <ResourceDictionary>
+            <!-- 值转换器：不随主题变化，作为内联资源保留（必须先于 MergedDictionaries 声明）。
+                 主题颜色/画笔已全部迁入 Themes/Dark.xaml、Themes/Light.xaml，
+                 通过 ThemeManager 在运行时替换主题字典实现换肤。 -->
+            <helpers:BoolToVisibilityConverter x:Key="BoolToVisibility" />
+            <helpers:BoolToOpacityConverter x:Key="BoolToOpacity" />
+            <helpers:ErrorColorConverter x:Key="ErrorColorConverter" />
+            <helpers:PercentageWidthConverter x:Key="PercentageWidthConverter" />
+            <helpers:PercentageToWidthConverter x:Key="PercentageToWidthConverter" />
+            <helpers:StringToVisibilityConverter x:Key="StringToVisibility" />
+            <helpers:RenderKindToVisibilityConverter x:Key="RenderKindToVisibility" />
+            <helpers:SubscriptionTitleActiveConverter x:Key="SubscriptionTitleActive" />
+            <helpers:PercentToBrushConverter x:Key="PercentToBrush" />
+            <helpers:MultiVisibilityAndConverter x:Key="MultiVisibilityAnd" />
+            <helpers:MultiVisibilityOrConverter x:Key="MultiVisibilityOr" />
+            <helpers:RemainingPrefixConverter x:Key="RemainingPrefix" />
+            <helpers:EnumToVisibilityConverter x:Key="EnumToVisibility" />
 
-        <!-- 值转换器 -->
-        <helpers:BoolToVisibilityConverter x:Key="BoolToVisibility" />
-        <helpers:BoolToOpacityConverter x:Key="BoolToOpacity" />
-        <helpers:ErrorColorConverter x:Key="ErrorColorConverter" />
-        <helpers:PercentageWidthConverter x:Key="PercentageWidthConverter" />
-        <helpers:PercentageToWidthConverter x:Key="PercentageToWidthConverter" />
-        <helpers:StringToVisibilityConverter x:Key="StringToVisibility" />
+            <ResourceDictionary.MergedDictionaries>
+                <!-- 顺序：Tokens（主题无关） → 主题（默认 Dark，运行时可被 ThemeManager 替换为 Light）
+                     → Styles（隐式/命名样式，全部用 DynamicResource 引用主题画笔）
+                     → 卡片主题 → 热力图占位默认样式。 -->
+                <ResourceDictionary Source="Themes/Tokens.xaml" />
+                <ResourceDictionary Source="Themes/Dark.xaml" />
+                <ResourceDictionary Source="Themes/Styles.xaml" />
+                <ResourceDictionary Source="Themes/CardThemes/UsageCardTheme.xaml" />
+                <ResourceDictionary Source="Themes/ControlDefaults/HeatMapPlaceholder.Generic.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
     </Application.Resources>
 </Application>

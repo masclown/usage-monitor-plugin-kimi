@@ -68,14 +68,22 @@ public class UsageInfo
     }
 
     /// <summary>
-    /// 获取用于任务栏显示的简短文本
+    /// 获取用于系统托盘图标原生悬停提示（NotifyIcon.Text）的简短文本。
+    /// 首分支（有总额度）返回的是“剩余”额度/百分比（MiniMax 为剩余百分比），故加“剩余”前缀，
+    /// 与任务栏文字模式保持一致，避免被误读为已用；已用 tokens 分支为“已用”值故不加前缀。
     /// </summary>
     public string GetShortDisplayText()
     {
         if (!IsSuccess) return $"{ProviderName}: 错误";
 
         if (TotalAmount > 0)
-            return $"{ProviderName}: {GetRemainingAmount():F2} {Unit}";
+        {
+            // 剩余百分比（Unit=="%"）取整显示、不带小数；其它单位（如货币 USD）仍保留两位小数
+            var remainingText = Unit == "%"
+                ? GetRemainingAmount().ToString("F0")
+                : GetRemainingAmount().ToString("F2");
+            return $"{ProviderName}: 剩余 {remainingText} {Unit}";
+        }
 
         if (UsedTokens > 0)
             return $"{ProviderName}: {FormatTokenCount(UsedTokens)} tokens";

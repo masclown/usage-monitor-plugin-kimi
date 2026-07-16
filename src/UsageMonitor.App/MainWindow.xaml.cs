@@ -28,6 +28,17 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
+    /// 打开历史窗口。委托给 App 单例的 ShowHistoryWindow，避免重复创建 VM。
+    /// </summary>
+    private void OnHistoryClick(object sender, RoutedEventArgs e)
+    {
+        if (System.Windows.Application.Current is App app)
+        {
+            app.ShowHistoryWindow();
+        }
+    }
+
+    /// <summary>
     /// 关闭窗口时隐藏而非退出（最小化到托盘）
     /// </summary>
     protected override void OnClosing(System.ComponentModel.CancelEventArgs e)

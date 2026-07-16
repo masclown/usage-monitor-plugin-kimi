@@ -1,6 +1,7 @@
 # 开发临时文档
 ## 开发说明文档
 .devdoc/
+.dev_require/
 
 ## 日志
 logs/
