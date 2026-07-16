@@ -35,11 +35,15 @@ public partial class PluginConfigWindow : Window
     private readonly BrowserLoginConfig? _loginConfig;
     private readonly Dictionary<string, FrameworkElement> _inputControls = new();
 
-    /// <summary>当前选中的卡片图表类型（保存时由调用方读取持久化）。</summary>
-    private CardChartKind _selectedCardChart;
+    /// <summary>插件声明支持的图表类型（用于生成复选框，保持声明顺序）。</summary>
+    private readonly IReadOnlyList<CardChartKind> _supportedCardCharts;
 
-    /// <summary>用户在本窗口选择的卡片图表类型。调用方在 ShowDialog 返回 true 后读取。</summary>
-    public CardChartKind SelectedCardChartKind => _selectedCardChart;
+    /// <summary>当前勾选的卡片图表类型集合（保存时由调用方读取持久化）。</summary>
+    private readonly HashSet<CardChartKind> _selectedCardCharts = new();
+
+    /// <summary>用户在本窗口勾选的卡片图表类型集合（按声明顺序）。调用方在 ShowDialog 返回 true 后读取。</summary>
+    public IReadOnlyList<CardChartKind> SelectedCardChartKinds
+        => _supportedCardCharts.Where(_selectedCardCharts.Contains).ToList();
 
     /// <summary>
     /// 正在登录中的 ProviderId 集合（进程级共享，避免同一插件重复触发登录）。
@@ -69,13 +73,16 @@ public partial class PluginConfigWindow : Window
         IReadOnlyList<ConfigField> configFields,
         ProviderConfig config,
         BrowserLoginConfig? loginConfig = null,
-        CardChartKind currentCardChart = CardChartKind.None)
+        IReadOnlyList<CardChartKind>? supportedCardCharts = null,
+        IReadOnlyList<CardChartKind>? currentCardCharts = null)
     {
         InitializeComponent();
         _configFields = configFields;
         _config = config;
         _loginConfig = loginConfig;
-        _selectedCardChart = currentCardChart;
+        _supportedCardCharts = supportedCardCharts ?? System.Array.Empty<CardChartKind>();
+        if (currentCardCharts != null)
+            foreach (var k in currentCardCharts) _selectedCardCharts.Add(k);
 
         TitleText.Text = $"{pluginName} 配置";
         BuildForm();
@@ -89,41 +96,116 @@ public partial class PluginConfigWindow : Window
         }
     }
 
-    /// <summary>构建"卡片图表"下拉选项并渲染初始预览。</summary>
+    /// <summary>
+    /// 根据插件声明的 <see cref="_supportedCardCharts"/> 动态生成卡片图表复选框（多选）并渲染初始预览。
+    /// 插件未声明任何图表时隐藏整个「卡片图表」分组。
+    /// </summary>
     private void BuildCardChartSection()
     {
-        var options = new[]
+        if (_supportedCardCharts.Count == 0)
         {
-            new KeyValuePair<CardChartKind, string>(CardChartKind.None, "不显示"),
-            new KeyValuePair<CardChartKind, string>(CardChartKind.Line, "折线图"),
-            new KeyValuePair<CardChartKind, string>(CardChartKind.Bar, "柱状图"),
-            new KeyValuePair<CardChartKind, string>(CardChartKind.Ring, "圆环图"),
-            new KeyValuePair<CardChartKind, string>(CardChartKind.HeatMap, "热力图"),
-            new KeyValuePair<CardChartKind, string>(CardChartKind.DayNightArc, "编程时段"),
-        };
-        CardChartCombo.ItemsSource = options;
-        CardChartCombo.SelectedValue = _selectedCardChart;
+            CardChartSection.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        CardChartCheckPanel.Children.Clear();
+        foreach (var kind in _supportedCardCharts)
+        {
+            var cb = new WpfCheckBox
+            {
+                Content = DescribeChartKind(kind),
+                IsChecked = _selectedCardCharts.Contains(kind),
+                Tag = kind,
+                Margin = new Thickness(0, 4, 0, 4)
+            };
+            cb.Checked += OnCardChartCheckChanged;
+            cb.Unchecked += OnCardChartCheckChanged;
+            CardChartCheckPanel.Children.Add(cb);
+        }
         RefreshCardChartPreview();
     }
 
-    /// <summary>下拉选择变化：更新选中值并刷新预览。</summary>
-    private void OnCardChartSelectionChanged(object sender, SelectionChangedEventArgs e)
+    /// <summary>图表类型 → 复选框中文标签。</summary>
+    private static string DescribeChartKind(CardChartKind kind) => kind switch
     {
-        if (CardChartCombo.SelectedValue is CardChartKind kind)
+        CardChartKind.Line => "折线图",
+        CardChartKind.Bar => "柱状图",
+        CardChartKind.Ring => "圆环图",
+        CardChartKind.HeatMap => "热力图",
+        CardChartKind.DayNightArc => "编程时段",
+        _ => kind.ToString()
+    };
+
+    /// <summary>复选框勾选变化：更新选中集合并刷新预览。</summary>
+    private void OnCardChartCheckChanged(object sender, RoutedEventArgs e)
+    {
+        if (sender is WpfCheckBox cb && cb.Tag is CardChartKind kind)
         {
-            _selectedCardChart = kind;
+            if (cb.IsChecked == true) _selectedCardCharts.Add(kind);
+            else _selectedCardCharts.Remove(kind);
             RefreshCardChartPreview();
         }
     }
 
     /// <summary>
-    /// 按当前选择用示例数据重建预览控件（主题感知；真实数据接入后只需替换数据源）。
+    /// 按当前勾选，用示例数据垂直堆叠重建所有选中图表的预览（主题感知；真实数据接入后卡片会用真实序列）。
     /// </summary>
     private void RefreshCardChartPreview()
     {
         if (CardChartPreviewHost == null) return;
-        FrameworkElement child;
-        switch (_selectedCardChart)
+        CardChartPreviewHost.Children.Clear();
+
+        foreach (var kind in _supportedCardCharts.Where(_selectedCardCharts.Contains))
+            CardChartPreviewHost.Children.Add(BuildPreviewBlock(kind));
+
+        if (CardChartPreviewHost.Children.Count == 0)
+        {
+            var tb = new TextBlock
+            {
+                Text = "未选择图表（卡片仅显示进度条）", FontSize = 12,
+                HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
+                Margin = new Thickness(0, 12, 0, 12)
+            };
+            tb.SetResourceReference(TextBlock.ForegroundProperty, "TextSecondaryBrush");
+            CardChartPreviewHost.Children.Add(tb);
+        }
+    }
+
+    /// <summary>为单个图表类型构建「标题 + 示例图表」的预览块（带主题感知边框）。</summary>
+    private FrameworkElement BuildPreviewBlock(CardChartKind kind)
+    {
+        var container = new Border
+        {
+            Margin = new Thickness(0, 0, 0, 10),
+            Padding = new Thickness(10),
+            BorderThickness = new Thickness(1)
+        };
+        container.SetResourceReference(Border.BackgroundProperty, "SurfaceAltBrush");
+        container.SetResourceReference(Border.BorderBrushProperty, "DividerBrush");
+        container.SetResourceReference(Border.CornerRadiusProperty, "RadiusSmall");
+
+        var stack = new StackPanel();
+        var title = new TextBlock
+        {
+            Text = DescribeChartKind(kind), FontSize = 12, FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 0, 0, 6)
+        };
+        title.SetResourceReference(TextBlock.ForegroundProperty, "TextSecondaryBrush");
+        stack.Children.Add(title);
+
+        // 热力图控件本身 MinHeight≈150，给更高的容器避免被裁剪；其它图表用统一 132 高度。
+        var host = new Border { Height = kind == CardChartKind.HeatMap ? 170 : 132 };
+        host.Child = BuildSampleChart(kind);
+        stack.Children.Add(host);
+
+        container.Child = stack;
+        return container;
+    }
+
+    /// <summary>按图表类型创建示例控件（沿用原预览逻辑，热力图改用 YearHeatMapControl 示例日历）。</summary>
+    private FrameworkElement BuildSampleChart(CardChartKind kind)
+    {
+        switch (kind)
         {
             case CardChartKind.Line:
             {
@@ -131,8 +213,7 @@ public partial class PluginConfigWindow : Window
                 c.SetResourceReference(MiniLineChartControl.LowBrushProperty, "UsageLowBrush");
                 c.SetResourceReference(MiniLineChartControl.MidBrushProperty, "UsageMidBrush");
                 c.SetResourceReference(MiniLineChartControl.HighBrushProperty, "UsageHighBrush");
-                child = c;
-                break;
+                return c;
             }
             case CardChartKind.Bar:
             {
@@ -140,8 +221,7 @@ public partial class PluginConfigWindow : Window
                 c.SetResourceReference(BarChartControl.BarBrushProperty, "AccentGradientBrush");
                 c.SetResourceReference(BarChartControl.GridLineBrushProperty, "ChartAxisBrush");
                 c.SetResourceReference(BarChartControl.TextBrushProperty, "TextSecondaryBrush");
-                child = c;
-                break;
+                return c;
             }
             case CardChartKind.Ring:
             {
@@ -155,35 +235,66 @@ public partial class PluginConfigWindow : Window
                 c.SetResourceReference(RingChartControl.ProgressBrushProperty, "AccentBrush");
                 c.SetResourceReference(RingChartControl.WarningBrushProperty, "WarningBrush");
                 c.SetResourceReference(RingChartControl.DangerBrushProperty, "DangerBrush");
-                child = c;
-                break;
+                return c;
             }
             case CardChartKind.HeatMap:
-                child = new HeatMapPlaceholder();
-                break;
+            {
+                var c = new YearHeatMapControl { Cells = BuildSampleHeatMapCells() };
+                c.SetResourceReference(YearHeatMapControl.EmptyCellBrushProperty, "TrackBrush");
+                c.SetResourceReference(YearHeatMapControl.TextBrushProperty, "TextSecondaryBrush");
+                return c;
+            }
             case CardChartKind.DayNightArc:
             {
                 var c = new DayNightArcControl { HourlyActivity = SampleChartData.HourlyActivity };
                 c.SetResourceReference(DayNightArcControl.TrackBrushProperty, "TextTertiaryBrush");
                 c.SetResourceReference(DayNightArcControl.AccentBrushProperty, "AccentBrush");
                 c.SetResourceReference(DayNightArcControl.TextBrushProperty, "TextSecondaryBrush");
-                child = c;
-                break;
+                return c;
             }
             default:
             {
                 var tb = new TextBlock
                 {
-                    Text = "不显示图表（仅保留进度条）", FontSize = 13,
+                    Text = "（无预览）", FontSize = 12,
                     HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
                     VerticalAlignment = System.Windows.VerticalAlignment.Center
                 };
                 tb.SetResourceReference(TextBlock.ForegroundProperty, "TextSecondaryBrush");
-                child = tb;
-                break;
+                return tb;
             }
         }
-        CardChartPreviewHost.Child = child;
+    }
+
+    /// <summary>为热力图预览生成一批示例日历单元（最近约 5 周、循环取示例强度）。</summary>
+    private static IEnumerable<YearHeatMapCell> BuildSampleHeatMapCells()
+    {
+        var cells = new List<YearHeatMapCell>();
+        var start = System.DateTime.Today.AddDays(-34);
+        var sample = SampleChartData.UsageTrend;
+        for (int i = 0; i < 35; i++)
+        {
+            var pct = sample[i % sample.Count];
+            cells.Add(new YearHeatMapCell
+            {
+                Day = start.AddDays(i).ToString("yyyy-MM-dd"),
+                Percent = pct,
+                Background = PreviewHeatBrush(pct)
+            });
+        }
+        return cells;
+    }
+
+    /// <summary>示例热力图三档画笔（低绿/中橙/高红），Freeze 后可安全绑定。</summary>
+    private static System.Windows.Media.Brush PreviewHeatBrush(double percent)
+    {
+        byte r, g, b;
+        if (percent >= 66) { r = 0xEF; g = 0x44; b = 0x44; }
+        else if (percent >= 33) { r = 0xF5; g = 0x9E; b = 0x0B; }
+        else { r = 0x22; g = 0xC5; b = 0x5E; }
+        var brush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(r, g, b));
+        brush.Freeze();
+        return brush;
     }
 
     /// <summary>

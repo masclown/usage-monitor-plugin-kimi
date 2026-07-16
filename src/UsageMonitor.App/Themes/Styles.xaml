@@ -155,6 +155,39 @@
         </Setter>
     </Style>
 
+    <!-- 图标按钮：透明底 + 悬停显示强调色浅底（用于仅图标的次要操作，如卡片刷新；悬停时浮现强调软色底增强交互反馈） -->
+    <Style x:Key="IconButtonStyle" TargetType="Button">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+        <Setter Property="FontFamily" Value="{DynamicResource AppFontFamily}" />
+        <Setter Property="FontSize" Value="14" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Padding" Value="7,5" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="bd" Background="{TemplateBinding Background}"
+                            CornerRadius="{DynamicResource RadiusSmall}" Padding="{TemplateBinding Padding}">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <!-- 悬停：透明底 → 强调软色底，形成轻量交互反馈 -->
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="bd" Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="bd" Property="Opacity" Value="0.75" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="bd" Property="Opacity" Value="0.45" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <!-- ============ 输入控件（隐式，全局生效） ============ -->
     <Style TargetType="TextBox">
         <Setter Property="Background" Value="{DynamicResource MutedBrush}" />

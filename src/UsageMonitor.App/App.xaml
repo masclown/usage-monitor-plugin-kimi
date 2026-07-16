@@ -21,6 +21,7 @@
             <helpers:MultiVisibilityOrConverter x:Key="MultiVisibilityOr" />
             <helpers:RemainingPrefixConverter x:Key="RemainingPrefix" />
             <helpers:EnumToVisibilityConverter x:Key="EnumToVisibility" />
+            <helpers:CardChartKindsContainsConverter x:Key="CardChartKindsContains" />
 
             <ResourceDictionary.MergedDictionaries>
                 <!-- 顺序：Tokens（主题无关） → 主题（默认 Dark，运行时可被 ThemeManager 替换为 Light）

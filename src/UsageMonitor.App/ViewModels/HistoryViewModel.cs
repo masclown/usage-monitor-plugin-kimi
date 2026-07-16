@@ -492,15 +492,12 @@ public class HistoryViewModel : INotifyPropertyChanged
     }
 
     /// <summary>
-    /// 把 EndUsedPercent (0-100) 映射为项目 PercentToBrushConverter 同款的三档刷子。
-    /// 历史窗口在 XAML 端也可以直接绑 PercentToBrushConverter，这里保留代码端兜底。
+    /// 把 EndUsedPercent (0-100) 映射为与全局一致的分档刷子（低绿 / 注意金 #facd14 / 中橙 / 高红）。
+    /// 档位与颜色统一由 <see cref="UsageMonitor.App.Helpers.UsageTierScale"/> 定义，
+    /// 使历史窗口热力图与主界面进度条保持完全一致（含 50% 金色档）。
     /// </summary>
     private static Brush SelectHeatMapBrush(double percent)
-    {
-        if (percent >= 85.0) return new SolidColorBrush(System.Windows.Media.Color.FromRgb(0xF1, 0x41, 0x24));
-        if (percent >= 60.0) return new SolidColorBrush(System.Windows.Media.Color.FromRgb(0xF7, 0x72, 0x34));
-        return new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x00, 0xB4, 0x2A));
-    }
+        => UsageMonitor.App.Helpers.UsageTierScale.ResolveBrush(percent);
 
     /// <summary>
     /// 把 SelectedRange 转成 (from, to) 时间范围。

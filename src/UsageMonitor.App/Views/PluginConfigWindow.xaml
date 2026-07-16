@@ -28,21 +28,20 @@
                 <!-- 动态表单区域（代码根据 ConfigFields 填充） -->
                 <StackPanel x:Name="FormPanel" />
 
-                <!-- 卡片图表分组 -->
-                <Separator Margin="0,8,0,14" />
-                <TextBlock Text="卡片图表" FontSize="15" FontWeight="SemiBold"
-                           Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,4" />
-                <TextBlock Text="选择在主窗口该服务商卡片中展示的图表类型（下方为示例预览）"
-                           FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
-                           Margin="0,0,0,8" TextWrapping="Wrap" />
-                <ComboBox x:Name="CardChartCombo" Width="180" HorizontalAlignment="Left"
-                          DisplayMemberPath="Value" SelectedValuePath="Key"
-                          SelectionChanged="OnCardChartSelectionChanged" />
+                <!-- 卡片图表分组（根据插件声明的 SupportedCardCharts 动态生成复选框，支持多选） -->
+                <StackPanel x:Name="CardChartSection">
+                    <Separator Margin="0,8,0,14" />
+                    <TextBlock Text="卡片图表" FontSize="15" FontWeight="SemiBold"
+                               Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,4" />
+                    <TextBlock Text="勾选要在主窗口该服务商卡片中展示的图表（可多选，下方为示例预览）"
+                               FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
+                               Margin="0,0,0,8" TextWrapping="Wrap" />
+                    <!-- 复选框容器：代码根据插件支持的图表类型动态填充 -->
+                    <StackPanel x:Name="CardChartCheckPanel" />
 
-                <Border x:Name="CardChartPreviewHost" Height="160" Margin="0,12,0,0"
-                        Background="{DynamicResource SurfaceAltBrush}"
-                        BorderBrush="{DynamicResource DividerBrush}" BorderThickness="1"
-                        CornerRadius="{DynamicResource RadiusSmall}" Padding="10" />
+                    <!-- 预览区：垂直堆叠所有已勾选图表的示例 -->
+                    <StackPanel x:Name="CardChartPreviewHost" Margin="0,12,0,0" />
+                </StackPanel>
             </StackPanel>
         </ScrollViewer>
 

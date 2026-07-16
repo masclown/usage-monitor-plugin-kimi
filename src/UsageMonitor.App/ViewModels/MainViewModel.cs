@@ -7,6 +7,7 @@ using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Input;
 using CommunityToolkit.Mvvm.Input;
+using UsageMonitor.App.Controls;
 using UsageMonitor.Core.Models;
 using UsageMonitor.Core.Plugins;
 using UsageMonitor.Core.Services;
@@ -33,6 +34,8 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
     private CardChartKind _cardChartKind = CardChartKind.None;
     private IReadOnlyList<double> _historyValues = Array.Empty<double>();
     private string _balanceText = "--";
+    private string _balanceValueText = "--";
+    private string _balanceUnitText = "";
     private string _balanceDetailText = "";
     private bool _hasBalanceInfo;
     private Action? _openConfigAction;
@@ -54,6 +57,12 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
     private bool _showWeeklyBar = true;
     private bool _showVideo5hBar = true;
     private bool _showVideoWeeklyBar = true;
+    // 卡片图表多选与折线/热力图数据相关字段
+    private IReadOnlyList<CardChartKind> _cardChartKinds = Array.Empty<CardChartKind>();
+    private IReadOnlyList<double> _cardLineValues = Array.Empty<double>();
+    private double _cardLineMax = 100;
+    // MiniMax DOM 抓取模式标记：为 true 时折线图使用「每日 Token」，不被历史用量百分比覆盖。
+    private bool _isDomExtractMode;
 
     /// <summary>
     /// 创建用量显示 VM。
@@ -218,6 +227,10 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
     public string? ErrorMessage { get => _errorMessage; set { _errorMessage = value; OnPropertyChanged(); } }
     /// <summary>账户余额摘要（如“余额 12,345 积分”）。如未抓到则保持“--”</summary>
     public string BalanceText { get => _balanceText; set { _balanceText = value; OnPropertyChanged(); } }
+    /// <summary>账户余额数值部分（如“12,345”），用于卡片中放大突出显示；无数值时为占位文案（“暂无积分”/“--”）</summary>
+    public string BalanceValueText { get => _balanceValueText; set { _balanceValueText = value; OnPropertyChanged(); } }
+    /// <summary>账户余额单位部分（如“积分”），随数值一起显示；无数值时为空字符串以隐藏单位</summary>
+    public string BalanceUnitText { get => _balanceUnitText; set { _balanceUnitText = value; OnPropertyChanged(); } }
     /// <summary>账户余额详情（套餐窗口、Cookie 时间等）</summary>
     public string BalanceDetailText { get => _balanceDetailText; set { _balanceDetailText = value; OnPropertyChanged(); } }
     /// <summary>是否已抓取到余额/账单信息（控制 UI 折叠面板显示）</summary>
@@ -304,8 +317,8 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
     };
 
     /// <summary>
-    /// 主窗口卡片中展示的图表类型（None=仅进度条）。由 PluginItemViewModel 负责持久化，
-    /// 这里仅驱动卡片图表区的显隐与内容切换。
+    /// 主窗口卡片中展示的图表类型（None=仅进度条）。遗留的「单选」属性，仅为向后兼容保留；
+    /// 新逻辑一律使用多选集合 <see cref="CardChartKinds"/> 驱动卡片图表区显隐。
     /// </summary>
     public CardChartKind CardChartKind
     {
@@ -315,12 +328,49 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
             if (_cardChartKind == value) return;
             _cardChartKind = value;
             OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// 主窗口卡片中展示的图表类型「集合」（多选，空集合=仅进度条）。
+    /// 由 PluginItemViewModel 负责持久化，这里驱动卡片图表区的显隐与各图表控件的按需叠加显示。
+    /// </summary>
+    public IReadOnlyList<CardChartKind> CardChartKinds
+    {
+        get => _cardChartKinds;
+        set
+        {
+            _cardChartKinds = value ?? Array.Empty<CardChartKind>();
+            OnPropertyChanged();
             OnPropertyChanged(nameof(HasCardChart));
         }
     }
 
-    /// <summary>是否显示卡片图表区（非 None 时为 true）。</summary>
-    public bool HasCardChart => _cardChartKind != CardChartKind.None;
+    /// <summary>是否显示卡片图表区（多选集合非空时为 true）。</summary>
+    public bool HasCardChart => _cardChartKinds != null && _cardChartKinds.Count > 0;
+
+    /// <summary>
+    /// 卡片折线图的数据序列。非 MiniMax（或 MiniMax API 模式）时跟随 <see cref="HistoryValues"/>（历史用量百分比，0-100）；
+    /// MiniMax DOM 模式下由 <see cref="UpdateMiniMaxCharts"/> 替换为「每日 Token 用量」序列。
+    /// </summary>
+    public IReadOnlyList<double> CardLineValues
+    {
+        get => _cardLineValues;
+        set { _cardLineValues = value ?? Array.Empty<double>(); OnPropertyChanged(); }
+    }
+
+    /// <summary>卡片折线图的 Y 轴最大值。用量百分比场景为 100；每日 Token 场景为区间最大值（自适应）。</summary>
+    public double CardLineMax
+    {
+        get => _cardLineMax;
+        set { _cardLineMax = value <= 0 ? 100 : value; OnPropertyChanged(); }
+    }
+
+    /// <summary>
+    /// 卡片热力图单元集合（GitHub 贡献图风格）。目前由 MiniMax DOM 模式按「每日 Token 用量」填充；
+    /// 其它插件暂无逐日日历数据，保持为空（选中热力图时不显示内容）。
+    /// </summary>
+    public ObservableCollection<YearHeatMapCell> HeatMapCells { get; } = new();
 
     /// <summary>
     /// 历史已用百分比数据点（用于折线图绘制，0-100 数值）
@@ -332,6 +382,13 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         {
             _historyValues = value ?? Array.Empty<double>();
             OnPropertyChanged();
+            // 非 MiniMax DOM 模式：卡片折线图跟随历史用量百分比（0-100）。
+            // DOM 模式下折线图改用每日 Token，不能被历史百分比覆盖。
+            if (!_isDomExtractMode)
+            {
+                CardLineValues = _historyValues;
+                CardLineMax = 100;
+            }
         }
     }
 
@@ -382,6 +439,11 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
             return;
         }
 
+        // 走到这里说明不是 MiniMax DOM 抓取数据：回到「历史用量百分比」折线图模式。
+        _isDomExtractMode = false;
+        CardLineValues = _historyValues;
+        CardLineMax = 100;
+
         if (usage.TotalAmount > 0)
         {
             UsedText = $"{usage.UsedAmount:F2} {usage.Unit}";
@@ -417,6 +479,7 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
     private void UpdateFromMiniMaxDom(UsageInfo usage)
     {
         var extra = usage.Extra!;
+        _isDomExtractMode = true;
 
         // 小工具：容错读取 double / long / string（Extra 值为 object 装箱）。
         double D(string k) => extra.TryGetValue(k, out var v) && v != null
@@ -460,7 +523,7 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
 
         // 5. 状态行（保留 StatusText，包含 5h + 周概要）。
         StatusText = (PrimaryBarPercent > 0 || WeeklyBarPercent > 0)
-            ? $"5h 已用 {PrimaryBarPercent:0}% · 周 已用 {WeeklyBarPercent:0}%"
+            ? $"5h 已用 {PrimaryBarPercent:0}% · 本周 已用 {WeeklyBarPercent:0}%"
             : "已登录";
 
         // 6. 视频赠送 5h + 周。
@@ -485,6 +548,9 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         RemainingCredits = credits;
         // 不再回退到 SubscriptionTitle，避免与顶部订阅胶囊重复显示。
         BalanceText = credits > 0 ? $"{credits:N0} 积分" : "暂无积分";
+        // 拆分数值与单位：卡片中数值放大突出、单位保持小字；无积分时仅显示占位文案并隐藏单位
+        BalanceValueText = credits > 0 ? $"{credits:N0}" : "暂无积分";
+        BalanceUnitText = credits > 0 ? "积分" : "";
 
         var sb = new System.Text.StringBuilder();
         var totalTokens = S("mm_totalTokens");
@@ -501,6 +567,123 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         if (IsSubscriptionActive && extra.TryGetValue("mm_subscriptionEndTime", out var se) && se is DateTime sed)
             sb.Append($"\n订阅续期至 {sed:yyyy-MM-dd}");
         BalanceDetailText = sb.ToString().TrimStart(' ', '·');
+
+        // 9. 折线图 / 热力图：用「每日 Token 用量」填充卡片图表数据。
+        UpdateMiniMaxCharts(extra);
+    }
+
+    /// <summary>
+    /// 用 MiniMax DOM 抓取的「每日 Token 用量」填充卡片折线图与热力图数据。
+    /// <para>
+    /// 数据来源：<c>mm_dailyTokenValues</c>（每日 token，按日期升序）与 <c>mm_dailyTokenDates</c>
+    /// （对应 yyyy-MM-dd，可能缺省）。折线图取最近 30 天的趋势（Y 轴自适应为区间最大值）；
+    /// 热力图为每个 token&gt;0 的日期生成一个单元（颜色按相对峰值的强度分三档），
+    /// 缺日期时按「最后一个点=今天」向前推断日历。
+    /// </para>
+    /// </summary>
+    private void UpdateMiniMaxCharts(Dictionary<string, object> extra)
+    {
+        // 读取每日 token 数值序列（Extra 内存直传，值为 List<long>；兼容其它可枚举形态）。
+        var values = ReadLongList(extra, "mm_dailyTokenValues");
+        var dates = ReadStringList(extra, "mm_dailyTokenDates");
+
+        // 折线图：取最近 30 天，Y 轴自适应为该区间最大值（至少 1，避免除零/全零全平）。
+        if (values.Count >= 2)
+        {
+            const int lineWindow = 30;
+            var start = Math.Max(0, values.Count - lineWindow);
+            var recent = new List<double>();
+            for (int i = start; i < values.Count; i++) recent.Add(values[i]);
+            CardLineValues = recent;
+            double max = 0;
+            foreach (var r in recent) if (r > max) max = r;
+            CardLineMax = max > 0 ? max : 1;
+        }
+        else
+        {
+            CardLineValues = Array.Empty<double>();
+            CardLineMax = 1;
+        }
+
+        // 热力图：为每个 token>0 的日期生成单元（颜色按相对峰值强度分三档）。
+        HeatMapCells.Clear();
+        if (values.Count > 0)
+        {
+            long peak = 0;
+            foreach (var v in values) if (v > peak) peak = v;
+            if (peak <= 0) peak = 1;
+
+            for (int i = 0; i < values.Count; i++)
+            {
+                var token = values[i];
+                if (token <= 0) continue; // 0 用量日显示为网底，不生成单元
+                // 日期：优先用真实 date；缺失时按「最后一个点=今天」向前推。
+                string day = i < dates.Count && !string.IsNullOrEmpty(dates[i])
+                    ? dates[i]
+                    : DateTime.Today.AddDays(-(values.Count - 1 - i)).ToString("yyyy-MM-dd");
+                double percent = Math.Min(100.0, 100.0 * token / peak);
+                HeatMapCells.Add(new YearHeatMapCell
+                {
+                    Day = day,
+                    Percent = percent,
+                    Background = SelectHeatMapBrush(percent)
+                });
+            }
+        }
+    }
+
+    /// <summary>从 Extra 读取 List&lt;long&gt;（兼容 List&lt;long&gt; 与其它可枚举装箱），失败返回空列表。</summary>
+    private static List<long> ReadLongList(Dictionary<string, object> extra, string key)
+    {
+        var result = new List<long>();
+        if (!extra.TryGetValue(key, out var v) || v == null) return result;
+        if (v is List<long> ll) return ll;
+        if (v is string) return result; // string 也是 IEnumerable，先排除
+        if (v is System.Collections.IEnumerable en)
+        {
+            foreach (var item in en)
+            {
+                if (item == null) continue;
+                if (long.TryParse(item.ToString(), out var n)) result.Add(n);
+            }
+        }
+        return result;
+    }
+
+    /// <summary>从 Extra 读取 List&lt;string&gt;（兼容 List&lt;string&gt; 与其它可枚举装箱），失败返回空列表。</summary>
+    private static List<string> ReadStringList(Dictionary<string, object> extra, string key)
+    {
+        var result = new List<string>();
+        if (!extra.TryGetValue(key, out var v) || v == null) return result;
+        if (v is List<string> ls) return ls;
+        if (v is string) return result;
+        if (v is System.Collections.IEnumerable en)
+        {
+            foreach (var item in en)
+                result.Add(item?.ToString() ?? "");
+        }
+        return result;
+    }
+
+    /// <summary>把 0-100 的强度百分比映射为热力图三档画笔（低绿/中橙/高红），已 Freeze 可跨线程绑定。</summary>
+    private static System.Windows.Media.Brush SelectHeatMapBrush(double percent)
+    {
+        if (percent >= 66.0) return HeatHigh;
+        if (percent >= 33.0) return HeatMid;
+        return HeatLow;
+    }
+
+    // 热力图三档画笔（与 Tokens.xaml 的 UsageLow/Mid/High 同色系），Freeze 后可跨线程安全使用。
+    private static readonly System.Windows.Media.Brush HeatLow = FreezeBrush(0x22, 0xC5, 0x5E);
+    private static readonly System.Windows.Media.Brush HeatMid = FreezeBrush(0xF5, 0x9E, 0x0B);
+    private static readonly System.Windows.Media.Brush HeatHigh = FreezeBrush(0xEF, 0x44, 0x44);
+
+    /// <summary>创建并冻结一个 SolidColorBrush（frozen 后可安全跨线程绑定到 UI）。</summary>
+    private static System.Windows.Media.Brush FreezeBrush(byte r, byte g, byte b)
+    {
+        var brush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(r, g, b));
+        brush.Freeze();
+        return brush;
     }
 
     /// <summary>
@@ -540,6 +723,8 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
     {
         HasBalanceInfo = false;
         BalanceText = "--";
+        BalanceValueText = "--";
+        BalanceUnitText = "";
         BalanceDetailText = "";
 
         if (extra == null || extra.Count == 0) return;
@@ -659,22 +844,30 @@ public class PluginItemViewModel : INotifyPropertyChanged
         new KeyValuePair<TaskbarDisplayMode, string>(TaskbarDisplayMode.RingChart, "圆环图"),
     };
 
-    private CardChartKind _cardChartKind = CardChartKind.None;
+    private IReadOnlyList<CardChartKind> _cardChartKinds = Array.Empty<CardChartKind>();
 
     /// <summary>
-    /// 卡片图表类型。设置时写入配置字典并保存；由 MainViewModel 订阅同步到对应的 ProviderUsageViewModel。
+    /// 卡片图表类型「集合」（多选）。设置时写入配置并保存；由 MainViewModel 订阅同步到对应的 ProviderUsageViewModel。
     /// </summary>
-    public CardChartKind CardChartKind
+    public IReadOnlyList<CardChartKind> CardChartKinds
     {
-        get => _cardChartKind;
+        get => _cardChartKinds;
         set
         {
-            if (_cardChartKind == value) return;
-            _cardChartKind = value;
-            _configService.Settings.ProviderCardCharts[ProviderId] = value;
-            _configService.Save();
+            _cardChartKinds = value ?? Array.Empty<CardChartKind>();
+            _configService.SetProviderCardChartKinds(ProviderId, _cardChartKinds);
             OnPropertyChanged();
         }
+    }
+
+    /// <summary>
+    /// 初始化卡片图表多选（仅设置字段并通知，不触发持久化）。供启动装配时回显已保存/迁移的选择，
+    /// 避免逐插件重复写盘（迁移得到的值会随后续任一配置变更一并持久化）。
+    /// </summary>
+    public void InitCardChartKinds(IReadOnlyList<CardChartKind> kinds)
+    {
+        _cardChartKinds = kinds ?? Array.Empty<CardChartKind>();
+        OnPropertyChanged(nameof(CardChartKinds));
     }
 
     /// <summary>插件定义的配置字段列表</summary>
@@ -700,20 +893,20 @@ public class PluginItemViewModel : INotifyPropertyChanged
     public void OpenConfigDialog()
     {
         var config = _configService.GetProviderConfig(ProviderId, _provider);
-        // 读取该 Provider 当前的卡片图表类型，传入配置窗口用于回显 + 预览
-        var currentCardChart = _configService.Settings.ProviderCardCharts
-            .GetValueOrDefault(ProviderId, CardChartKind.None);
+        // 读取该 Provider 当前已选的卡片图表集合（含旧单选迁移），传入配置窗口用于回显 + 预览
+        var currentCharts = _configService.GetProviderCardChartKinds(ProviderId);
         // 通用登录配置：只要插件声明了 LoginConfig（不限于 MiniMax），配置窗口就显示"获取登录态"按钮
         var configWindow = new Views.PluginConfigWindow(
-            DisplayName, ConfigFields, config, _provider.LoginConfig, currentCardChart);
+            DisplayName, ConfigFields, config, _provider.LoginConfig,
+            _provider.SupportedCardCharts, currentCharts);
         configWindow.Owner = System.Windows.Application.Current.Windows
             .OfType<Window>().FirstOrDefault(w => w.IsActive);
 
         if (configWindow.ShowDialog() == true)
         {
             _configService.UpdateProviderConfig(ProviderId, config);
-            // 持久化并同步卡片图表类型选择（setter 内部写配置 + Save + 通知）
-            CardChartKind = configWindow.SelectedCardChartKind;
+            // 持久化并同步卡片图表多选（setter 内部写配置 + Save + 通知）
+            CardChartKinds = configWindow.SelectedCardChartKinds;
             // 检查保存是否真的成功（ConfigService.Save 失败时会被 catch 吞掉）
             if (!string.IsNullOrEmpty(_configService.LastSaveError))
             {
@@ -928,9 +1121,8 @@ public class MainViewModel : INotifyPropertyChanged
             // 读取已保存的显示模式
             var savedMode = _configService.Settings.ProviderTaskbarModes
                 .GetValueOrDefault(plugin.Provider.ProviderId, TaskbarDisplayMode.Text);
-            var savedCardChart = _configService.Settings.ProviderCardCharts
-                .GetValueOrDefault(plugin.Provider.ProviderId, CardChartKind.None);
-
+            var savedCardCharts = _configService.GetProviderCardChartKinds(plugin.Provider.ProviderId);
+            
             var item = new PluginItemViewModel(plugin.Provider, _configService)
             {
                 ProviderId = plugin.Provider.ProviderId,
@@ -939,9 +1131,10 @@ public class MainViewModel : INotifyPropertyChanged
                 Author = plugin.Provider.Author,
                 Description = plugin.Provider.Description,
                 IsEnabled = plugin.IsEnabled,
-                DisplayMode = savedMode,
-                CardChartKind = savedCardChart
+                DisplayMode = savedMode
             };
+            // 初始化卡片图表多选（回显已保存/迁移的选择，不触发写盘）
+            item.InitCardChartKinds(savedCardCharts);
             // 双向同步：PluginItem 变更时同步到 UsageVM 与配置
             item.PropertyChanged += (_, e) =>
             {
@@ -954,19 +1147,19 @@ public class MainViewModel : INotifyPropertyChanged
                     // 设置窗口中勾选/取消勾选插件时，同步到配置/插件管理器/用量列表
                     UpdatePluginEnabled(item.ProviderId, item.IsEnabled);
                 }
-                else if (e.PropertyName == nameof(PluginItemViewModel.CardChartKind))
+                else if (e.PropertyName == nameof(PluginItemViewModel.CardChartKinds))
                 {
-                    // 卡片图表类型变更：同步到对应的用量卡片 VM，立即切换卡片图表区
+                    // 卡片图表多选变更：同步到对应的用量卡片 VM，立即叠加/移除图表
                     var target = Usages.FirstOrDefault(u => u.ProviderId == item.ProviderId);
-                    if (target != null) target.CardChartKind = item.CardChartKind;
+                    if (target != null) target.CardChartKinds = item.CardChartKinds;
                 }
             };
             PluginItems.Add(item);
-
-            // 初始化用量显示（传入打开配置的回调 + ConfigService 让 VM 跟踪“仅 x 个进度条”开关变化）
+            
+            // 初始化用量显示（传入打开配置的回调 + ConfigService 让 VM 跟踪"仅 x 个进度条"开关变化）
             var usageVm = new ProviderUsageViewModel(
                 item.OpenConfigDialog,
-                // 卡片右上角“⟳ 刷新”按钮回调：仅刷新当前服务商，复用刷新事件链路更新 UI/托盘。
+                // 卡片右上角"⟳ 刷新"按钮回调：仅刷新当前服务商，复用刷新事件链路更新 UI/托盘。
                 () => _refreshService.RefreshProviderAsync(plugin.Provider.ProviderId))
             {
                 ProviderId = plugin.Provider.ProviderId,
@@ -974,8 +1167,8 @@ public class MainViewModel : INotifyPropertyChanged
                 IconPath = ProviderUsageViewModel.ResolveIconPath(plugin.Provider.ProviderId),
                 IsEnabled = plugin.IsEnabled,
                 DisplayMode = savedMode,
-                CardChartKind = savedCardChart,
-                // 立刻写入插件声明的默认渲染能力，避免首次渲染时被“未声明 render_kind”折叠。
+                CardChartKinds = savedCardCharts,
+                // 立刻写入插件声明的默认渲染能力，避免首次渲染时被"未声明 render_kind"折叠。
                 RenderKinds = plugin.Provider.DefaultRenderKinds
             };
             usageVm.AttachConfigService(_configService);

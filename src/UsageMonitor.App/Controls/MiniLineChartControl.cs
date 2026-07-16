@@ -14,9 +14,11 @@ namespace UsageMonitor.App.Controls;
 /// <summary>
 /// 迷你折线图控件（任务栏 / 卡片使用）。
 /// - 展示用量历史趋势（X 轴：时间，Y 轴：已用百分比 0-100）
-/// - 自动根据最新数据点的百分比切换颜色：低（绿）→ 中（黄）→ 高（红）
+/// - 自动根据最新数据点的百分比切换颜色：低绿 → 注意金(#facd14) → 中橙 → 高红，
+///   档位与配色统一取自 <see cref="UsageMonitor.App.Helpers.UsageTierScale"/>（单一数据源）。
 /// - 现代化：折线下方绘制同色低透明渐变面积填充，最新点带柔和发光圆点
 /// - 数据源为 IReadOnlyList&lt;double&gt;，通过 Values 依赖属性传入
+/// 说明：下方 Low/Mid/High 画笔依赖属性已由 UsageTierScale 接管选色，保留仅为兼容既有 XAML 绑定，不再参与实际取色。
 /// </summary>
 public class MiniLineChartControl : FrameworkElement
 {
@@ -183,14 +185,11 @@ public class MiniLineChartControl : FrameworkElement
     }
 
     /// <summary>
-    /// 根据当前百分比选择画笔
+    /// 根据当前百分比选择画笔：档位与颜色统一由 <see cref="UsageMonitor.App.Helpers.UsageTierScale"/>
+    /// 定义（低绿 / 注意金 #facd14 / 中橙 / 高红），与主界面进度条保持一致。
     /// </summary>
     private Brush SelectBrush(double percent)
-    {
-        if (percent >= 85) return HighBrush;
-        if (percent >= 60) return MidBrush;
-        return LowBrush;
-    }
+        => UsageMonitor.App.Helpers.UsageTierScale.ResolveBrush(percent);
 
     /// <summary>
     /// 从一个 Brush 派生出指定透明度的同色画笔（用于面积填充/发光）。

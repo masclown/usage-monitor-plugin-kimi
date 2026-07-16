@@ -209,13 +209,12 @@ public class YearHeatMapControl : FrameworkElement
     private void DrawLegend(DrawingContext dc, double left, double top, double gridWidth, double dpi)
     {
         double sw = 11, sgap = 3;
-        var swatches = new[]
-        {
-            EmptyCellBrush,
-            FindBrush("UsageLowBrush", Color.FromRgb(0x22, 0xC5, 0x5E)),
-            FindBrush("UsageMidBrush", Color.FromRgb(0xF5, 0x9E, 0x0B)),
-            FindBrush("UsageHighBrush", Color.FromRgb(0xEF, 0x44, 0x44)),
-        };
+        // 图例色块 = 空档 + UsageTierScale 各档位（低/注意/中/高），随档位表增减自动同步。
+        var tiers = UsageMonitor.App.Helpers.UsageTierScale.Tiers;
+        var swatches = new Brush[tiers.Count + 1];
+        swatches[0] = EmptyCellBrush;
+        for (int i = 0; i < tiers.Count; i++)
+            swatches[i + 1] = UsageMonitor.App.Helpers.UsageTierScale.GetBrush(tiers[i]);
         var less = MakeText("少", TextBrush, 10, dpi);
         var more = MakeText("多", TextBrush, 10, dpi);
         double total = less.Width + 4 + swatches.Length * (sw + sgap) + 4 + more.Width;

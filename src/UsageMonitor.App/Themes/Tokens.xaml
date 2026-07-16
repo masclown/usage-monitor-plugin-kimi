@@ -31,13 +31,16 @@
     <sys:Double x:Key="FontSizeCaption">11</sys:Double>
 
     <!--
-        语义用量色（低/中/高）。红绿橙在深浅两底上都有足够对比，做成共享 Token。
-        与 PercentToBrushConverter 的三档阈值（60 / 85）对应。
+        语义用量色（低/注意/中/高）。绿/金/橙/红在深浅两底上都有足够对比，做成共享 Token。
+        与 Helpers/UsageTierScale.Tiers 的档位阈值（50 / 60 / 85）对应；
+        增减档位或调整配色时，请同步修改 UsageTierScale.Tiers（单一数据源）。
     -->
     <Color x:Key="UsageLowColor">#FF22C55E</Color>
+    <Color x:Key="UsageNoticeColor">#FFFACD14</Color>
     <Color x:Key="UsageMidColor">#FFF59E0B</Color>
     <Color x:Key="UsageHighColor">#FFEF4444</Color>
     <SolidColorBrush x:Key="UsageLowBrush" Color="{StaticResource UsageLowColor}" />
+    <SolidColorBrush x:Key="UsageNoticeBrush" Color="{StaticResource UsageNoticeColor}" />
     <SolidColorBrush x:Key="UsageMidBrush" Color="{StaticResource UsageMidColor}" />
     <SolidColorBrush x:Key="UsageHighBrush" Color="{StaticResource UsageHighColor}" />
 

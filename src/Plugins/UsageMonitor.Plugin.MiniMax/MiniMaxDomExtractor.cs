@@ -392,6 +392,39 @@ internal static class MiniMaxDomExtractor
                                 listD.Add(n);
                         extras["dailyTokenUsage"] = listD;
                     }
+
+                    // 折线图 / 热力图数据源：优先用 date_model_usage（带 date 的每日 total_token，最可靠），
+                    // 回退到上面的 daily_token_usage（纯数字数组、无日期）。两个数组都按日期升序。
+                    // 提取为 mm_dailyTokenValues（每日 token）+ mm_dailyTokenDates（对应 yyyy-MM-dd），
+                    // 供 App 层折线图（趋势）与热力图（日历）渲染；展示相关的裁剪/映射交给 App 层处理。
+                    var dailyDates = new List<string>();
+                    var dailyValues = new List<long>();
+                    if (root.TryGetProperty("date_model_usage", out var dmu) && dmu.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var item in dmu.EnumerateArray())
+                        {
+                            if (item.ValueKind != JsonValueKind.Object) continue;
+                            var date = item.TryGetProperty("date", out var dv) && dv.ValueKind == JsonValueKind.String
+                                ? dv.GetString() ?? "" : "";
+                            if (string.IsNullOrEmpty(date)) continue;
+                            long tt = item.TryGetProperty("total_token", out var tv)
+                                      && tv.ValueKind == JsonValueKind.Number && tv.TryGetInt64(out var ttn)
+                                      ? ttn : 0;
+                            dailyDates.Add(date);
+                            dailyValues.Add(tt);
+                        }
+                    }
+                    // date_model_usage 缺失时回退到 daily_token_usage 的数值（无日期，热力图将按“最近 N 天”推断）
+                    if (dailyValues.Count == 0
+                        && extras.TryGetValue("dailyTokenUsage", out var dtuObj)
+                        && dtuObj is List<long> dtuList)
+                    {
+                        dailyValues = dtuList;
+                    }
+                    if (dailyValues.Count > 0)
+                        extras["mm_dailyTokenValues"] = dailyValues;
+                    if (dailyDates.Count > 0)
+                        extras["mm_dailyTokenDates"] = dailyDates;
                     // most_active_day.token_count is a FORMATTED STRING like "552.49M" (not a number).
                     if (root.TryGetProperty("most_active_day", out var mad) && mad.ValueKind == JsonValueKind.Object)
                     {

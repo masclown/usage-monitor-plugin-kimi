@@ -60,8 +60,19 @@ public class AppSettings
     /// <summary>应用外观主题（深色 / 浅色）。启动时由 ThemeManager 应用，默认深色。</summary>
     public ThemeMode Theme { get; set; } = ThemeMode.Dark;
 
-    /// <summary>各 Provider 在主窗口卡片中展示的图表类型（key=ProviderId，缺省为 None 仅进度条）</summary>
+    /// <summary>各 Provider 在主窗口卡片中展示的图表类型（key=ProviderId，缺省为 None 仅进度条）。
+    /// <para>遗留的「单选」字段：仅用于向 <see cref="ProviderCardChartKinds"/> 迁移旧配置，新逻辑一律读写多选集合。</para></summary>
     public Dictionary<string, CardChartKind> ProviderCardCharts { get; set; } = new();
+
+    /// <summary>
+    /// 各 Provider 在主窗口卡片中展示的图表类型「集合」（多选，key=ProviderId）。
+    /// <para>
+    /// 取代原先的单选 <see cref="ProviderCardCharts"/>：一个插件可同时勾选多个图表（如 MiniMax 的折线图 + 热力图），
+    /// 卡片会按此集合叠加展示。首次从旧配置迁移时，会把 <see cref="ProviderCardCharts"/> 中的单值包装成单元素列表。
+    /// 空列表或缺省表示不显示任何卡片图表（仅保留进度条）。
+    /// </para>
+    /// </summary>
+    public Dictionary<string, List<CardChartKind>> ProviderCardChartKinds { get; set; } = new();
 
     /// <summary>
     /// 托盘悬浮窗位置（屏幕坐标系，单位：像素）。
@@ -167,6 +178,8 @@ public class ConfigService
             try
             {
                 var json = File.ReadAllText(_configFilePath, Encoding.UTF8);
+                if (string.IsNullOrWhiteSpace(json))
+                    throw new InvalidDataException("配置文件为空（可能上次写入被中断）。");
                 _settings = JsonSerializer.Deserialize<AppSettings>(json) ?? new AppSettings();
 
                 // 解密敏感字段
@@ -176,9 +189,55 @@ public class ConfigService
             {
                 LastLoadError = $"{ex.GetType().Name}: {ex.Message}";
                 FileLogger.Error("ConfigService", $"加载配置失败: {ex.Message}", ex);
-                _settings = new AppSettings();
+                // 保护用户配置：优先从上次成功保存的 .bak 恢复；恢复失败再备份损坏文件并回退到默认配置。
+                // 避免「config.json 被写坏 → 静默重置为空 → 插件启用状态 / Cookie 等全部丢失」。
+                if (!TryRecoverFromBackup())
+                {
+                    BackupCorruptedConfig();
+                    _settings = new AppSettings();
+                }
             }
         }
+    }
+
+    /// <summary>
+    /// 尝试从上次成功保存留下的 <c>config.json.bak</c>（由原子写入 File.Replace 生成）恢复配置。
+    /// 恢复成功后解密敏感字段并原子写回正式文件，返回 true。
+    /// </summary>
+    private bool TryRecoverFromBackup()
+    {
+        var bakPath = _configFilePath + ".bak";
+        if (!File.Exists(bakPath)) return false;
+        try
+        {
+            var json = File.ReadAllText(bakPath, Encoding.UTF8);
+            if (string.IsNullOrWhiteSpace(json)) return false;
+            var recovered = JsonSerializer.Deserialize<AppSettings>(json);
+            if (recovered == null) return false;
+            _settings = recovered;
+            DecryptSensitiveFields();
+            FileLogger.Warn("ConfigService", "config.json 损坏，已从 config.json.bak 成功恢复配置。");
+            Save(); // 原子写回，修复损坏的正式文件（_ioLock 可重入）
+            return true;
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Warn("ConfigService", $"从 config.json.bak 恢复失败: {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>把损坏的 config.json 复制一份备份（.corrupted-时间戳），便于事后排查/手工恢复，避免被后续 Save 覆盖丢失。</summary>
+    private void BackupCorruptedConfig()
+    {
+        try
+        {
+            if (!File.Exists(_configFilePath)) return;
+            var dst = _configFilePath + $".corrupted-{DateTime.Now:yyyyMMddHHmmss}";
+            File.Copy(_configFilePath, dst, overwrite: true);
+            FileLogger.Warn("ConfigService", $"已备份损坏的配置到 {Path.GetFileName(dst)}");
+        }
+        catch { /* 备份失败不阻断启动 */ }
     }
 
     /// <summary>
@@ -206,7 +265,17 @@ public class ConfigService
                     Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
                 };
                 var json = JsonSerializer.Serialize(settingsToSave, options);
-                File.WriteAllText(_configFilePath, json, Encoding.UTF8);
+                // 原子写入：先写临时文件，校验非空后用 File.Replace 原子替换，并保留 .bak 备份。
+                // 直接 File.WriteAllText 若在写入中途被中断（进程退出/断电），会留下空或半截的 config.json，
+                // 下次启动反序列化失败即导致配置被重置（插件启用状态、Cookie 等全部丢失）。
+                var tmpPath = _configFilePath + ".tmp";
+                File.WriteAllText(tmpPath, json, Encoding.UTF8);
+                if (new FileInfo(tmpPath).Length <= 0)
+                    throw new IOException("写入临时配置文件后大小为 0，放弃替换以保护原配置。");
+                if (File.Exists(_configFilePath))
+                    File.Replace(tmpPath, _configFilePath, _configFilePath + ".bak", ignoreMetadataErrors: true);
+                else
+                    File.Move(tmpPath, _configFilePath);
                 changed = true;
             }
             catch (Exception ex)
@@ -297,6 +366,48 @@ public class ConfigService
         lock (_ioLock)
         {
             _settings.ProviderConfigs[providerId] = config;
+        }
+        Save();
+    }
+
+    /// <summary>
+    /// 获取指定 Provider 当前的「卡片图表类型集合」（多选）。
+    /// <para>
+    /// 兼容旧配置：若多选字典 <see cref="AppSettings.ProviderCardChartKinds"/> 尚无该 Provider，
+    /// 但旧单选 <see cref="AppSettings.ProviderCardCharts"/> 中存在且非 None，则把单值迁移为单元素列表并写回内存（下次 Save 一并持久化）。
+    /// 返回列表为副本，避免调用方直接改动内部集合。
+    /// </para>
+    /// </summary>
+    public List<CardChartKind> GetProviderCardChartKinds(string providerId)
+    {
+        lock (_ioLock)
+        {
+            if (_settings.ProviderCardChartKinds.TryGetValue(providerId, out var list) && list != null)
+                return new List<CardChartKind>(list);
+
+            // 迁移旧单选值（非 None 时包装为单元素列表）
+            if (_settings.ProviderCardCharts.TryGetValue(providerId, out var single)
+                && single != CardChartKind.None)
+            {
+                var migrated = new List<CardChartKind> { single };
+                _settings.ProviderCardChartKinds[providerId] = migrated;
+                return new List<CardChartKind>(migrated);
+            }
+            return new List<CardChartKind>();
+        }
+    }
+
+    /// <summary>
+    /// 设置指定 Provider 的「卡片图表类型集合」（多选）并持久化。
+    /// 同步回写旧单选字段（取首元素，无则 None），避免两套配置漂移。
+    /// </summary>
+    public void SetProviderCardChartKinds(string providerId, IReadOnlyList<CardChartKind> kinds)
+    {
+        lock (_ioLock)
+        {
+            var list = kinds != null ? new List<CardChartKind>(kinds) : new List<CardChartKind>();
+            _settings.ProviderCardChartKinds[providerId] = list;
+            _settings.ProviderCardCharts[providerId] = list.Count > 0 ? list[0] : CardChartKind.None;
         }
         Save();
     }

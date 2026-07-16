@@ -77,8 +77,8 @@ public class MiniMaxProvider : IUsageProvider
     /// <inheritdoc />
     public IReadOnlyList<ConfigField> ConfigFields => new[]
     {
-        new ConfigField("ApiKey", "Token Plan Subscription Key (required)", ConfigFieldType.Password, true,
-            placeholder: "Enter MiniMax Token Plan subscription key (get from subscription page)"),
+        new ConfigField("ApiKey", "Token Plan Subscription Key (optional)", ConfigFieldType.Password, false,
+            placeholder: "Optional. Cookie login is the primary auth; key is only used for API fallback"),
         new ConfigField("Cookie", "Cookie auth (optional fallback)", ConfigFieldType.Password, false,
             placeholder: "Optional. If Key fails, try the Cookie from your logged-in browser"),
         new ConfigField("Region", "API Region", ConfigFieldType.Select, false,
@@ -107,6 +107,20 @@ public class MiniMaxProvider : IUsageProvider
     };
 
     /// <summary>
+    /// MiniMax 卡片支持的图表类型：折线图（每日 Token 用量趋势）+ 热力图（每日 Token 用量日历）。
+    /// <para>
+    /// 两者数据均来自 usage_summary 接口：折线图取 daily_token_usage（按日期升序的每日 Token 数），
+    /// 热力图取 date_model_usage（带 date 的每日 total_token）。覆盖接口默认的通用三件套，
+    /// 让 MiniMax 只暴露有真实数据支撑的两种图表，供配置窗口生成对应复选框。
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<CardChartKind> SupportedCardCharts => new[]
+    {
+        CardChartKind.Line,
+        CardChartKind.HeatMap
+    };
+
+    /// <summary>
     /// Query MiniMax Token Plan usage.
     /// </summary>
     public async Task<UsageInfo> GetUsageAsync(ProviderConfig config)
@@ -114,12 +128,38 @@ public class MiniMaxProvider : IUsageProvider
         var baseUrl = ResolveBaseUrl(config);
         var apiKey = config.GetValue("ApiKey")?.Trim();
         var cookie = config.GetValue("Cookie")?.Trim();
+        var userAgent = config.GetValue("_userAgent");
+
+        // 自愈：若 config.json 未持有 Cookie（例如配置曾被写坏而重置），回退读取
+        // %AppData%\UsageMonitor\cookies\MiniMax.json 中已保存的登录态并回填内存配置，避免用户重复登录。
+        if (string.IsNullOrWhiteSpace(cookie))
+        {
+            try
+            {
+                var saved = UsageMonitor.Core.Services.BrowserLoginService.LoadCookieData(ProviderId);
+                if (saved != null && !string.IsNullOrWhiteSpace(saved.Cookie))
+                {
+                    cookie = saved.Cookie.Trim();
+                    if (string.IsNullOrWhiteSpace(userAgent)) userAgent = saved.UserAgent;
+                    config.SetValue("Cookie", cookie);
+                    if (!string.IsNullOrWhiteSpace(saved.UserAgent))
+                        config.SetValue("_userAgent", saved.UserAgent);
+                    UsageMonitor.Core.Services.FileLogger.Info(LogSource,
+                        $"Cookie recovered from cookies/{ProviderId}.json (len={cookie.Length}); backfilled into config.");
+                }
+            }
+            catch (Exception ex)
+            {
+                UsageMonitor.Core.Services.FileLogger.Warn(LogSource,
+                    $"Cookie fallback read failed: {ex.Message}");
+            }
+        }
 
         // Need at least one auth method
         if (string.IsNullOrWhiteSpace(apiKey) && string.IsNullOrWhiteSpace(cookie))
         {
             return UsageInfo.CreateError(ProviderId, DisplayName,
-                "Please configure Token Plan subscription key (recommended) or login via the Get login state button in settings.");
+                "Please login via the 'Get login state' button in settings (Cookie is the primary auth), or optionally set a Token Plan subscription key.");
         }
 
         try
@@ -133,7 +173,7 @@ public class MiniMaxProvider : IUsageProvider
                 var sw = System.Diagnostics.Stopwatch.StartNew();
                 var domUsage = await MiniMaxDomExtractor.ExtractAsync(
                     cookie,
-                    config.GetValue("_userAgent") ?? string.Empty);
+                    userAgent ?? string.Empty);
                 sw.Stop();
                 if (domUsage != null && domUsage.IsSuccess)
                 {

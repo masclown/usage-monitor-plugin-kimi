@@ -59,6 +59,27 @@ public interface IUsageProvider
     IReadOnlyList<string> DefaultRenderKinds => System.Array.Empty<string>();
 
     /// <summary>
+    /// 插件声明「支持在主窗口卡片中展示的图表类型」集合，供插件配置窗口生成复选框。
+    /// <para>
+    /// 这是「不同插件支持不同图表」框架的核心契约：配置窗口只为本集合内的图表类型
+    /// 生成勾选项，用户可多选；用户的多选结果随 <c>AppSettings.ProviderCardChartKinds</c>
+    /// （key = ProviderId）持久化，主窗口卡片按选择叠加展示对应图表。
+    /// </para>
+    /// <para>
+    /// 默认返回通用三件套 <see cref="Models.CardChartKind.Line"/> / <see cref="Models.CardChartKind.Bar"/> /
+    /// <see cref="Models.CardChartKind.Ring"/>（数据源为应用统一记录的历史用量百分比与当前已用百分比，
+    /// 任何插件都适用）。有专属数据的插件应覆盖此属性，例如 MiniMax 覆盖为折线图 + 热力图。
+    /// 返回空集合表示该插件不提供任何卡片图表，配置窗口将隐藏「卡片图表」分组。
+    /// </para>
+    /// </summary>
+    IReadOnlyList<Models.CardChartKind> SupportedCardCharts => new[]
+    {
+        Models.CardChartKind.Line,
+        Models.CardChartKind.Bar,
+        Models.CardChartKind.Ring
+    };
+
+    /// <summary>
     /// 查询当前用量信息
     /// </summary>
     /// <param name="config">服务商配置（包含API Key等信息）</param>

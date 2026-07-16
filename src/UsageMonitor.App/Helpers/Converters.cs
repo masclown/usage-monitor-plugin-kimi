@@ -191,58 +191,33 @@ public class MultiVisibilityOrConverter : IMultiValueConverter
 }
 
 /// <summary>
-/// 按百分比阈值返回画笔（用于进度条按比例选色）。
-/// <list type="bullet">
-///   <item>小于警告阈值 (60)：绿色 #FF00B42A。</item>
-///   <item>小于危险阈值 (85)：橙色 #FFF77234。</item>
-///   <item>达到危险阈值 (含)：红色 #FFF14124。</item>
-/// </list>
-/// ConverterParameter 可以传 "low|mid|high" 三个具体等级，否则用阈值推断。
+/// 按已用百分比返回分档画笔（进度条 / 托盘 / 热力图单元格等“按比例选色”）。
+/// 档位（阈值 + 颜色）统一由 <see cref="UsageTierScale"/> 定义——需要增减档位或调整阈值 / 配色时改那里即可，此处无需变动。
+/// ConverterParameter 可显式传 "low|mid|high" 指定语义档位，否则按百分比自动分档。
 /// </summary>
 public class PercentToBrushConverter : IValueConverter
 {
-    // 回退画笔（主题资源缺失时使用），与 Tokens.xaml 中 UsageLow/Mid/High 保持一致。
-    private static readonly SolidColorBrush LowFallback = Freeze("#FF22C55E");
-    private static readonly SolidColorBrush MidFallback = Freeze("#FFF59E0B");
-    private static readonly SolidColorBrush HighFallback = Freeze("#FFEF4444");
-
-    /// <summary>创建并冻结一个 SolidColorBrush（提升渲染性能）。</summary>
-    private static SolidColorBrush Freeze(string hex)
-    {
-        var brush = new SolidColorBrush(
-            (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(hex));
-        brush.Freeze();
-        return brush;
-    }
-
-    /// <summary>按语义键从应用资源取当前主题画笔，缺失时回退到内置色。</summary>
-    private static System.Windows.Media.Brush Lookup(string key, SolidColorBrush fallback)
-        => System.Windows.Application.Current?.TryFindResource(key) as System.Windows.Media.Brush ?? fallback;
-
     /// <summary>
-    /// 把已用百分比映射为三档语义画笔（低绿 / 中橙 / 高红）。
-    /// ConverterParameter 可显式传 "low|mid|high" 指定等级，否则按 60 / 85 阈值推断。
+    /// 把已用百分比映射为分档画笔；或按 "low|mid|high" 显式取档。
     /// </summary>
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
     {
-        if (value is double pct)
+        // 显式档位（保留旧用法）：按语义键取当前主题画笔。
+        if (parameter is string level && !string.IsNullOrWhiteSpace(level))
         {
-            if (parameter is string level)
+            var key = level.Trim().ToLowerInvariant() switch
             {
-                return level switch
-                {
-                    "low" => Lookup("UsageLowBrush", LowFallback),
-                    "mid" => Lookup("UsageMidBrush", MidFallback),
-                    "high" => Lookup("UsageHighBrush", HighFallback),
-                    _ => Lookup("UsageLowBrush", LowFallback),
-                };
-            }
-
-            if (pct >= 85.0) return Lookup("UsageHighBrush", HighFallback);
-            if (pct >= 60.0) return Lookup("UsageMidBrush", MidFallback);
-            return Lookup("UsageLowBrush", LowFallback);
+                "low" => "UsageLowBrush",
+                "mid" => "UsageMidBrush",
+                "high" => "UsageHighBrush",
+                _ => null,
+            };
+            if (key != null) return UsageTierScale.GetBrushByKey(key);
         }
-        return Lookup("UsageLowBrush", LowFallback);
+
+        // 按已用百分比（0-100）自动分档。
+        var pct = value is double d ? d : 0.0;
+        return UsageTierScale.ResolveBrush(pct);
     }
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
@@ -286,6 +261,34 @@ public class EnumToVisibilityConverter : IValueConverter
         return string.Equals(value.ToString(), parameter.ToString(), StringComparison.OrdinalIgnoreCase)
             ? Visibility.Visible
             : Visibility.Collapsed;
+    }
+
+    /// <summary>不支持反向转换。</summary>
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
+/// <summary>
+/// 判断卡片图表类型集合（IReadOnlyList&lt;CardChartKind&gt; 等可枚举）是否包含 ConverterParameter 指定的图表类型：
+/// 包含则返回 Visible，否则 Collapsed。用于主窗口卡片按用户「多选」的图表集合叠加显示对应图表控件。
+/// 用法：Visibility="{Binding CardChartKinds, Converter={StaticResource CardChartKindsContains}, ConverterParameter=Line}"
+/// </summary>
+public class CardChartKindsContainsConverter : IValueConverter
+{
+    /// <summary>集合内任一元素名称与参数一致时可见，否则折叠（按名称做大小写不敏感匹配，无需引用枚举类型）。</summary>
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        var kind = parameter?.ToString();
+        if (string.IsNullOrWhiteSpace(kind) || value is not IEnumerable enumerable)
+            return Visibility.Collapsed;
+
+        foreach (var item in enumerable)
+        {
+            if (item == null) continue;
+            if (string.Equals(item.ToString(), kind, StringComparison.OrdinalIgnoreCase))
+                return Visibility.Visible;
+        }
+        return Visibility.Collapsed;
     }
 
     /// <summary>不支持反向转换。</summary>

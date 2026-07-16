@@ -75,7 +75,7 @@
                                         <!-- 刷新本卡片按钮：位于设置按钮左侧，仅刷新当前服务商用量；刷新中图标持续旋转作为进行反馈 -->
                                         <Button Command="{Binding RefreshCardCommand}"
                                                 Margin="8,0,0,0"
-                                                Style="{StaticResource AccentSoftButtonStyle}"
+                                                Style="{StaticResource IconButtonStyle}"
                                                 ToolTip="仅刷新此卡片的用量信息">
                                             <StackPanel Orientation="Horizontal">
                                                 <!-- 旋转图标：RefreshCardCommand.IsRunning=True 时绕中心持续旋转，False 时停止并回正 -->
@@ -106,19 +106,20 @@
                                                         </Style>
                                                     </TextBlock.Style>
                                                 </TextBlock>
-                                                <TextBlock Text="刷新" VerticalAlignment="Center" Margin="5,0,0,0" />
                                             </StackPanel>
                                         </Button>
 
-                                        <!-- 设置按钮：订阅胶囊右侧、卡片头部最右 -->
+                                        <!-- 设置按钮：订阅胶囊右侧、卡片头部最右；改为纯扳手图标（Segoe MDL2 Assets 的 Repair 字形，码点 E90F），不再显示“设置”文字，样式与刷新按钮统一为 IconButtonStyle（透明底 + 悬停软色底） -->
                                         <Button Command="{Binding ConfigCommand}"
-                                                Content="⚙ 设置"
                                                 Margin="8,0,0,0"
-                                                Style="{StaticResource AccentSoftButtonStyle}"
-                                                ToolTip="打开此服务商的配置窗口（输入 API Key、获取登录态、选择卡片图表等）" />
+                                                Style="{StaticResource IconButtonStyle}"
+                                                ToolTip="打开此服务商的配置窗口（输入 API Key、获取登录态、选择卡片图表等）">
+                                            <!-- 扳手图标：使用 Segoe MDL2 Assets 字体的 Repair 字形，单色跟随前景强调色，字号继承按钮 FontSize，与刷新按钮 ⟳ 视觉一致 -->
+                                            <TextBlock Text="&#xE90F;" FontFamily="Segoe MDL2 Assets" VerticalAlignment="Center" />
+                                        </Button>
                                     </StackPanel>
 
-                                    <!-- 状态摘要：作为末子元素填充中部、右对齐（如 5h 已用 0% · 周 已用 49%），右侧留 12px 与信息区分隔 -->
+                                    <!-- 状态摘要：作为末子元素填充中部、右对齐（如 5h 已用 0% · 本周 已用 49%），右侧留 12px 与信息区分隔 -->
                                     <TextBlock Text="{Binding StatusText}" FontSize="13"
                                                Foreground="{Binding IsError, Converter={StaticResource ErrorColorConverter}}"
                                                HorizontalAlignment="Right"
@@ -174,7 +175,7 @@
                                         </MultiBinding>
                                     </StackPanel.Visibility>
                                     <DockPanel>
-                                        <TextBlock Text="周限额" FontSize="12"
+                                        <TextBlock Text="本周限额" FontSize="12"
                                                    Foreground="{DynamicResource TextSecondaryBrush}"
                                                    VerticalAlignment="Center" />
                                         <TextBlock DockPanel.Dock="Right" HorizontalAlignment="Right"
@@ -274,11 +275,20 @@
                                         <DockPanel>
                                             <TextBlock Text="💰 余额快照" FontSize="11"
                                                        Foreground="{DynamicResource TextSecondaryBrush}"
-                                                       VerticalAlignment="Center" />
-                                            <TextBlock Text="{Binding BalanceText}" FontSize="12"
-                                                       Foreground="{DynamicResource SuccessBrush}"
-                                                       FontWeight="SemiBold"
-                                                       DockPanel.Dock="Right" HorizontalAlignment="Right" />
+                                                       VerticalAlignment="Bottom" />
+                                            <!-- 余额数值放大突出显示，单位「积分」保持小字并底部对齐 -->
+                                            <StackPanel Orientation="Horizontal"
+                                                        DockPanel.Dock="Right" HorizontalAlignment="Right"
+                                                        VerticalAlignment="Bottom">
+                                                <TextBlock Text="{Binding BalanceValueText}" FontSize="26"
+                                                           Foreground="{DynamicResource SuccessBrush}"
+                                                           FontWeight="Bold" VerticalAlignment="Bottom" />
+                                                <TextBlock Text="{Binding BalanceUnitText}" FontSize="11"
+                                                           Foreground="{DynamicResource SuccessBrush}"
+                                                           FontWeight="SemiBold" VerticalAlignment="Bottom"
+                                                           Margin="3,0,0,3"
+                                                           Visibility="{Binding BalanceUnitText, Converter={StaticResource StringToVisibility}}" />
+                                            </StackPanel>
                                         </DockPanel>
                                         <TextBlock Text="{Binding BalanceDetailText}"
                                                    FontSize="10"
@@ -288,38 +298,46 @@
                                     </StackPanel>
                                 </Border>
 
-                                <!-- 卡片图表区（用户在插件配置窗口选择的图表类型） -->
-                                <Grid Height="132" Margin="0,12,0,0"
-                                      Visibility="{Binding HasCardChart, Converter={StaticResource BoolToVisibility}}">
-                                    <controls:MiniLineChartControl
-                                        Values="{Binding HistoryValues}" StrokeThickness="2.4"
+                                <!-- 卡片图表区（用户在插件配置窗口勾选的图表类型，多选叠加显示） -->
+                                <StackPanel Margin="0,12,0,0"
+                                            Visibility="{Binding HasCardChart, Converter={StaticResource BoolToVisibility}}">
+                                    <!-- 折线图：MiniMax 为每日 Token 趋势（Y 轴自适应），其它插件为历史用量% -->
+                                    <controls:MiniLineChartControl Height="132" Margin="0,0,0,8"
+                                        Values="{Binding CardLineValues}" MaxValue="{Binding CardLineMax}" StrokeThickness="2.4"
                                         LowBrush="{DynamicResource UsageLowBrush}"
                                         MidBrush="{DynamicResource UsageMidBrush}"
                                         HighBrush="{DynamicResource UsageHighBrush}"
-                                        Visibility="{Binding CardChartKind, Converter={StaticResource EnumToVisibility}, ConverterParameter=Line}" />
-                                    <controls:BarChartControl
+                                        Visibility="{Binding CardChartKinds, Converter={StaticResource CardChartKindsContains}, ConverterParameter=Line}" />
+                                    <!-- 柱状图：历史用量% 序列 -->
+                                    <controls:BarChartControl Height="132" Margin="0,0,0,8"
                                         Values="{Binding HistoryValues}"
                                         BarBrush="{DynamicResource AccentGradientBrush}"
                                         GridLineBrush="{DynamicResource ChartAxisBrush}"
                                         TextBrush="{DynamicResource TextSecondaryBrush}"
-                                        Visibility="{Binding CardChartKind, Converter={StaticResource EnumToVisibility}, ConverterParameter=Bar}" />
-                                    <controls:RingChartControl
+                                        Visibility="{Binding CardChartKinds, Converter={StaticResource CardChartKindsContains}, ConverterParameter=Bar}" />
+                                    <!-- 圆环图：当前已用百分比 -->
+                                    <controls:RingChartControl Height="132" Margin="0,0,0,8"
                                         Percent="{Binding UsagePercentage}" Size="112" StrokeThickness="11"
                                         HorizontalAlignment="Center"
                                         TrackBrush="{DynamicResource TrackBrush}"
                                         ProgressBrush="{DynamicResource AccentBrush}"
                                         WarningBrush="{DynamicResource WarningBrush}"
                                         DangerBrush="{DynamicResource DangerBrush}"
-                                        Visibility="{Binding CardChartKind, Converter={StaticResource EnumToVisibility}, ConverterParameter=Ring}" />
-                                    <controls:HeatMapPlaceholder
-                                        Visibility="{Binding CardChartKind, Converter={StaticResource EnumToVisibility}, ConverterParameter=HeatMap}" />
-                                    <controls:DayNightArcControl
+                                        Visibility="{Binding CardChartKinds, Converter={StaticResource CardChartKindsContains}, ConverterParameter=Ring}" />
+                                    <!-- 热力图：MiniMax 每日 Token 用量日历（GitHub 贡献图风格） -->
+                                    <controls:YearHeatMapControl Height="170" Margin="0,0,0,8"
+                                        Cells="{Binding HeatMapCells}"
+                                        EmptyCellBrush="{DynamicResource TrackBrush}"
+                                        TextBrush="{DynamicResource TextSecondaryBrush}"
+                                        Visibility="{Binding CardChartKinds, Converter={StaticResource CardChartKindsContains}, ConverterParameter=HeatMap}" />
+                                    <!-- 编程时段：示例数据（暂无真实逐时活跃度数据源） -->
+                                    <controls:DayNightArcControl Height="132" Margin="0,0,0,8"
                                         HourlyActivity="{x:Static helpers:SampleChartData.HourlyActivity}"
                                         TrackBrush="{DynamicResource TextTertiaryBrush}"
                                         AccentBrush="{DynamicResource AccentBrush}"
                                         TextBrush="{DynamicResource TextSecondaryBrush}"
-                                        Visibility="{Binding CardChartKind, Converter={StaticResource EnumToVisibility}, ConverterParameter=DayNightArc}" />
-                                </Grid>
+                                        Visibility="{Binding CardChartKinds, Converter={StaticResource CardChartKindsContains}, ConverterParameter=DayNightArc}" />
+                                </StackPanel>
                             </StackPanel>
                         </Border>
                     </DataTemplate>
