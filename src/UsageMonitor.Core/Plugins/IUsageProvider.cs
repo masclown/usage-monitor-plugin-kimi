@@ -1,3 +1,4 @@
+using System.Threading;
 using UsageMonitor.Core.Models;
 
 namespace UsageMonitor.Core.Plugins;
@@ -108,4 +109,57 @@ public interface IUsageProvider
     /// <param name="config">待验证的配置</param>
     /// <returns>配置是否有效</returns>
     Task<bool> ValidateConfigAsync(ProviderConfig config);
+
+    /// <summary>
+    /// 插件是否支持在主窗口卡片折线图右上角显示"近 7 天 / 近 30 天"等周期切换按钮。
+    /// <para>
+    /// 返回 <c>true</c> 时，宿主会在控件右上角绘制分段按钮，<see cref="SetPeriodAsync"/>
+    /// 会被调用以让插件按指定周期重算数据；返回 <c>false</c>（默认）时不显示切换按钮。
+    /// 仅当插件能提供带真实日期的"每日"数据源时（如 MiniMax usage_summary 返回的
+    /// <c>mm_dailyTokenValues</c> + <c>mm_dailyTokenDates</c>）才应返回 <c>true</c>。
+    /// </para>
+    /// </summary>
+    bool SupportsPeriodSwitch => false;
+
+    /// <summary>
+    /// 插件为折线图 hover tooltip 提供的扩展文本行（每行一项，UI 用换行拼接展示）。
+    /// <para>
+    /// 例如 MiniMax 可返回 <c>["调用 {value}", "缓存命中 {pct}%"]</c>，让 tooltip 显示更丰富
+    /// 的当日附加信息。返回 <c>null</c> 或空集合时，tooltip 仅显示标题 + 数值。
+    /// </para>
+    /// </summary>
+    IReadOnlyList<string>? ExtraTooltipLines => null;
+
+    /// <summary>
+    /// 控件触发周期切换时由宿主调用，让插件按新周期重算数据。
+    /// <para>
+    /// 默认实现为 no-op：插件若不重写此方法，宿主会自行在 VM 端基于已缓存的"每日"数据切片。
+    /// 重写此方法的插件通常需要：1) 内部记录当前 period；2) 在下一次
+    /// <see cref="GetUsageAsync"/> 触发时把 Extra 中的 <c>mm_dailyTokenValues</c> /
+    /// <c>mm_dailyTokenDates</c> 切片到该 period 对应的窗口。
+    /// </para>
+    /// </summary>
+    /// <param name="period">周期字符串，取值为 "7d" / "30d"（与 App 端
+    /// <c>UsageMonitor.App.Controls.ChartPeriods</c> 常量保持一致；Core 不引用 App）。</param>
+    /// <param name="ct">取消令牌，宿主在卡片销毁或重新触发时可能取消。</param>
+    Task SetPeriodAsync(string period, CancellationToken ct = default) => Task.CompletedTask;
+
+    /// <summary>
+    /// 插件为“余额快照”区域提供的额外数据项（req-008）。<see cref="Models.BalanceItem"/>。
+    /// <para>
+    /// 返回空集合（默认）时，主窗口组装 VM 会按内置默认 4 项（累计 / 峰值 / 活跃 / 积分余额）填充；
+    /// 返回非空集合时由 VM 按 <c>Label</c> 匹配覆盖/追加：同名项插件胜出，
+    /// 未匹配的插件项追加在默认项之后。插件可通过把项的 <c>IsVisible</c> 设为 false 隐藏默认项。
+    /// </para>
+    /// </summary>
+    IReadOnlyList<Models.BalanceItem> BalanceItems => System.Array.Empty<Models.BalanceItem>();
+
+    /// <summary>
+    /// 插件声明的热力图色阶档位（req-009）。<see cref="Models.HeatMapTierConfig"/>。
+    /// <para>
+    /// 返回 null（默认）时，<c>HeatMapTierScale</c> 走通用 4 档兑底色（适配 K~M 级数据）。
+    /// 返回非空集合时作为该 Provider 的默认色阶。用户设置页保存后会覆盖。
+    /// </para>
+    /// </summary>
+    IReadOnlyList<Models.HeatMapTierConfig>? HeatMapTiers => null;
 }

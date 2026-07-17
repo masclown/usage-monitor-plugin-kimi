@@ -114,6 +114,58 @@ public class AppSettings
     public List<UsageMonitor.Core.Models.UsageTierConfig> UsageTierConfig { get; set; } = new();
 
     // =====================================================================
+    // REQ-009 热力图色阶配置（按 ProviderId 独立配置 token 绝对值分档表）
+    // 默认填入 MiniMax 出厂 6 档；其他 Provider 不填时走 HeatMapTierScale.GenericDefaults 兑底。
+    // =====================================================================
+
+    /// <summary>
+    /// REQ-009：按 ProviderId 索引的热力图色阶表（持久化）。
+    /// <para>
+    /// key 为 ProviderId（不区分大小写），value 为该 Provider 的色阶档位列表。
+    /// 某 Provider 缺失或 value 为空时 <c>HeatMapTierScale.ResolveBrush</c> 走 <see cref="UsageMonitor.App.Helpers.HeatMapTierScale.GenericDefaults"/> 兑底。
+    /// 设置页保存后会被 <c>App.OnStartup</c> 加载 + <c>HeatMapTierScale.ApplyConfig</c> 应用。
+    /// </para>
+    /// </summary>
+    public Dictionary<string, System.Collections.Generic.IList<UsageMonitor.Core.Models.HeatMapTierConfig>> ProviderHeatMapTiers { get; set; } = new()
+    {
+        ["minimax"] = new List<UsageMonitor.Core.Models.HeatMapTierConfig>
+        {
+            new() { MinTokens = 0,            ColorHex = "#f3f4f6" },
+            new() { MinTokens = 0,            ColorHex = "#ffe7e2" },
+            new() { MinTokens = 20_000_000,   ColorHex = "#ffc6bb" },
+            new() { MinTokens = 100_000_000,  ColorHex = "#ffa595" },
+            new() { MinTokens = 200_000_000,  ColorHex = "#ff7b64" },
+            new() { MinTokens = 300_000_000,  ColorHex = "#ff5a3d" },
+        }
+    };
+
+    // =====================================================================
+    // REQ-012 历史窗口 Provider 列表与插件启用状态联动 + 卸载清理工作流
+    // - UninstalledProviderChoices: 记录用户对每个已卸载 Provider 的选择（"deleted"/"kept"），
+    //   避免每次启动反复弹"是否删除历史数据"对话框。
+    // - LastKnownInstalledPluginIds: 上次启动时已安装插件 ID 列表，用于本次启动时
+    //   对比检测哪些插件被卸载。
+    // =====================================================================
+
+    /// <summary>
+    /// req-012：已卸载 Provider 的用户选择（"deleted"=删除 / "kept"=保留）。
+    /// <para>
+    /// 启动时检测到新卸载的 Provider → 弹批量对话框 → 一次性选"删/保" → 写入此字典。
+    /// 下次启动遇到同 ID 不再询问（已记录过选择）。
+    /// </para>
+    /// </summary>
+    public Dictionary<string, string> UninstalledProviderChoices { get; set; } = new(System.StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// req-012：上次启动时已安装的插件 ID 列表（用于本次启动对比检测哪些被卸载）。
+    /// <para>
+    /// 启动时与当前 <c>PluginManager.Plugins</c> 的 providerId 集合对比，差集 = 新卸载的 Provider。
+    /// 首次启动时该字段为空（默认 new list），不会误弹对话框。
+    /// </para>
+    /// </summary>
+    public List<string> LastKnownInstalledPluginIds { get; set; } = new();
+
+    // =====================================================================
     // REQ-003 Taskbar 环形图增强
     // 详见 .dev_require/req-003-taskbar-ring-chart.md §5。
     // - RingChartMetricOrder：metric 切换顺序（元素为 RingChartMetricKeys 常量）。

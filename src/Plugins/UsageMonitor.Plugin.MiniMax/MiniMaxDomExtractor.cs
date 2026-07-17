@@ -397,8 +397,11 @@ internal static class MiniMaxDomExtractor
                     // 回退到上面的 daily_token_usage（纯数字数组、无日期）。两个数组都按日期升序。
                     // 提取为 mm_dailyTokenValues（每日 token）+ mm_dailyTokenDates（对应 yyyy-MM-dd），
                     // 供 App 层折线图（趋势）与热力图（日历）渲染；展示相关的裁剪/映射交给 App 层处理。
+                    // req-010：同步累加 token 加权的缓存命中率（mm_cacheHitPercent）供热力图 tooltip 使用。
                     var dailyDates = new List<string>();
                     var dailyValues = new List<long>();
+                    double cacheHitSumNum = 0; // Σ(token × cacheHitPercent) 分子
+                    double cacheHitSumDen = 0; // Σ(token) 分母
                     if (root.TryGetProperty("date_model_usage", out var dmu) && dmu.ValueKind == JsonValueKind.Array)
                     {
                         foreach (var item in dmu.EnumerateArray())
@@ -412,6 +415,23 @@ internal static class MiniMaxDomExtractor
                                       ? ttn : 0;
                             dailyDates.Add(date);
                             dailyValues.Add(tt);
+
+                            // req-010：累加 token 加权的缓存命中率（该天被跳过不会影响其他天）
+                            if (tt > 0 &&
+                                item.TryGetProperty("cache_hit_percent", out var chp) &&
+                                chp.ValueKind == JsonValueKind.String)
+                            {
+                                var s = chp.GetString() ?? "";
+                                // 兼容 "33.3%" 与 "33.3" 两种格式
+                                if (s.EndsWith("%", StringComparison.Ordinal))
+                                    s = s.Substring(0, s.Length - 1);
+                                if (System.Double.TryParse(s, System.Globalization.NumberStyles.Float,
+                                        System.Globalization.CultureInfo.InvariantCulture, out var pct))
+                                {
+                                    cacheHitSumNum += tt * pct;
+                                    cacheHitSumDen += tt;
+                                }
+                            }
                         }
                     }
                     // date_model_usage 缺失时回退到 daily_token_usage 的数值（无日期，热力图将按“最近 N 天”推断）
@@ -425,6 +445,12 @@ internal static class MiniMaxDomExtractor
                         extras["mm_dailyTokenValues"] = dailyValues;
                     if (dailyDates.Count > 0)
                         extras["mm_dailyTokenDates"] = dailyDates;
+                    // req-010：写入按 token 加权的全局平均缓存命中率（0-100）
+                    if (cacheHitSumDen > 0)
+                    {
+                        var avg = cacheHitSumNum / cacheHitSumDen;
+                        if (avg >= 0 && avg <= 100) extras["mm_cacheHitPercent"] = avg;
+                    }
                     // most_active_day.token_count is a FORMATTED STRING like "552.49M" (not a number).
                     if (root.TryGetProperty("most_active_day", out var mad) && mad.ValueKind == JsonValueKind.Object)
                     {

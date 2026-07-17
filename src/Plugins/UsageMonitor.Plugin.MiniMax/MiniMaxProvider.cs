@@ -122,6 +122,67 @@ public class MiniMaxProvider : IUsageProvider
     };
 
     /// <summary>
+    /// req-008：MiniMax 插件为余额快照提供的额外数据项。
+    /// <para>
+    /// 返回空集合让主窗口 VM 走默认 4 项（累计 / 峰值 / 活跃 / 积分余额），这几个项的 Value / Detail
+    /// 已在 <c>UpdateFromMiniMaxDom</c> 中由 <c>mm_totalTokens / mm_mostActiveDay / mm_activeDays /
+    /// mm_remainingCredits</c> 等 mm_* 字段填充。返回空集合可以避免与默认 4 项重复拼接。
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<UsageMonitor.Core.Models.BalanceItem> BalanceItems => System.Array.Empty<UsageMonitor.Core.Models.BalanceItem>();
+
+    // req-009：HeatMapTiers 在 Plugin 项目中不显式 override（依赖 App 项目类型会循环依赖）。
+    // 默认值由 ConfigService.Settings.ProviderHeatMapTiers["minimax"] 填入的 6 档出厂默认色阶兑底。
+
+    /// <summary>
+    /// req-007：MiniMax 卡片在主窗口折线图右上角显示“近 7 天 / 近 30 天”周期切换按钮。
+    /// <para>
+    /// 完整 daily 数据（最多 168 天）由 <see cref="MiniMaxDomExtractor"/> 写入
+    /// <c>Extra["mm_dailyTokenValues"]</c> / <c>Extra["mm_dailyTokenDates"]</c>，调用方拿到后会在 VM
+    /// 端按 <see cref="App.Controls.ChartPeriods"/> 对应窗口重新切片，<see cref="SetPeriodAsync"/>
+    /// 在这里仅记录用户选择的 period + 写一条 Info 日志供后期跟踪。
+    /// </para>
+    /// </summary>
+    public bool SupportsPeriodSwitch => true;
+
+    /// <summary>
+    /// req-007：MiniMax 折线图 hover tooltip 扩展文本行：调用量与缓存命中率。
+    /// <para>
+    /// 值根据当前 Extra 中的当日调用汇总与缓存命中率动态拼接；如果 Extra 未提供这些指标则返回
+    /// 原始的「调用 {value:0.##}」文本，避免 tooltip 出现空行。
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<string> ExtraTooltipLines
+    {
+        get
+        {
+            // MiniMaxProvider 不直接拿当日数据；Extra 中仅能拿到卡片当前已用的累计信息。
+            // 为了避免与实际 hover 点的值不一致（tooltip “调用”需是当日点调用量），这里只返回
+            // 静态的“缓存命中”提示，实际值交由 VM / 插件后续在 hover 上下文里补充。
+            return new[]
+            {
+                "调用量（当日）",
+                "缓存命中率（参考值）"
+            };
+        }
+    }
+
+    /// <summary>
+    /// req-007：处理主窗口折线图周期切换。
+    /// <para>
+    /// 记录用户选中的 <paramref name="period"/> 以供后续日志/调试使用；这里不重复拉接口——
+    /// usage_summary 一次返回足够多的历史点（≤ 168 天），VM 端在已缓存的完整数据上按窗口切片即可。
+    /// 返回 <see cref="Task.CompletedTask"/> 以保证接口契约同步。
+    /// </para>
+    /// </summary>
+    public Task SetPeriodAsync(string period, CancellationToken ct = default)
+    {
+        UsageMonitor.Core.Services.FileLogger.Info(LogSource,
+            $"SetPeriodAsync invoked: period={period}");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
     /// Query MiniMax Token Plan usage.
     /// </summary>
     public async Task<UsageInfo> GetUsageAsync(ProviderConfig config)

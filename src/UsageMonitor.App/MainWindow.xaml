@@ -267,41 +267,61 @@
                                            Margin="0,4,0,0" />
 
                                 <!-- 余额快照 -->
+                                <!-- 余额快照（req-008 多列并排布局）：
+                                     4 个默认项横向拼接（累计 / 峰值 / 活跃 / 积分余额），
+                                     列与列之间用 1px 实线竖向分隔。模块永远显示，不再受 HasBalanceInfo 折叠控制。 -->
                                 <Border Background="{DynamicResource SurfaceAltBrush}"
                                         CornerRadius="{DynamicResource RadiusSmall}" Padding="12,8"
-                                        Margin="0,8,0,0"
-                                        Visibility="{Binding HasBalanceInfo, Converter={StaticResource BoolToVisibility}}">
+                                        Margin="0,8,0,0">
                                     <StackPanel>
-                                        <DockPanel>
-                                            <TextBlock Text="💰 余额快照" FontSize="11"
-                                                       Foreground="{DynamicResource TextSecondaryBrush}"
-                                                       VerticalAlignment="Bottom" />
-                                            <!-- 余额数值放大突出显示，单位「积分」保持小字并底部对齐 -->
-                                            <StackPanel Orientation="Horizontal"
-                                                        DockPanel.Dock="Right" HorizontalAlignment="Right"
-                                                        VerticalAlignment="Bottom">
-                                                <TextBlock Text="{Binding BalanceValueText}" FontSize="26"
-                                                           Foreground="{DynamicResource SuccessBrush}"
-                                                           FontWeight="Bold" VerticalAlignment="Bottom" />
-                                                <TextBlock Text="{Binding BalanceUnitText}" FontSize="11"
-                                                           Foreground="{DynamicResource SuccessBrush}"
-                                                           FontWeight="SemiBold" VerticalAlignment="Bottom"
-                                                           Margin="3,0,0,3"
-                                                           Visibility="{Binding BalanceUnitText, Converter={StaticResource StringToVisibility}}" />
-                                            </StackPanel>
-                                        </DockPanel>
-                                        <TextBlock Text="{Binding BalanceDetailText}"
-                                                   FontSize="10"
+                                        <TextBlock Text="💰 余额快照" FontSize="11"
                                                    Foreground="{DynamicResource TextSecondaryBrush}"
-                                                   TextWrapping="Wrap" Margin="0,4,0,0"
-                                                   Visibility="{Binding BalanceDetailText, Converter={StaticResource StringToVisibility}}" />
+                                                   Margin="0,0,0,8" />
+                                        <ItemsControl ItemsSource="{Binding BalanceItems}">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <StackPanel Orientation="Horizontal" />
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Grid Margin="0,0,12,0" MinWidth="72"
+                                                          Visibility="{Binding IsVisible, Converter={StaticResource BoolToVisibility}}">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="*" />
+                                                            <ColumnDefinition Width="Auto" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <!-- 数据项：标签 12px / 主数字 26px Bold / 辅助行 10px -->
+                                                        <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                                            <TextBlock Text="{Binding Label}" FontSize="12"
+                                                                       Foreground="{DynamicResource TextSecondaryBrush}" />
+                                                            <TextBlock Text="{Binding Value}" FontSize="22" FontWeight="Bold"
+                                                                       Foreground="{DynamicResource AccentBrush}"
+                                                                       TextTrimming="CharacterEllipsis" />
+                                                            <TextBlock Text="{Binding Detail}" FontSize="10"
+                                                                       Foreground="{DynamicResource TextTertiaryBrush}"
+                                                                       TextWrapping="Wrap"
+                                                                       Visibility="{Binding Detail, Converter={StaticResource StringToVisibility}}" />
+                                                        </StackPanel>
+                                                        <!-- 竖向分隔线（仅在不是首项时由 XAML 显示——末项不显示） -->
+                                                        <Rectangle Grid.Column="1" Width="1" Height="40"
+                                                                   Margin="10,0,0,0" VerticalAlignment="Center"
+                                                                   Fill="{DynamicResource TrackBrush}"
+                                                                   Visibility="{Binding IsLast, Converter={StaticResource BoolToVisibility}, ConverterParameter=Invert}" />
+                                                    </Grid>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
                                     </StackPanel>
                                 </Border>
 
                                 <!-- 卡片图表区（用户在插件配置窗口勾选的图表类型，多选叠加显示） -->
                                 <StackPanel Margin="0,12,0,0"
                                             Visibility="{Binding HasCardChart, Converter={StaticResource BoolToVisibility}}">
-                                    <!-- 折线图：MiniMax 为每日 Token 趋势（Y 轴自适应），其它插件为历史用量% -->
+                                    <!-- 折线图：MiniMax 为每日 Token 趋势（Y 轴自适应），其它插件为历史用量%。
+                                         req-007 完整化后新增 Dates / ExtraTooltipLines / SupportsPeriodSwitch /
+                                         CurrentPeriod / IsLoading 五个绑定，X 轴 + 周期切换按钮仅在
+                                         SupportsPeriodSwitch=true 时呈现。 -->
                                     <controls:MiniLineChartControl Height="132" Margin="0,0,0,8"
                                         Values="{Binding CardLineValues}" MaxValue="{Binding CardLineMax}" StrokeThickness="2.4"
                                         ProviderName="{Binding DisplayName}"
@@ -309,6 +329,12 @@
                                         LowBrush="{DynamicResource UsageLowBrush}"
                                         MidBrush="{DynamicResource UsageMidBrush}"
                                         HighBrush="{DynamicResource UsageHighBrush}"
+                                        Dates="{Binding Dates}"
+                                        ExtraTooltipLines="{Binding ExtraTooltipLines}"
+                                        SupportsPeriodSwitch="{Binding SupportsPeriodSwitch}"
+                                        CurrentPeriod="{Binding CurrentPeriod}"
+                                        IsLoading="{Binding IsLoading}"
+                                        PeriodChanged="OnLineChartPeriodChanged"
                                         Visibility="{Binding CardChartKinds, Converter={StaticResource CardChartKindsContains}, ConverterParameter=Line}" />
                                     <!-- 柱状图：历史用量% 序列 -->
                                     <controls:BarChartControl Height="132" Margin="0,0,0,8"

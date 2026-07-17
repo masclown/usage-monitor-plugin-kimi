@@ -145,7 +145,7 @@
 
                     <Separator Margin="0,4,0,16" />
 
-                    <!-- REQ-004 触发区域设置（RectInt 代替旧 Width/Height） -->
+                    <!-- REQ-004/006 触发区域设置（RectInt + VirtualScreen，最小 10×10） -->
                     <TextBlock Text="悬浮窗触发区域" FontSize="15" FontWeight="SemiBold"
                                Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,12" />
                     <TextBlock TextWrapping="Wrap" FontSize="12"
@@ -170,12 +170,12 @@
                             <TextBox Text="{Binding TriggerRectY, UpdateSourceTrigger=PropertyChanged}" />
                         </StackPanel>
                         <StackPanel Grid.Column="2" Margin="0,0,8,0">
-                            <TextBlock Text="Width（≥80）" FontSize="12"
+                            <TextBlock Text="Width（≥10）" FontSize="12"
                                        Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,4" />
                             <TextBox Text="{Binding TriggerRectWidth, UpdateSourceTrigger=PropertyChanged}" />
                         </StackPanel>
                         <StackPanel Grid.Column="3">
-                            <TextBlock Text="Height（≥60）" FontSize="12"
+                            <TextBlock Text="Height（≥10）" FontSize="12"
                                        Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,4" />
                             <TextBox Text="{Binding TriggerRectHeight, UpdateSourceTrigger=PropertyChanged}" />
                         </StackPanel>
@@ -364,6 +364,107 @@
                     <StackPanel Orientation="Horizontal">
                         <Button Content="保存设置" Padding="18,8"
                                 Command="{Binding SaveTierCommand}"
+                                Style="{StaticResource PrimaryButtonStyle}" />
+                        <TextBlock Text="（即时生效；下次启动按磁盘值恢复）" FontSize="12"
+                                   VerticalAlignment="Center" Margin="12,0,0,0"
+                                   Foreground="{DynamicResource TextTertiaryBrush}" />
+                    </StackPanel>
+                </StackPanel>
+            </ScrollViewer>
+        </TabItem>
+
+        <!-- 热力图色阶（req-011：镜像"用量色阶" Tab 结构，按 Provider 独立配置 token 绝对值分档） -->
+        <TabItem Header="热力图色阶">
+            <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,6,0">
+                <StackPanel Margin="16" DataContext="{Binding HeatMapTierEditor}">
+                    <TextBlock Text="热力图色阶" FontSize="20" FontWeight="Bold"
+                               Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,8" />
+                    <TextBlock TextWrapping="Wrap" FontSize="12" Margin="0,0,0,16"
+                               Foreground="{DynamicResource TextSecondaryBrush}" LineHeight="18">
+                        <Run Text="按 Token 绝对值分档（MiniMax 默认 6 档：0 / 20M / 100M / 200M / 300M），不同 Provider 独立色阶。" />
+                        <LineBreak />
+                        <Run Text="调整后点&quot;保存设置&quot;才会写入 config.json；&quot;应用预览&quot;仅为实时查看效果不落盘。" />
+                    </TextBlock>
+
+                    <TextBlock Text="Provider：" FontSize="13" FontWeight="SemiBold"
+                               Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,6" />
+                    <ComboBox ItemsSource="{Binding ProviderOptions}"
+                              DisplayMemberPath="Value" SelectedValuePath="Key"
+                              SelectedValue="{Binding SelectedProviderId}"
+                              Width="240" HorizontalAlignment="Left" Margin="0,0,0,16" />
+
+                    <!-- 表头 -->
+                    <Grid Margin="0,0,0,6">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="40" />
+                            <ColumnDefinition Width="140" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="启用" FontSize="12"
+                                   Foreground="{DynamicResource TextTertiaryBrush}" />
+                        <TextBlock Grid.Column="1" Text="阈值（tokens）" FontSize="12"
+                                   Foreground="{DynamicResource TextTertiaryBrush}" />
+                        <TextBlock Grid.Column="2" Text="颜色" FontSize="12"
+                                   Foreground="{DynamicResource TextTertiaryBrush}" />
+                        <TextBlock Grid.Column="3" Text="HEX" FontSize="12" Width="120" Margin="6,0,6,0"
+                                   Foreground="{DynamicResource TextTertiaryBrush}" />
+                    </Grid>
+
+                    <ItemsControl ItemsSource="{Binding TierItems}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="40" />
+                                        <ColumnDefinition Width="140" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <!-- 启用 -->
+                                    <CheckBox Grid.Column="0" IsChecked="{Binding IsEnabled}" VerticalAlignment="Center" />
+                                    <!-- 阈值 tokens -->
+                                    <TextBox Grid.Column="1" Text="{Binding MinTokens, UpdateSourceTrigger=PropertyChanged}"
+                                             VerticalAlignment="Center" />
+                                    <!-- 颜色预览 + 选择按钮 -->
+                                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <Border Width="32" Height="22" CornerRadius="4" Margin="0,0,8,0"
+                                                BorderBrush="{DynamicResource TrackBrush}" BorderThickness="1"
+                                                Background="{Binding Color}" />
+                                        <Button Content="选择颜色…" Padding="10,4"
+                                                Command="{Binding PickColorCommand}"
+                                                Style="{StaticResource AccentSoftButtonStyle}" />
+                                    </StackPanel>
+                                    <!-- HEX -->
+                                    <TextBlock Grid.Column="3" Text="{Binding ColorHex}" FontSize="12"
+                                               VerticalAlignment="Center" Width="120" Margin="6,0,6,0"
+                                               Foreground="{DynamicResource TextSecondaryBrush}" />
+                                    <!-- 删除 -->
+                                    <Button Grid.Column="4" Content="删除" Padding="10,4"
+                                            Command="{Binding RemoveCommand}"
+                                            Style="{StaticResource GhostButtonStyle}" />
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <StackPanel Orientation="Horizontal" Margin="0,8,0,16">
+                        <Button Content="添加档位" Margin="0,0,8,0" Padding="14,6"
+                                Command="{Binding AddTierCommand}"
+                                Style="{StaticResource AccentSoftButtonStyle}" />
+                        <Button Content="恢复默认" Margin="0,0,8,0" Padding="14,6"
+                                Command="{Binding ResetToDefaultsCommand}"
+                                Style="{StaticResource GhostButtonStyle}" />
+                        <Button Content="应用预览" Margin="0,0,8,0" Padding="14,6"
+                                Command="{Binding ApplyPreviewCommand}"
+                                Style="{StaticResource GhostButtonStyle}" />
+                    </StackPanel>
+
+                    <Separator Margin="0,4,0,16" />
+
+                    <StackPanel Orientation="Horizontal">
+                        <Button Content="保存设置" Padding="18,8"
+                                Command="{Binding SaveCommand}"
                                 Style="{StaticResource PrimaryButtonStyle}" />
                         <TextBlock Text="（即时生效；下次启动按磁盘值恢复）" FontSize="12"
                                    VerticalAlignment="Center" Margin="12,0,0,0"

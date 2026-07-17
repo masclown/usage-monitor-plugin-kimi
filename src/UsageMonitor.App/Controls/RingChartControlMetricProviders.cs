@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using UsageMonitor.App.ViewModels;
 using UsageMonitor.Core.Models;
 
@@ -29,9 +30,13 @@ public static class RingChartControlMetricProviders
             }),
             new DelegateMetricProvider(RingChartMetricKeys.Credits, () =>
             {
-                var v = string.IsNullOrWhiteSpace(vm.BalanceValueText) ? "--" : vm.BalanceValueText;
-                var u = string.IsNullOrWhiteSpace(vm.BalanceUnitText) ? string.Empty : " " + vm.BalanceUnitText;
-                return v + u;
+                // req-008：从 BalanceItems 集合中找"积分余额"项（默认 4 项之一）的 Value。
+                // 无该项时（如失败场景）回退为 "--"。
+                var credits = vm.BalanceItems.FirstOrDefault(b =>
+                    string.Equals(b.Label, "积分余额", System.StringComparison.OrdinalIgnoreCase));
+                var v = credits == null || string.IsNullOrWhiteSpace(credits.Value) ? "--" : credits.Value;
+                // 单位从 Detail 推导：默认无单位（"积分"已包含在 Value 文本中）。
+                return v;
             }),
             new DelegateMetricProvider(RingChartMetricKeys.WeeklyLimit, () =>
             {

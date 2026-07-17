@@ -105,6 +105,9 @@ public class HistoryViewModel : INotifyPropertyChanged
 {
     private readonly UsageHistoryRepository _repository;
 
+    /// <summary>req-012：配置服务（用于按 PluginEnabled 过滤 Provider + 订阅 ConfigChanged）。</summary>
+    private readonly UsageMonitor.Core.Services.ConfigService _configService;
+
     /// <summary>系统已安装插件的 Provider 静态映射（id -> displayName），用于回显已卸载历史</summary>
     private readonly Dictionary<string, string> _installedProviderNames;
 
@@ -112,12 +115,15 @@ public class HistoryViewModel : INotifyPropertyChanged
     /// 创建 HistoryViewModel。
     /// </summary>
     /// <param name="repository">已建好的持久化仓库</param>
+    /// <param name="configService">req-012：配置服务（用于按 PluginEnabled 过滤 Provider）</param>
     /// <param name="installedPlugins">
     /// 当前已安装的插件列表（用来获取 displayName）。已卸载 Provider 用 ProviderId 作为显示名 + "（已卸载）" 后缀。
     /// </param>
-    public HistoryViewModel(UsageHistoryRepository repository,
+    public HistoryViewModel(UsageMonitor.Core.Services.ConfigService configService,
+                            UsageHistoryRepository repository,
                             IEnumerable<(string providerId, string displayName)> installedPlugins)
     {
+        _configService = configService;
         _repository = repository;
         _installedProviderNames = installedPlugins
             .GroupBy(x => x.providerId, StringComparer.OrdinalIgnoreCase)
@@ -146,6 +152,10 @@ public class HistoryViewModel : INotifyPropertyChanged
 
         // 订阅全局用量色阶变更：重着色热力图单元（颜色按新色阶刷）。
         UsageMonitor.App.Helpers.UsageTierScale.TierChanged += OnTierChanged;
+
+        // req-012：订阅 ConfigChanged → 设置页勾选/取消勾选插件时，历史窗口的 Provider 列表实时跟随。
+        // 注意：ConfigChanged 在 Save 路径上会高频触发，UI 线程 Invoke 时做去重（移除已不存在的 Provider）。
+        _configService.ConfigChanged += OnConfigChanged;
     }
 
     /// <summary>色阶表变化后重着色热力图单元。</summary>
@@ -324,31 +334,27 @@ public class HistoryViewModel : INotifyPropertyChanged
     /// 初始化 Provider 列表（合并 PluginManager.Plugins 和 DB 中出现过的 ProviderId）。
     /// 启动时一次性调用。
     /// </summary>
+    /// <remarks>
+    /// req-012：现在按 <see cref="UsageMonitor.Core.Models.AppSettings.PluginEnabled"/> 过滤——
+    /// 只显示**已启用**的 Provider。已卸载但保留历史的 Provider **暂不显示**（决策 7A）；
+    /// 重新安装并启用插件后，IsInstalled 路径会自动加入。
+    /// </remarks>
     public async Task InitializeProvidersAsync()
     {
         Providers.Clear();
-        var known = await _repository.GetKnownProviderIdsAsync();
-        var knownSet = new HashSet<string>(known, StringComparer.OrdinalIgnoreCase);
-        // 第一优先：已安装 Provider
+        // 不再调用 _repository.GetKnownProviderIdsAsync()：req-012 决策 7A 不再展示已卸载 Provider。
+        // 重新安装并启用插件后，IsInstalled 路径会自然带进来。
+
+        // 第一优先：已安装且**已启用**的 Provider
         foreach (var (pid, name) in _installedProviderNames.OrderBy(p => p.Value, StringComparer.CurrentCulture))
         {
+            var enabled = _configService.Settings.PluginEnabled.GetValueOrDefault(pid, true);
+            if (!enabled) continue; // 禁用项不显示（决策 1）
             Providers.Add(new ProviderOption
             {
                 ProviderId = pid,
                 DisplayName = name,
                 IsInstalled = true,
-                IsSelected = true
-            });
-            knownSet.Remove(pid);
-        }
-        // 第二：历史中存在但当前未安装
-        foreach (var pid in knownSet)
-        {
-            Providers.Add(new ProviderOption
-            {
-                ProviderId = pid,
-                DisplayName = pid + "（已卸载）",
-                IsInstalled = false,
                 IsSelected = true
             });
         }
@@ -358,6 +364,60 @@ public class HistoryViewModel : INotifyPropertyChanged
             p.PropertyChanged += OnProviderOptionChanged;
         }
         await LoadDataAsync();
+    }
+
+    /// <summary>
+    /// req-012：ConfigChanged 回调 —— 设置页勾选/取消勾选插件时，历史窗口的 Provider 列表实时跟随。
+    /// <para>
+    /// 触发场景：设置页"插件" Tab 取消勾选 / 重新勾选某个 Provider。
+    /// 行为：
+    /// <list type="bullet">
+    ///   <item><description>当前列表中已不启用的 Provider 移除</description></item>
+    ///   <item><description>新启用的 Provider（如历史窗口打开后用户启用）追加（用 InstalledProviderNames 找 displayName）</description></item>
+    ///   <item><description>重新加载数据（异步）</description></item>
+    /// </list>
+    /// </para>
+    /// </summary>
+    private void OnConfigChanged(object? sender, EventArgs e)
+    {
+        var dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher == null) return;
+        dispatcher.InvokeAsync(() =>
+        {
+            var enabledMap = _configService.Settings.PluginEnabled;
+
+            // 1. 移除已不启用的 Provider
+            var toRemove = Providers
+                .Where(p => !enabledMap.GetValueOrDefault(p.ProviderId, true))
+                .ToList();
+            foreach (var p in toRemove)
+            {
+                p.PropertyChanged -= OnProviderOptionChanged;
+                Providers.Remove(p);
+            }
+
+            // 2. 追加新启用的 Provider（_installedProviderNames 里有但当前 Providers 列表没有）
+            var existingIds = new HashSet<string>(
+                Providers.Select(p => p.ProviderId), System.StringComparer.OrdinalIgnoreCase);
+            foreach (var (pid, name) in _installedProviderNames)
+            {
+                if (existingIds.Contains(pid)) continue;
+                var enabled = enabledMap.GetValueOrDefault(pid, true);
+                if (!enabled) continue;
+                var opt = new ProviderOption
+                {
+                    ProviderId = pid,
+                    DisplayName = name,
+                    IsInstalled = true,
+                    IsSelected = true
+                };
+                opt.PropertyChanged += OnProviderOptionChanged;
+                Providers.Add(opt);
+            }
+
+            // 3. 重新加载数据
+            _ = LoadDataAsync();
+        });
     }
 
     private void OnProviderOptionChanged(object? sender, PropertyChangedEventArgs e)

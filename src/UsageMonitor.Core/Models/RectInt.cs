@@ -12,7 +12,7 @@ namespace UsageMonitor.Core.Models;
 /// 设计要点：
 /// <list type="bullet">
 ///   <item><description>值类型 + 不可变 record struct：避免 UI 误改内部字段引发不一致。</description></item>
-///   <item><description><see cref="ClampToScreen(int, int, int, int)"/>：传入工作区坐标，调用方负责传真实主屏工作区（避免 Core 项目被强绑 WPF/WinForms 引用）。</description></item>
+///   <item><description><see cref="ClampToScreen(int, int, int, int)"/>：传入可用屏幕边界，调用方可选择工作区或完整虚拟屏（避免 Core 项目被强绑 WPF/WinForms 引用）。</description></item>
 ///   <item><description><see cref="Contains"/>：与 <see cref="System.Drawing.Point"/> 互操作，判断光标是否落在矩形内。</description></item>
 /// </list>
 /// </para>
@@ -28,8 +28,8 @@ public readonly record struct RectInt(int X, int Y, int Width, int Height)
     /// <summary>
     /// 默认托盘悬浮窗触发区域：屏幕右下角 240×120 像素（基于 1920×1080 主屏兜底）。
     /// <para>
-    /// Core 项目无可视化依赖，无法在这里直接读 WPF/WinForms 工作区；实际启动时由
-    /// WPF 层调用 <see cref="ClampToScreen(int,int,int,int)"/> 把默认坐标夹回真实主屏工作区。
+    /// Core 项目无可视化依赖，无法在这里直接读 WPF/WinForms 屏幕边界；实际启动时由
+    /// WPF 层调用 <see cref="ClampToScreen(int,int,int,int)"/> 把默认坐标夹回真实虚拟屏。
     /// </para>
     /// </summary>
     public static RectInt DefaultBottomRight()
@@ -57,8 +57,9 @@ public readonly record struct RectInt(int X, int Y, int Width, int Height)
     public RectInt ClampToScreen() => ClampToScreen(0, 0, 1920, 1040);
 
     /// <summary>
-    /// 把矩形夹到指定工作区内（多显示器断开 / 分辨率变更场景）。
-    /// 矩形宽高保持不变；若完全位于工作区外则平移到工作区右下角。
+    /// 把矩形夹到指定屏幕边界内（多显示器断开 / 分辨率变更场景）。
+    /// 矩形宽高保持不变；若完全位于屏幕外则平移到边界右下角。
+    /// REQ-006 将最小尺寸统一为 10×10，以支持任务栏图标级细条触发区域。
     /// </summary>
     /// <param name="workLeft">工作区左边界（含），通常由 WPF <c>SystemParameters.WorkArea.Left</c> 提供。</param>
     /// <param name="workTop">工作区上边界（含）。</param>
@@ -66,8 +67,8 @@ public readonly record struct RectInt(int X, int Y, int Width, int Height)
     /// <param name="workBottom">工作区下边界（不含）。</param>
     public RectInt ClampToScreen(int workLeft, int workTop, int workRight, int workBottom)
     {
-        const int minW = 80;  // 与需求文档 §4 一致：最小尺寸 80×60
-        const int minH = 60;
+        const int minW = 10;  // REQ-006：触发区域最小尺寸统一为 10×10
+        const int minH = 10;
         var w = Math.Max(minW, Width);
         var h = Math.Max(minH, Height);
 

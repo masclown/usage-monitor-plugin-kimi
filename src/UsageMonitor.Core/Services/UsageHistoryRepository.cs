@@ -479,6 +479,54 @@ ORDER BY day ASC, provider_id ASC;
     }
 
     /// <summary>
+    /// req-012：删除指定 Provider 的所有历史数据（usage_points + usage_daily 两张表）。
+    /// <para>
+    /// 启动时检测到 Provider 卸载且用户选"删除"时调用。两张表都用 <c>provider_id</c> 索引，
+    /// 删除走索引扫描（百毫秒级），无须清空整个库。
+    /// </para>
+    /// <para>
+    /// 失败仅日志（不向上抛），与仓库其他写入方法保持一致。
+    /// </para>
+    /// </summary>
+    /// <param name="providerId">要删除数据的 Provider ID（如 "deepseek"）</param>
+    public async Task DeleteProviderDataAsync(string providerId)
+    {
+        if (string.IsNullOrWhiteSpace(providerId)) return;
+        try
+        {
+            await using var conn = OpenConnection();
+            await using var cmd = conn.CreateCommand();
+            // 单事务两条 DELETE：避免删完 points 后程序崩溃导致 daily 残留孤儿
+            // Microsoft.Data.Sqlite 的 BeginTransaction 返回 SqliteTransaction；BeginTransactionAsync
+            // 在某些版本返回基类 DbTransaction（需要强转），所以这里用同步版本 + Task.Run 异步化。
+            var deleteAsync = Task.Run(async () =>
+            {
+                await using var tx = conn.BeginTransaction();
+
+                cmd.CommandText = "DELETE FROM usage_points WHERE provider_id = $id";
+                cmd.Parameters.AddWithValue("$id", providerId);
+                var n1 = await cmd.ExecuteNonQueryAsync();
+
+                cmd.Parameters.Clear();
+                cmd.CommandText = "DELETE FROM usage_daily WHERE provider_id = $id";
+                cmd.Parameters.AddWithValue("$id", providerId);
+                var n2 = await cmd.ExecuteNonQueryAsync();
+
+                await tx.CommitAsync();
+                return (n1, n2);
+            });
+            var (n1Final, n2Final) = await deleteAsync;
+            FileLogger.Info("UsageHistoryRepository",
+                $"DeleteProviderDataAsync({providerId}): usage_points={n1Final} 行, usage_daily={n2Final} 行");
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Error("UsageHistoryRepository",
+                $"DeleteProviderDataAsync({providerId}) failed", ex);
+        }
+    }
+
+    /// <summary>
     /// 异步返回指定 provider 某个日期的日聚合。失败时返回 null。
     /// </summary>
     public async Task<DailyAggregate?> GetDailyAsync(string providerId, string day)

@@ -32,8 +32,11 @@ public class YearHeatMapCell
     /// <summary>该日某种"代表百分比"。各 Provider 折叠时一般取 EndUsedPercent。</summary>
     public double Percent { get; set; }
 
-    /// <summary>该格子的背景画笔（XAML 端用 PercentToBrushConverter 算好）</summary>
+    /// <summary>该格子的背景画刷（XAML 端用 PercentToBrushConverter 算好）</summary>
     public Brush Background { get; set; } = Brushes.Transparent;
+
+    /// <summary>该日 Token 用量（req-009）。用于 <c>HeatMapTierScale.ResolveBrush</c> 重算背景色。</summary>
+    public long Token { get; set; }
 }
 
 /// <summary>

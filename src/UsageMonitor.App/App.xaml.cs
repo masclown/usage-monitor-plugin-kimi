@@ -74,6 +74,8 @@ public partial class App : Application
 
         // 加载用量色阶到全局静态表（保证 XAML 首次绑定 PercentToBrushConverter 时拿到正确颜色）。
         UsageMonitor.App.Helpers.UsageTierScale.ApplyConfig(_configService.GetEffectiveUsageTierConfig());
+        // req-009：加载热力图色阶（按 ProviderId 独立色阶表），让首次渲染就拿到正确颜色。
+        UsageMonitor.App.Helpers.HeatMapTierScale.ApplyConfig(_configService.Settings.ProviderHeatMapTiers);
         // Register the live ConfigService with BrowserLoginService so that when login
         // writes new cookies to config.json directly, the in-memory provider config can
         // be reloaded — avoiding the user having to restart the app.
@@ -142,8 +144,76 @@ public partial class App : Application
         // 按当前配置同步任务栏窗口 + 托盘悬浮窗（运行时勾选/取消会通过 ConfigChanged 回调即时同步）
         SyncOverlayWindowsFromSettings();
 
+        // req-012：启动时检测新卸载的 Provider → 弹批量对话框（一次选"删/保"，记录到 UninstalledProviderChoices）。
+        // 必须在 SyncOverlayWindowsFromSettings 之后（_historyRepository 已就绪）、ShowMainWindow 之前（避免窗口闪烁）。
+        CheckUninstalledPluginsOnStartup();
+
         // 显示主窗口
         ShowMainWindow();
+    }
+
+    /// <summary>
+    /// req-012：启动时检测本次新卸载的 Provider，与历史已卸载 Provider 区分（看 UninstalledProviderChoices 字典）。
+    /// <para>
+    /// 流程：
+    /// <list type="number">
+    ///   <item><description>对比当前已安装 plugin ID 集合与 <c>LastKnownInstalledPluginIds</c>，差集 = 新卸载</description></item>
+    ///   <item><description>剔除 <c>UninstalledProviderChoices</c> 中已记录过选择的（不重复询问）</description></item>
+    ///   <item><description>弹 MessageBox.YesNo，询问是否删除这些 Provider 的历史数据</description></item>
+    ///   <item><description>用户选择后写入 <c>UninstalledProviderChoices</c>；选"是"则调 <c>DeleteProviderDataAsync</c> 清库</description></item>
+    ///   <item><description>更新 <c>LastKnownInstalledPluginIds</c> 并 Save</description></item>
+    /// </list>
+    /// 首次启动时 <c>LastKnownInstalledPluginIds</c> 为空 list → 不会误弹对话框（removedIds 为空）。
+    /// </para>
+    /// </summary>
+    private void CheckUninstalledPluginsOnStartup()
+    {
+        try
+        {
+            var currentIds = _pluginManager.Plugins
+                .Select(p => p.Provider.ProviderId)
+                .ToList();
+            var lastKnown = _configService.Settings.LastKnownInstalledPluginIds ?? new List<string>();
+            var removedIds = lastKnown
+                .Except(currentIds, System.StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            // 剔除已经记录过选择的（决策 5：一次性问，不重复）
+            var notAsked = removedIds
+                .Where(id => !_configService.Settings.UninstalledProviderChoices.ContainsKey(id))
+                .ToList();
+
+            if (notAsked.Count == 0)
+            {
+                // 即便无需弹窗，也要更新 LastKnownInstalledPluginIds 反映本次已知列表（让下次启动能对比）
+                _configService.Settings.LastKnownInstalledPluginIds = currentIds;
+                _configService.Save();
+                return;
+            }
+
+            var msg = "检测到以下插件已被卸载：\n  - "
+                + string.Join("\n  - ", notAsked)
+                + "\n\n是否删除它们的历史数据？\n（选\u201c否\u201d则保留数据，下次启动不再询问）";
+            var result = MessageBox.Show(msg, "插件数据清理",
+                MessageBoxButton.YesNo, MessageBoxImage.Question);
+            var choice = result == MessageBoxResult.Yes ? "deleted" : "kept";
+            foreach (var id in notAsked)
+            {
+                _configService.Settings.UninstalledProviderChoices[id] = choice;
+                if (choice == "deleted" && _historyRepository != null)
+                {
+                    // 同步删除历史数据（fire-and-forget：DeleteProviderDataAsync 内部 try/catch + 日志）
+                    _ = _historyRepository.DeleteProviderDataAsync(id);
+                }
+            }
+
+            // 更新 LastKnownInstalledPluginIds 反映本次已知列表，并落盘
+            _configService.Settings.LastKnownInstalledPluginIds = currentIds;
+            _configService.Save();
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Error("App", "CheckUninstalledPluginsOnStartup failed", ex);
+        }
     }
 
     /// <summary>
@@ -461,7 +531,9 @@ public partial class App : Application
             {
                 var installed = _pluginManager.Plugins
                     .Select(p => (providerId: p.Provider.ProviderId, displayName: p.Provider.DisplayName));
-                var vm = new ViewModels.HistoryViewModel(_historyRepository, installed);
+                // req-012：传入 _configService，让 HistoryViewModel 能按 PluginEnabled 过滤 Provider 列表
+                //        并订阅 ConfigChanged 实现"设置页取消勾选 → 历史窗口立即移除"的实时联动。
+                var vm = new ViewModels.HistoryViewModel(_configService, _historyRepository, installed);
                 _historyWindow = new Views.HistoryWindow(vm);
                 _historyWindow.Closed += (_, _) => _historyWindow = null;
             }

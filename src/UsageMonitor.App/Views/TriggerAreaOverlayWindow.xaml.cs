@@ -10,10 +10,10 @@ using UsageMonitor.Core.Services;
 namespace UsageMonitor.App.Views;
 
 /// <summary>
-/// REQ-004：托盘悬浮窗触发区域调试遮罩。
+/// REQ-004/006：托盘悬浮窗触发区域调试遮罩。
 /// <para>
-/// 整屏半透明蒙版 + 当前 <see cref="RectInt"/>（X/Y/W/H）边框 / 填充 +
-/// 8 个 Thumb（4 边 + 4 角）调整边界 + 矩形内可整体拖动；Esc 或点击蒙版空白退出；
+/// 覆盖完整虚拟屏（含任务栏）+ 当前 <see cref="RectInt"/>（X/Y/W/H）边框 / 填充 +
+/// 8 个 Thumb（4 边 + 4 角）按固定对侧基点调整边界 + 矩形内可整体拖动；Esc 或点击蒙版空白退出；
 /// 拖动 / 缩放 MouseUp 后 500ms 防抖写入 <see cref="AppSettings.TrayTooltipTriggerRect"/>，
 /// SettingsWindow 的 4 个 TextBox 通过 <see cref="ConfigService.ConfigChanged"/> 双向同步。
 /// </para>
@@ -27,10 +27,10 @@ public partial class TriggerAreaOverlayWindow : Window
 {
     private readonly ConfigService _configService;
 
-    /// <summary>REQ-004 §1：最小尺寸（与需求文档一致）。</summary>
-    private const int MinRectWidth = 80;
-    /// <summary>REQ-004 §1：最小尺寸。</summary>
-    private const int MinRectHeight = 60;
+    /// <summary>REQ-006：触发区域最小宽度为 10 像素。</summary>
+    private const int MinRectWidth = 10;
+    /// <summary>REQ-006：触发区域最小高度为 10 像素。</summary>
+    private const int MinRectHeight = 10;
 
     /// <summary>REQ-004 §5：拖动 / 缩放完成后 500ms 防抖写入配置。</summary>
     private DispatcherTimer? _saveRectTimer;
@@ -47,9 +47,12 @@ public partial class TriggerAreaOverlayWindow : Window
         InitializeComponent();
 
         _configService.ConfigChanged += OnConfigChanged;
+        // REQ-006：Closed 也需兑底落盘，否则在 500ms 防抖窗口内被 Alt+F4 或外部 Close 绕过会丢本次拖动。
+        // FlushPendingSave 内部已 Stop + 释放 timer 引用，避免 DispatcherTimer 闭包循环。
         Closed += (_, _) =>
         {
-            _saveRectTimer?.Stop();
+            FlushPendingSave();
+            _saveRectTimer = null;
             _configService.ConfigChanged -= OnConfigChanged;
         };
 
@@ -57,12 +60,13 @@ public partial class TriggerAreaOverlayWindow : Window
         PreviewKeyDown += OnPreviewKeyDown;
     }
 
-    /// <summary>窗口加载：按当前配置应用矩形位置 / 大小 / 标签。</summary>
+    /// <summary>窗口加载：按当前配置应用矩形，并记录完整虚拟屏边界。</summary>
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         ApplyRectFromConfig();
+        var bounds = GetVirtualScreenBounds();
         FileLogger.Info("TriggerAreaOverlayWindow",
-            $"已显示 WorkArea=({SystemParameters.WorkArea.Left},{SystemParameters.WorkArea.Top})-({SystemParameters.WorkArea.Right},{SystemParameters.WorkArea.Bottom}) TriggerRect={_configService.Settings.TrayTooltipTriggerRect}");
+            $"已显示 VirtualScreen=({bounds.Left},{bounds.Top})-({bounds.Right},{bounds.Bottom}) TriggerRect={_configService.Settings.TrayTooltipTriggerRect}");
     }
 
     // =====================================================
@@ -72,22 +76,15 @@ public partial class TriggerAreaOverlayWindow : Window
     /// <summary>外部（TextBox 改动、其它入口）改 TriggerRect 时同步矩形尺寸 / 位置。</summary>
     private void OnConfigChanged(object? sender, EventArgs e) => Dispatcher.Invoke(ApplyRectFromConfig);
 
-    /// <summary>把当前 <see cref="AppSettings.TrayTooltipTriggerRect"/> 落到 TriggerBorder 上 + 坐标标签。</summary>
+    /// <summary>把当前 <see cref="AppSettings.TrayTooltipTriggerRect"/> 换算为虚拟屏 Canvas 局部坐标并刷新标签；不修改设置中的原始值，避免“打开蒙版即迁移”。</summary>
     private void ApplyRectFromConfig()
     {
-        var r = _configService.Settings.TrayTooltipTriggerRect;
-        // 应用最小尺寸（防止脏数据让 Rect 缩成 0）
-        var w = Math.Max(MinRectWidth, r.Width);
-        var h = Math.Max(MinRectHeight, r.Height);
+        var configured = _configService.Settings.TrayTooltipTriggerRect;
+        var r = ClampToVirtualScreen(configured);
 
-        // 通过夹回避免越屏（多屏断开后原 Rect 可能在新屏幕外）
-        r = r.ClampToScreen((int)SystemParameters.WorkArea.Left,
-                            (int)SystemParameters.WorkArea.Top,
-                            (int)SystemParameters.WorkArea.Right,
-                            (int)SystemParameters.WorkArea.Bottom);
-
-        Canvas.SetLeft(TriggerBorder, r.X);
-        Canvas.SetTop(TriggerBorder, r.Y);
+        var bounds = GetVirtualScreenBounds();
+        Canvas.SetLeft(TriggerBorder, r.X - bounds.Left);
+        Canvas.SetTop(TriggerBorder, r.Y - bounds.Top);
         TriggerBorder.Width = r.Width;
         TriggerBorder.Height = r.Height;
         CoordsLabel.Text = $"X={r.X} Y={r.Y} W={r.Width} H={r.Height}（最小 {MinRectWidth}×{MinRectHeight}）";
@@ -97,69 +94,64 @@ public partial class TriggerAreaOverlayWindow : Window
     // UI → 数据源：Thumb 拖拽（4 边 + 4 角）
     // =====================================================
 
-    /// <summary>REQ-004 §4：8 个 Thumb 共用入口；按 Tag 决定修改 X/Y/W/H 哪些字段。</summary>
+    /// <summary>
+    /// REQ-006：8 个 Thumb 共用缩放入口。拖动边按 VirtualScreen 与 10px 下限钳制，
+    /// 对侧边始终作为固定基点；达到下限后继续向内拖动时矩形保持不动。
+    /// </summary>
     private void OnThumbDragDelta(object sender, DragDeltaEventArgs e)
     {
         if (sender is not Thumb thumb || thumb.Tag is not string tag) return;
 
-        var r = _configService.Settings.TrayTooltipTriggerRect;
-        var dx = e.HorizontalChange;
-        var dy = e.VerticalChange;
-        // 整型夹回前统一用 double 做累加，规避 DragDeltaEventArgs.{Horizontal,Vertical}Change 的 double
-        // 与整型 RectInt 在分支里混用时反复来回强转。
-        var newX = (double)r.X;
-        var newY = (double)r.Y;
-        var newW = (double)r.Width;
-        var newH = (double)r.Height;
+        var configured = _configService.Settings.TrayTooltipTriggerRect;
+        var r = ClampToVirtualScreen(configured);
+        // 只用钳制后的矩形作为缩放参考；不直接写回 Settings，以保留用户原本的坐标。
+        var bounds = GetVirtualScreenBounds();
+        var left = r.X;
+        var top = r.Y;
+        var right = r.Right;
+        var bottom = r.Bottom;
 
-        // 边 / 角调整 W（dx 方向）
         switch (tag)
         {
             case "Left":
             case "TopLeft":
             case "BottomLeft":
-                // 拖动左边界或左侧角 → dx>0 使左边界右移 → Width 减小
-                newW = System.Math.Max(MinRectWidth, newW - dx);
-                if (newW <= MinRectWidth + 0.5 && dx > 0)
-                {
-                    // 到达下限后，再用 X 平移代替缩放（拖动手感连续）
-                    newX = (double)r.X + dx;
-                    newW = r.Width;
-                }
+                left = (int)Math.Round(Math.Clamp(r.X + e.HorizontalChange,
+                    bounds.Left, right - MinRectWidth));
                 break;
             case "Right":
             case "TopRight":
             case "BottomRight":
-                newW = System.Math.Max(MinRectWidth, newW + dx);
+                right = (int)Math.Round(Math.Clamp(r.Right + e.HorizontalChange,
+                    left + MinRectWidth, bounds.Right));
                 break;
         }
 
-        // 边 / 角调整 H（dy 方向）
         switch (tag)
         {
             case "Top":
             case "TopLeft":
             case "TopRight":
-                newH = System.Math.Max(MinRectHeight, newH - dy);
-                if (newH <= MinRectHeight + 0.5 && dy > 0)
-                {
-                    newY = (double)r.Y + dy;
-                    newH = r.Height;
-                }
+                top = (int)Math.Round(Math.Clamp(r.Y + e.VerticalChange,
+                    bounds.Top, bottom - MinRectHeight));
                 break;
             case "Bottom":
             case "BottomLeft":
             case "BottomRight":
-                newH = System.Math.Max(MinRectHeight, newH + dy);
+                bottom = (int)Math.Round(Math.Clamp(r.Bottom + e.VerticalChange,
+                    top + MinRectHeight, bounds.Bottom));
                 break;
         }
 
-        var updated = new RectInt((int)System.Math.Round(newX), (int)System.Math.Round(newY),
-                                  (int)System.Math.Round(newW), (int)System.Math.Round(newH));
-        updated = ClampToWorkArea(updated);
+        var updated = new RectInt(left, top, right - left, bottom - top);
+        if (updated == r) return;
+
         ApplyRectToConfig(updated);
-        ApplyRectFromConfig(); // 立即反馈视觉
+        ApplyRectFromConfig();
     }
+
+    /// <summary>REQ-006：Thumb 释放后安排 500ms 防抖保存，保持缩放与整体拖动的持久化语义一致。</summary>
+    private void OnThumbDragCompleted(object sender, DragCompletedEventArgs e) => ScheduleSave();
 
     // =====================================================
     // 整矩形移动：按下 Border 内部任意位置拖动
@@ -177,7 +169,7 @@ public partial class TriggerAreaOverlayWindow : Window
         e.Handled = true;
     }
 
-    /// <summary>REQ-004 §4：拖动中用光标 delta 累加到 Rect.X/Y；夹回工作区。</summary>
+    /// <summary>REQ-006：拖动中用光标 delta 累加到 Rect.X/Y，并把整体矩形限制在完整虚拟屏内。</summary>
     private void OnBorderMouseMove(object sender, System.Windows.Input.MouseEventArgs e)
     {
         if (!_isMoving) return;
@@ -186,7 +178,7 @@ public partial class TriggerAreaOverlayWindow : Window
         var dy = cur.Y - _moveStartCursorScreen.Y;
         var moved = new RectInt(_moveStartRect.X + dx, _moveStartRect.Y + dy,
                                 _moveStartRect.Width, _moveStartRect.Height);
-        moved = ClampToWorkArea(moved);
+        moved = ClampToVirtualScreen(moved);
         ApplyRectToConfig(moved);
         ApplyRectFromConfig();
     }
@@ -271,11 +263,10 @@ public partial class TriggerAreaOverlayWindow : Window
         _saveRectTimer.Start();
     }
 
-    /// <summary>用户主动退出时立即落盘（不等防抖）。</summary>
+    /// <summary>用户主动退出时停止防抖计时并立即落盘；即使尚未建立计时器也保存当前内存矩形。</summary>
     private void FlushPendingSave()
     {
-        if (_saveRectTimer == null) return;
-        _saveRectTimer.Stop();
+        _saveRectTimer?.Stop();
         _saveRectTimer = null;
         try
         {
@@ -287,17 +278,38 @@ public partial class TriggerAreaOverlayWindow : Window
         }
     }
 
-    /// <summary>把 Rect 夹回主屏工作区（多屏断开 / DPI 变更兜底）。</summary>
-    private RectInt ClampToWorkArea(RectInt r)
+    /// <summary>获取完整虚拟屏整数边界；WPF 指标不可用时回退到 WinForms 虚拟屏，再回退到 1920×1080。</summary>
+    private static (int Left, int Top, int Right, int Bottom) GetVirtualScreenBounds()
     {
         try
         {
-            var wa = SystemParameters.WorkArea;
-            return r.ClampToScreen((int)wa.Left, (int)wa.Top, (int)wa.Right, (int)wa.Bottom);
+            var left = (int)Math.Round(SystemParameters.VirtualScreenLeft);
+            var top = (int)Math.Round(SystemParameters.VirtualScreenTop);
+            var right = (int)Math.Round(SystemParameters.VirtualScreenLeft + SystemParameters.VirtualScreenWidth);
+            var bottom = (int)Math.Round(SystemParameters.VirtualScreenTop + SystemParameters.VirtualScreenHeight);
+            if (right - left >= MinRectWidth && bottom - top >= MinRectHeight)
+            {
+                return (left, top, right, bottom);
+            }
         }
         catch
         {
-            return r.ClampToScreen();
+            // 继续使用 WinForms 完整虚拟屏兜底。
         }
+
+        var fallback = System.Windows.Forms.SystemInformation.VirtualScreen;
+        if (fallback.Width >= MinRectWidth && fallback.Height >= MinRectHeight)
+        {
+            return (fallback.Left, fallback.Top, fallback.Right, fallback.Bottom);
+        }
+
+        return (0, 0, 1920, 1080);
+    }
+
+    /// <summary>把整个触发区域平移并夹回完整虚拟屏；仅用于加载归一化与整体拖动，不用于 Thumb 缩放。</summary>
+    private static RectInt ClampToVirtualScreen(RectInt r)
+    {
+        var bounds = GetVirtualScreenBounds();
+        return r.ClampToScreen(bounds.Left, bounds.Top, bounds.Right, bounds.Bottom);
     }
 }

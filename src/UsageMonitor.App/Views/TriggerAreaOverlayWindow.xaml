@@ -13,12 +13,13 @@
         ResizeMode="NoResize"
         SnapsToDevicePixels="True"
         WindowStartupLocation="Manual"
-        Left="0" Top="0"
-        Width="{x:Static SystemParameters.PrimaryScreenWidth}"
-        Height="{x:Static SystemParameters.PrimaryScreenHeight}">
+        Left="{x:Static SystemParameters.VirtualScreenLeft}"
+        Top="{x:Static SystemParameters.VirtualScreenTop}"
+        Width="{x:Static SystemParameters.VirtualScreenWidth}"
+        Height="{x:Static SystemParameters.VirtualScreenHeight}">
     <!--
-        REQ-004：托盘悬浮窗触发区域调试矩形。整屏半透明灰色蒙版 + 当前 RectInt (X/Y/W/H) 边框 / 填充；
-        8 个 Thumb（4 边 + 4 角）调整边界；蒙版整体可拖动；Esc 或点击蒙版空白退出；
+        REQ-004/006：托盘悬浮窗触发区域调试矩形。覆盖完整虚拟屏（含任务栏）+ 当前 RectInt (X/Y/W/H) 边框 / 填充；
+        8 个 Thumb（4 边 + 4 角）按固定对侧基点调整边界；蒙版整体可拖动；Esc 或点击蒙版空白退出；
         MouseUp 后 500ms 防抖写入 ConfigService.Settings.TrayTooltipTriggerRect → SettingsWindow XAML 双向同步。
     -->
     <Canvas x:Name="RootCanvas">
@@ -55,43 +56,51 @@
                        Width="6" Height="20"
                        HorizontalAlignment="Left" VerticalAlignment="Center"
                        Cursor="SizeWE" Background="White" BorderBrush="#FF1E90FF" BorderThickness="1"
-                       DragDelta="OnThumbDragDelta" />
+                       DragDelta="OnThumbDragDelta"
+                       DragCompleted="OnThumbDragCompleted" />
                 <Thumb x:Name="ThumbRight" Tag="Right"
                        Width="6" Height="20"
                        HorizontalAlignment="Right" VerticalAlignment="Center"
                        Cursor="SizeWE" Background="White" BorderBrush="#FF1E90FF" BorderThickness="1"
-                       DragDelta="OnThumbDragDelta" />
+                       DragDelta="OnThumbDragDelta"
+                       DragCompleted="OnThumbDragCompleted" />
                 <Thumb x:Name="ThumbTop" Tag="Top"
                        Width="20" Height="6"
                        HorizontalAlignment="Center" VerticalAlignment="Top"
                        Cursor="SizeNS" Background="White" BorderBrush="#FF1E90FF" BorderThickness="1"
-                       DragDelta="OnThumbDragDelta" />
+                       DragDelta="OnThumbDragDelta"
+                       DragCompleted="OnThumbDragCompleted" />
                 <Thumb x:Name="ThumbBottom" Tag="Bottom"
                        Width="20" Height="6"
                        HorizontalAlignment="Center" VerticalAlignment="Bottom"
                        Cursor="SizeNS" Background="White" BorderBrush="#FF1E90FF" BorderThickness="1"
-                       DragDelta="OnThumbDragDelta" />
+                       DragDelta="OnThumbDragDelta"
+                       DragCompleted="OnThumbDragCompleted" />
                 <!-- 4 角 Thumb -->
                 <Thumb x:Name="ThumbTopLeft" Tag="TopLeft"
                        Width="10" Height="10"
                        HorizontalAlignment="Left" VerticalAlignment="Top"
                        Cursor="SizeNWSE" Background="White" BorderBrush="#FF1E90FF" BorderThickness="1"
-                       DragDelta="OnThumbDragDelta" />
+                       DragDelta="OnThumbDragDelta"
+                       DragCompleted="OnThumbDragCompleted" />
                 <Thumb x:Name="ThumbTopRight" Tag="TopRight"
                        Width="10" Height="10"
                        HorizontalAlignment="Right" VerticalAlignment="Top"
                        Cursor="SizeNESW" Background="White" BorderBrush="#FF1E90FF" BorderThickness="1"
-                       DragDelta="OnThumbDragDelta" />
+                       DragDelta="OnThumbDragDelta"
+                       DragCompleted="OnThumbDragCompleted" />
                 <Thumb x:Name="ThumbBottomLeft" Tag="BottomLeft"
                        Width="10" Height="10"
                        HorizontalAlignment="Left" VerticalAlignment="Bottom"
                        Cursor="SizeNESW" Background="White" BorderBrush="#FF1E90FF" BorderThickness="1"
-                       DragDelta="OnThumbDragDelta" />
+                       DragDelta="OnThumbDragDelta"
+                       DragCompleted="OnThumbDragCompleted" />
                 <Thumb x:Name="ThumbBottomRight" Tag="BottomRight"
                        Width="10" Height="10"
                        HorizontalAlignment="Right" VerticalAlignment="Bottom"
                        Cursor="SizeNWSE" Background="White" BorderBrush="#FF1E90FF" BorderThickness="1"
-                       DragDelta="OnThumbDragDelta" />
+                       DragDelta="OnThumbDragDelta"
+                       DragCompleted="OnThumbDragCompleted" />
             </Grid>
         </Border>
     </Canvas>
