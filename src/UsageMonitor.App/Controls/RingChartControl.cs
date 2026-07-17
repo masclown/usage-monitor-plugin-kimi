@@ -427,7 +427,7 @@ public class RingChartControl : FrameworkElement, IHoverTooltipProvider
     private IReadOnlyList<string> EffectiveMetricOrder()
     {
         if (MetricOrder != null && MetricOrder.Count > 0) return MetricOrder;
-        return Array.Empty<string>();
+        return RingChartMetricKeys.DefaultOrder;
     }
 
     /// <summary>REQ-003：sticky 计时器到时回退默认 metric（仅当用户切换过）。</summary>
