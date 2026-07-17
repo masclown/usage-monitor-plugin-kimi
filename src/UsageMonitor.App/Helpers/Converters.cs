@@ -291,3 +291,33 @@ public class CardChartKindsContainsConverter : IValueConverter
         => throw new NotSupportedException();
 }
 
+/// <summary>
+/// REQ-003：环形图中心数字 metric 键（字符串）转人类可读提示。
+/// 用于设置窗口中 ListBox 显示：内部存储 "Percent" / "Credits" / "WeeklyLimit" /
+/// "RemainingQuota" / "ApiTokenUsed" 等机器键，绑定后转为中文提示。未识别键原样回退。
+/// </summary>
+public class RingMetricKeyToDisplayConverter : IValueConverter
+{
+    /// <summary>内嵌映射表：与 <see cref="UsageMonitor.Core.Models.RingChartMetricKeys"/> 字符串常量一一对应。未知键原样返回。</summary>
+    private static readonly System.Collections.Generic.Dictionary<string, string> Map = new(System.StringComparer.OrdinalIgnoreCase)
+    {
+        ["Percent"] = "已用百分比（默认）",
+        ["Credits"] = "积分余额",
+        ["WeeklyLimit"] = "周限额剩余",
+        ["RemainingQuota"] = "剩余用量（金额 / Token）",
+        ["ApiTokenUsed"] = "已用 Token 数",
+    };
+
+    /// <summary>将 metric 键转为中文说明。</summary>
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        var key = value as string;
+        if (string.IsNullOrWhiteSpace(key)) return string.Empty;
+        return Map.TryGetValue(key, out var text) ? text : key;
+    }
+
+    /// <summary>不支持反向转换（设置中的 ListBox 只读提示）。</summary>
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+

@@ -22,7 +22,7 @@ public partial class MainWindow : Window
     /// </summary>
     private void OnSettingsClick(object sender, RoutedEventArgs e)
     {
-        var settingsWindow = new Views.SettingsWindow(_viewModel);
+        var settingsWindow = new Views.SettingsWindow(_viewModel, _viewModel.ConfigService);
         settingsWindow.Owner = this;
         settingsWindow.ShowDialog();
     }

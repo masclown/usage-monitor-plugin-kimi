@@ -304,6 +304,8 @@
                                     <!-- 折线图：MiniMax 为每日 Token 趋势（Y 轴自适应），其它插件为历史用量% -->
                                     <controls:MiniLineChartControl Height="132" Margin="0,0,0,8"
                                         Values="{Binding CardLineValues}" MaxValue="{Binding CardLineMax}" StrokeThickness="2.4"
+                                        ProviderName="{Binding DisplayName}"
+                                        ValueUnit="%"
                                         LowBrush="{DynamicResource UsageLowBrush}"
                                         MidBrush="{DynamicResource UsageMidBrush}"
                                         HighBrush="{DynamicResource UsageHighBrush}"
@@ -311,6 +313,8 @@
                                     <!-- 柱状图：历史用量% 序列 -->
                                     <controls:BarChartControl Height="132" Margin="0,0,0,8"
                                         Values="{Binding HistoryValues}"
+                                        ProviderName="{Binding DisplayName}"
+                                        ValueUnit="%"
                                         BarBrush="{DynamicResource AccentGradientBrush}"
                                         GridLineBrush="{DynamicResource ChartAxisBrush}"
                                         TextBrush="{DynamicResource TextSecondaryBrush}"
@@ -318,6 +322,8 @@
                                     <!-- 圆环图：当前已用百分比 -->
                                     <controls:RingChartControl Height="132" Margin="0,0,0,8"
                                         Percent="{Binding UsagePercentage}" Size="112" StrokeThickness="11"
+                                        ProviderName="{Binding DisplayName}"
+                                        ResetTimeText="{Binding PrimaryResetText}"
                                         HorizontalAlignment="Center"
                                         TrackBrush="{DynamicResource TrackBrush}"
                                         ProgressBrush="{DynamicResource AccentBrush}"

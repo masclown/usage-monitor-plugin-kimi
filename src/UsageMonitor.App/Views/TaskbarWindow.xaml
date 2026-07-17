@@ -72,7 +72,9 @@
             </Grid>
         </DataTemplate>
 
-        <!-- 圆环图模式模板：圆环 + Logo + 名称 -->
+        <!-- 圆环图模式模板：圆环 + Logo + 名称（Logo 由圆环中心垂直堆叠渲染，不再单独拉出来）
+             IconPath 绑定到 viewModel.IconPath，RingChartControl 内部 OnRender 用 BitmapImage 画 Logo。
+             MetricProviders / MetricOrder / StickySeconds / SwitchAnimationMs 由宿主页静态赋值。 -->
         <DataTemplate x:Key="TaskbarRingChartTemplate">
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center"
                         Margin="0,0,12,0"
@@ -80,17 +82,14 @@
                 <controls:RingChartControl Width="44" Height="44"
                                             Percent="{Binding UsagePercentage, Mode=OneWay}"
                                             Size="44" StrokeThickness="5"
+                                            IconPath="{Binding IconPath, Mode=OneWay}"
                                             TrackBrush="{DynamicResource TrackBrush}"
                                             ProgressBrush="{DynamicResource AccentBrush}"
                                             WarningBrush="{DynamicResource WarningBrush}"
                                             DangerBrush="{DynamicResource DangerBrush}" />
-                <Image Source="{Binding IconPath, Mode=OneWay}" Width="14" Height="14"
-                       VerticalAlignment="Center" Margin="6,0,4,0"
-                       RenderOptions.BitmapScalingMode="HighQuality"
-                       Visibility="{Binding IconPath, Converter={StaticResource StringToVisibility}}" />
                 <TextBlock FontSize="11" FontWeight="SemiBold"
                            Foreground="{DynamicResource TextPrimaryBrush}"
-                           VerticalAlignment="Center" Margin="0,0,0,0"
+                           VerticalAlignment="Center" Margin="6,0,0,0"
                            Text="{Binding DisplayName, Mode=OneWay}" />
             </StackPanel>
         </DataTemplate>

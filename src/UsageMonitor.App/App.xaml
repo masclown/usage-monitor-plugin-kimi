@@ -22,6 +22,8 @@
             <helpers:RemainingPrefixConverter x:Key="RemainingPrefix" />
             <helpers:EnumToVisibilityConverter x:Key="EnumToVisibility" />
             <helpers:CardChartKindsContainsConverter x:Key="CardChartKindsContains" />
+            <!-- REQ-003：环形图中心 metric 键转中文提示（在设置窗口 ListBox 中绑定显示） -->
+            <helpers:RingMetricKeyToDisplayConverter x:Key="RingMetricKeyToDisplay" />
 
             <ResourceDictionary.MergedDictionaries>
                 <!-- 顺序：Tokens（主题无关） → 主题（默认 Dark，运行时可被 ThemeManager 替换为 Light）

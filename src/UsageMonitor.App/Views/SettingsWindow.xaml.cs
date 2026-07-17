@@ -14,7 +14,6 @@ namespace UsageMonitor.App.Views;
 public partial class SettingsWindow : Window
 {
     private readonly ConfigService _configService;
-    private TriggerAreaOverlayWindow? _triggerOverlay;
 
     public SettingsWindow(MainViewModel viewModel, ConfigService configService)
     {
@@ -32,40 +31,14 @@ public partial class SettingsWindow : Window
     }
 
     /// <summary>
-    /// 勾选 / 取消勾选「显示触发区域调试矩形」时创建或销毁覆盖窗口。
-    /// 覆盖窗口的 TextBox 双向同步由 <see cref="TriggerAreaOverlayWindow"/> 内部订阅 ConfigChanged 自行处理。
-    /// </summary>
-    private void ShowTriggerOverlayCheckBox_Changed(object sender, RoutedEventArgs e)
-    {
-        if (ShowTriggerOverlayCheckBox.IsChecked == true)
-        {
-            // 已存在则复用（避免重复创建覆盖窗口导致闪烁）
-            if (_triggerOverlay == null)
-            {
-                _triggerOverlay = new TriggerAreaOverlayWindow(_configService);
-                _triggerOverlay.Closed += (_, _) => _triggerOverlay = null;
-            }
-            if (!_triggerOverlay.IsVisible) _triggerOverlay.Show();
-            FileLogger.Info("SettingsWindow", "TriggerAreaOverlayWindow 已显示");
-        }
-        else
-        {
-            _triggerOverlay?.Close();
-            _triggerOverlay = null;
-            FileLogger.Info("SettingsWindow", "TriggerAreaOverlayWindow 已隐藏");
-        }
-    }
-
-    /// <summary>
-    /// 关闭设置窗口时强制关闭覆盖窗口，避免遗留调试矩形。
+    /// 关闭设置窗口时由 App.xaml.cs 显式调用：托盘悬浮窗触发区域调试遮罩（<see cref="TriggerAreaOverlayWindow"/>）由
+    /// 主 VM 的 EditTriggerAreaCommand 触发显示，SettingsWindow 自身不持有实例。
+    /// 这里仅保留日志/兼容入口，不做任何遮罩生命周期管理。
     /// </summary>
     protected override void OnClosing(CancelEventArgs e)
     {
-        if (_triggerOverlay != null)
-        {
-            _triggerOverlay.Close();
-            _triggerOverlay = null;
-        }
+        // 触发区域调试遮罩由其拥有者（App.xaml.cs 注入到 MainViewModel.OpenTriggerOverlayAction）创建，
+        // 这里无须做清理；保留 override 以便未来扩展。
         base.OnClosing(e);
     }
 

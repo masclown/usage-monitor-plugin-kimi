@@ -112,6 +112,40 @@ public class AppSettings
     /// </para>
     /// </summary>
     public List<UsageMonitor.Core.Models.UsageTierConfig> UsageTierConfig { get; set; } = new();
+
+    // =====================================================================
+    // REQ-003 Taskbar 环形图增强
+    // 详见 .dev_require/req-003-taskbar-ring-chart.md §5。
+    // - RingChartMetricOrder：metric 切换顺序（元素为 RingChartMetricKeys 常量）。
+    //   缺省或为空时由 RingChartMetricKeys.DefaultOrder 兜底；MainViewModel 在装配时再回退一次。
+    // - RingChartStickySeconds：double，鼠标离开后回默认的等待秒数；<=0 表示永不回到默认。
+    // - RingChartSwitchAnimationMs：int，数字切换老虎机动画时长（毫秒）；<=0 表示禁用动画。
+    // =====================================================================
+
+    /// <summary>
+    /// REQ-003 §5：Taskbar 环形图中心数字的切换顺序。元素为 <see cref="RingChartMetricKeys"/> 常量字符串（未来可放自定义 IRingMetric 键）。
+    /// 缺省或为空时由 <see cref="RingChartMetricKeys.DefaultOrder"/> 兜底。
+    /// </summary>
+    public List<string> RingChartMetricOrder { get; set; } = new(RingChartMetricKeys.DefaultOrder);
+
+    /// <summary>REQ-003 §5：鼠标离开环形图后回默认 metric 的等待秒数（默认 5.0，0 = 永不回到默认）。</summary>
+    public double RingChartStickySeconds { get; set; } = 5.0;
+
+    /// <summary>REQ-003 §5：数字切换老虎机动画时长（毫秒，默认 180，0 = 禁用动画）。</summary>
+    public int RingChartSwitchAnimationMs { get; set; } = 180;
+
+    // =====================================================================
+    // REQ-004 托盘悬浮窗触发区域矩形
+    // 详见 .dev_require/req-004-tray-tooltip-trigger-area.md §1。
+    // 与 TrayTooltipPosition 共存而非替代：后者记录悬浮窗窗口位置（左上角 X/Y），
+    // 本字段记录「鼠标光标必须命中才会弹出悬浮窗」的命中矩形（X/Y/Width/Height）。
+    // 触发区域与窗口位置独立：用户可单独把窗口拖到触发区域外。
+    // 默认值 RectInt.DefaultBottomRight() 给屏幕右下角一块（240x120）；
+    // 多显示器场景保存绝对坐标，重启时若屏幕拓扑变化由 RectInt.ClampToScreen 兜底回主屏。
+    // =====================================================================
+
+    /// <summary>REQ-004：托盘悬浮窗触发区域矩形（屏幕坐标系绝对坐标，单位像素）。</summary>
+    public Models.RectInt TrayTooltipTriggerRect { get; set; } = Models.RectInt.DefaultBottomRight();
 }
 
 /// <summary>
@@ -170,7 +204,10 @@ public class ConfigService
     }
 
     /// <summary>
-    /// 加载配置文件
+    /// 加载配置文件。
+    /// 反序列化后做一次后置归一化：<see cref="AppSettings.RingChartMetricOrder"/> 为空时回填默认顺序，
+    /// 触发区域矩形若宽高异常（&lt;0 或 NaN）则用 <see cref="Models.RectInt.DefaultBottomRight"/> 兜底，
+    /// 避免升级到 REQ-003/REQ-004 后用户配置无关键导致 UI 闪烁或崩溃。
     /// </summary>
     public void Load()
     {
@@ -206,7 +243,31 @@ public class ConfigService
                     _settings = new AppSettings();
                 }
             }
+
+            // 后置归一化：兼容旧版用户配置（缺新字段时回退默认）。
+            NormalizeAfterLoad();
         }
+    }
+
+    /// <summary>
+    /// 反序列化后做一次性归一化（REQ-003 / REQ-004 字段兜底）。
+    /// 在锁内调用，调用方保证已持有 _ioLock。
+    /// </summary>
+    private void NormalizeAfterLoad()
+    {
+        if (_settings.RingChartMetricOrder == null || _settings.RingChartMetricOrder.Count == 0)
+        {
+            _settings.RingChartMetricOrder = new List<string>(RingChartMetricKeys.DefaultOrder);
+        }
+
+        if (_settings.TrayTooltipTriggerRect.Width <= 0 || _settings.TrayTooltipTriggerRect.Height <= 0)
+        {
+            _settings.TrayTooltipTriggerRect = Models.RectInt.DefaultBottomRight();
+        }
+
+        // sticky / animation 极值保护
+        if (_settings.RingChartStickySeconds < 0) _settings.RingChartStickySeconds = 0;
+        if (_settings.RingChartSwitchAnimationMs < 0) _settings.RingChartSwitchAnimationMs = 0;
     }
 
     /// <summary>

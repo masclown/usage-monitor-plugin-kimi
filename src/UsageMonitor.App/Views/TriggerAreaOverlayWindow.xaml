@@ -8,7 +8,7 @@
         ShowInTaskbar="False"
         Topmost="True"
         ShowActivated="False"
-        Focusable="False"
+        Focusable="True"
         IsHitTestVisible="True"
         ResizeMode="NoResize"
         SnapsToDevicePixels="True"
@@ -17,21 +17,40 @@
         Width="{x:Static SystemParameters.PrimaryScreenWidth}"
         Height="{x:Static SystemParameters.PrimaryScreenHeight}">
     <!--
-        触发区域调试矩形：屏幕右下角 1:1 还原当前 TrayTriggerWidth/TrayTriggerHeight，
-        8 个 Thumb（4 边 + 4 角）支持拖拽调整边界，矩形本身在屏幕四角和边缘之外鼠标穿透。
+        REQ-004：托盘悬浮窗触发区域调试矩形。整屏半透明灰色蒙版 + 当前 RectInt (X/Y/W/H) 边框 / 填充；
+        8 个 Thumb（4 边 + 4 角）调整边界；蒙版整体可拖动；Esc 或点击蒙版空白退出；
+        MouseUp 后 500ms 防抖写入 ConfigService.Settings.TrayTooltipTriggerRect → SettingsWindow XAML 双向同步。
     -->
-    <Grid x:Name="RootGrid">
-        <!-- 触发区域矩形：水平靠右、垂直靠底对齐；改 Width 时左边自动右移、改 Height 时上边自动下移 -->
+    <Canvas x:Name="RootCanvas">
+        <!-- 整屏灰色蒙版：用实际屏幕宽高，避免 WPF 当作按设计分辨率拉伸 -->
+        <Rectangle x:Name="MaskLayer"
+                   Fill="#80000000"
+                   IsHitTestVisible="True"
+                   Width="{Binding ActualWidth, ElementName=RootCanvas}"
+                   Height="{Binding ActualHeight, ElementName=RootCanvas}"
+                   MouseLeftButtonDown="OnMaskMouseLeftButtonDown" />
+
+        <!-- 当前触发区域矩形：靠 X/Y 绝对位置（左上为原点）；大小由代码在 ApplyRect 中维护 -->
         <Border x:Name="TriggerBorder"
-                HorizontalAlignment="Right" VerticalAlignment="Bottom"
-                Margin="0,0,0,0"
                 Background="#201E90FF"
                 BorderBrush="#FF1E90FF"
                 BorderThickness="2"
-                Width="200" Height="40"
-                IsHitTestVisible="True">
+                IsHitTestVisible="True"
+                Canvas.Left="0" Canvas.Top="0"
+                Width="240" Height="120"
+                MouseLeftButtonDown="OnBorderMouseLeftButtonDown"
+                MouseMove="OnBorderMouseMove"
+                MouseLeftButtonUp="OnBorderMouseLeftButtonUp">
             <Grid IsHitTestVisible="True">
-                <!-- 4 边中点：左右 6×20、上下 20×6 -->
+                <TextBlock x:Name="CoordsLabel"
+                           Foreground="White"
+                           FontSize="12" FontWeight="SemiBold"
+                           HorizontalAlignment="Left" VerticalAlignment="Top"
+                           Margin="6,4,0,0"
+                           IsHitTestVisible="False"
+                           Text="X=0 Y=0 W=240 H=120" />
+
+                <!-- 4 边中点 Thumb -->
                 <Thumb x:Name="ThumbLeft" Tag="Left"
                        Width="6" Height="20"
                        HorizontalAlignment="Left" VerticalAlignment="Center"
@@ -52,7 +71,7 @@
                        HorizontalAlignment="Center" VerticalAlignment="Bottom"
                        Cursor="SizeNS" Background="White" BorderBrush="#FF1E90FF" BorderThickness="1"
                        DragDelta="OnThumbDragDelta" />
-                <!-- 4 个角：10×10 -->
+                <!-- 4 角 Thumb -->
                 <Thumb x:Name="ThumbTopLeft" Tag="TopLeft"
                        Width="10" Height="10"
                        HorizontalAlignment="Left" VerticalAlignment="Top"
@@ -75,5 +94,5 @@
                        DragDelta="OnThumbDragDelta" />
             </Grid>
         </Border>
-    </Grid>
+    </Canvas>
 </Window>

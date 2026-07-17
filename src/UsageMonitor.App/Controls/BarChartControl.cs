@@ -23,8 +23,32 @@ namespace UsageMonitor.App.Controls;
 /// - 数据经依赖属性传入，真实数据接入后无需改动本控件
 /// </para>
 /// </summary>
-public class BarChartControl : FrameworkElement
+public class BarChartControl : FrameworkElement, IHoverTooltipProvider
 {
+    /// <summary>Provider 短名称，用于 tooltip 标题</summary>
+    public static readonly DependencyProperty ProviderNameProperty = DependencyProperty.Register(
+        nameof(ProviderName), typeof(string), typeof(BarChartControl),
+        new FrameworkPropertyMetadata(string.Empty));
+
+    /// <summary>数据单位，例如 %、tokens</summary>
+    public static readonly DependencyProperty ValueUnitProperty = DependencyProperty.Register(
+        nameof(ValueUnit), typeof(string), typeof(BarChartControl),
+        new FrameworkPropertyMetadata(string.Empty));
+
+    /// <summary>Provider 短名称</summary>
+    public string ProviderName
+    {
+        get => (string)GetValue(ProviderNameProperty);
+        set => SetValue(ProviderNameProperty, value);
+    }
+
+    /// <summary>数据单位</summary>
+    public string ValueUnit
+    {
+        get => (string)GetValue(ValueUnitProperty);
+        set => SetValue(ValueUnitProperty, value);
+    }
+
     /// <summary>柱状数据序列</summary>
     public static readonly DependencyProperty ValuesProperty = DependencyProperty.Register(
         nameof(Values), typeof(IReadOnlyList<double>), typeof(BarChartControl),
@@ -100,6 +124,7 @@ public class BarChartControl : FrameworkElement
     {
         MinHeight = 90;
         MinWidth = 160;
+        Focusable = true;
     }
 
     private static void OnValuesChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
@@ -122,6 +147,8 @@ public class BarChartControl : FrameworkElement
         var idx = (int)((x - _left) / (_plotW / _count));
         idx = Math.Max(0, Math.Min(_count - 1, idx));
         if (idx != _hoverIndex) { _hoverIndex = idx; InvalidateVisual(); }
+        if (TryGetTooltip(e.GetPosition(this), out var data))
+            HoverTooltipPresenter.Show(this, data);
     }
 
     /// <summary>鼠标移出：清除高亮。</summary>
@@ -129,6 +156,7 @@ public class BarChartControl : FrameworkElement
     {
         base.OnMouseLeave(e);
         if (_hoverIndex != -1) { _hoverIndex = -1; InvalidateVisual(); }
+        HoverTooltipPresenter.Hide(this);
     }
 
     protected override void OnRender(DrawingContext dc)
@@ -200,6 +228,41 @@ public class BarChartControl : FrameworkElement
         double by = top;
         dc.DrawRoundedRectangle(tipBg, null, new Rect(bx, by, bw, bh), 7, 7);
         dc.DrawText(t, new Point(bx + padX, by + padY));
+    }
+
+    /// <summary>键盘方向键浏览柱状数据，Enter 重显当前柱提示。</summary>
+    protected override void OnKeyDown(System.Windows.Input.KeyEventArgs e)
+    {
+        base.OnKeyDown(e);
+        if (Values == null || Values.Count == 0) return;
+        var next = _hoverIndex < 0 ? 0 : _hoverIndex;
+        next = e.Key switch
+        {
+            System.Windows.Input.Key.Left or System.Windows.Input.Key.Up => Math.Max(0, next - 1),
+            System.Windows.Input.Key.Right or System.Windows.Input.Key.Down => Math.Min(Values.Count - 1, next + 1),
+            System.Windows.Input.Key.Home => 0,
+            System.Windows.Input.Key.End => Values.Count - 1,
+            System.Windows.Input.Key.Enter => next,
+            _ => -1
+        };
+        if (next < 0) return;
+        _hoverIndex = next;
+        if (TryGetTooltip(new Point(_left + (_plotW <= 0 ? 0 : (next + 0.5) * _plotW / Values.Count), 0), out var data))
+            HoverTooltipPresenter.Show(this, data);
+        InvalidateVisual();
+        e.Handled = true;
+    }
+
+    /// <summary>将控件内部坐标映射为命中的柱状数据点。</summary>
+    public bool TryGetTooltip(Point position, out HoverTooltipData data)
+    {
+        data = default!;
+        if (Values == null || Values.Count == 0 || _plotW <= 0) return false;
+        var index = Math.Clamp((int)((position.X - _left) / (_plotW / Values.Count)), 0, Values.Count - 1);
+        var unit = string.IsNullOrWhiteSpace(ValueUnit) ? string.Empty : $" {ValueUnit}";
+        var provider = string.IsNullOrWhiteSpace(ProviderName) ? "用量" : ProviderName;
+        data = new HoverTooltipData($"{provider} · 第 {index + 1} 柱", $"{Values[index]:0.##}{unit}", "时间标签：第 " + (index + 1) + " 个数据点");
+        return true;
     }
 
     /// <summary>数值格式化（大数用 K/M 简写）。</summary>

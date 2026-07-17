@@ -4,6 +4,7 @@ using System.Windows.Threading;
 using System.Drawing;
 using UsageMonitor.Core.Plugins;
 using UsageMonitor.Core.Services;
+using UsageMonitor.Core.Models;
 using UsageMonitor.App.ViewModels;
 using Application = System.Windows.Application;
 using Cursors = System.Windows.Input.Cursors;
@@ -118,6 +119,10 @@ public partial class App : Application
 
         // 创建ViewModel
         _viewModel = new MainViewModel(_pluginManager, _configService, _refreshService, _historyStore);
+
+        // REQ-004：把"在屏幕上调整"蒙版打开动作与 MainViewModel.OpenTriggerOverlayAction 绑定。
+        // 使用 System.Action 无参委托，避免 RelayCommand 无法接 1 参数（未使用）。
+        _viewModel.OpenTriggerOverlayAction = ShowTriggerOverlayWindow;
 
         // 订阅配置变更：让"启用任务栏显示/启用托盘悬浮窗"两个开关在运行时即时生效（关闭时销毁、开启时重建）
         _configService.ConfigChanged += (_, _) => Dispatcher.Invoke(SyncOverlayWindowsFromSettings);
@@ -263,23 +268,43 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// 判断光标是否在系统托盘图标矩形区域（任务栏右下角，尺寸由用户配置的
-    /// TrayTriggerWidth x TrayTriggerHeight 决定，默认 200x40）。
-    /// 因需读取 _configService，改为实例方法；轮询每次都重新读取配置，保存后即时生效。
+    /// REQ-004：判断光标是否在系统托盘图标矩形区域。读取
+    /// <see cref="AppSettings.TrayTooltipTriggerRect"/> 后用 <see cref="RectInt.Contains"/> 判断命中。
+    /// <para>
+    /// 与 v1（仅用右下角 TrayTriggerWidth/Height）区别：本方法全面切到 X/Y/W/H 模型，
+    /// 范围不再限于屏幕右下角，理论可调为屏幕任意矩形；未配置时回退到 RectInt.DefaultBottomRight()。
+    /// </para>
     /// </summary>
     private bool IsCursorInTrayArea(System.Drawing.Point cursor)
     {
-        var workArea = SystemParameters.WorkArea;
-        // 触发区域尺寸取自配置，并加下限保护（与 MainViewModel setter 一致），避免设为 0 后永远无法触发。
-        var width = Math.Max(20, _configService.Settings.TrayTriggerWidth);
-        var height = Math.Max(10, _configService.Settings.TrayTriggerHeight);
-        // 任务栏右下角托盘区域（屏幕坐标系，WorkArea 已经是 WPF 坐标，需要转 WinForms）
-        var trayLeft = (int)(workArea.Right - width);
-        var trayTop = (int)workArea.Bottom;
-        var trayRight = (int)workArea.Right;
-        var trayBottom = trayTop + height;
-        return cursor.X >= trayLeft && cursor.X <= trayRight
-            && cursor.Y >= trayTop && cursor.Y <= trayBottom;
+        RectInt r;
+        try { r = _configService.Settings.TrayTooltipTriggerRect; }
+        catch { r = RectInt.DefaultBottomRight(); }
+        // RectInt NaN / 0 守底：宽高 <0 时交给 RectInt.Contains 自然返回 false；这里额外截断退化情况。
+        if (r.Width <= 0 || r.Height <= 0) r = RectInt.DefaultBottomRight();
+        return r.Contains(cursor);
+    }
+
+    /// <summary>
+    /// REQ-004：打开托盘悬浮窗触发区域调试矩形（由 MainViewModel.EditTriggerAreaCommand 调用）。
+    /// <para>
+    /// 幂等：单例复用避免重复创建闪烁；设置窗口未打开时也能直接由托盘上下文菜单触发（如未来扩展）。
+    /// </para>
+    /// </summary>
+    private void ShowTriggerOverlayWindow()
+    {
+        var existing = System.Windows.Application.Current.Windows
+            .OfType<Views.TriggerAreaOverlayWindow>()
+            .FirstOrDefault(w => w.IsVisible);
+        if (existing != null)
+        {
+            existing.Activate();
+            return;
+        }
+        var overlay = new Views.TriggerAreaOverlayWindow(_configService);
+        overlay.Closed += (_, _) => FileLogger.Info("App", "TriggerAreaOverlayWindow 已关闭");
+        FileLogger.Info("App", "TriggerAreaOverlayWindow 已打开");
+        overlay.Show();
     }
 
     /// <summary>

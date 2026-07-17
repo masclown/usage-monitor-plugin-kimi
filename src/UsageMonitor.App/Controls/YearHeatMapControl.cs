@@ -17,6 +17,15 @@ namespace UsageMonitor.App.Controls;
 /// </summary>
 public class YearHeatMapCell
 {
+    /// <summary>完整数值文本；为空时 tooltip 回退到 Percent。</summary>
+    public string ValueText { get; set; } = string.Empty;
+
+    /// <summary>数值单位，例如 tokens、%</summary>
+    public string Unit { get; set; } = string.Empty;
+
+    /// <summary>可选的同比前后 1 周平均等补充信息。</summary>
+    public string ComparisonText { get; set; } = string.Empty;
+
     /// <summary>日期 yyyy-MM-dd</summary>
     public string Day { get; set; } = string.Empty;
 
@@ -36,7 +45,7 @@ public class YearHeatMapCell
 /// - 颜色由 XAML 端 PercentToBrushConverter 预先算好后经 Cells 传入
 /// </para>
 /// </summary>
-public class YearHeatMapControl : FrameworkElement
+public class YearHeatMapControl : FrameworkElement, IHoverTooltipProvider
 {
     /// <summary>单元格集合依赖属性</summary>
     public static readonly DependencyProperty CellsProperty = DependencyProperty.Register(
@@ -94,10 +103,15 @@ public class YearHeatMapControl : FrameworkElement
         set => SetValue(TextBrushProperty, value);
     }
 
+    private readonly List<(Rect Bounds, YearHeatMapCell Cell)> _hitCells = new();
+    private int _hoverIndex = -1;
+
+    /// <summary>热力图控件构造：启用 Tab 聚焦和键盘浏览。</summary>
     public YearHeatMapControl()
     {
         MinHeight = 150;
         MinWidth = 320;
+        Focusable = true;
         // 订阅档位变更：底部图例与各档位颜色随档位表动态更新。
         if (System.Threading.Interlocked.Exchange(ref _tierSubscribed, 1) == 0)
             UsageMonitor.App.Helpers.UsageTierScale.TierChanged += OnTierChangedStatic;
@@ -137,6 +151,8 @@ public class YearHeatMapControl : FrameworkElement
         var height = ActualHeight;
         if (width <= 0 || height <= 0) return;
 
+        _hitCells.Clear();
+
         var cell = Math.Max(4.0, CellSize);
         var gap = Math.Max(0.0, CellGap);
         var step = cell + gap;
@@ -158,7 +174,7 @@ public class YearHeatMapControl : FrameworkElement
         }
 
         // 解析所有单元格为 (日期, 画笔)，按日期升序
-        var parsed = new List<(DateTime date, Brush bg)>();
+        var parsed = new List<(DateTime date, YearHeatMapCell cell)>();
         if (Cells != null)
         {
             foreach (var item in Cells)
@@ -167,7 +183,7 @@ public class YearHeatMapControl : FrameworkElement
                     DateTime.TryParseExact(yc.Day, "yyyy-MM-dd", CultureInfo.InvariantCulture,
                         DateTimeStyles.None, out var dt))
                 {
-                    parsed.Add((dt.Date, yc.Background));
+                    parsed.Add((dt.Date, yc));
                 }
             }
         }
@@ -202,12 +218,15 @@ public class YearHeatMapControl : FrameworkElement
 
         // 2) 叠加数据格 + 收集月份首列
         var monthFirstCol = new Dictionary<int, int>();
-        foreach (var (date, bg) in parsed)
+        foreach (var (date, cellData) in parsed)
         {
             int col = (int)((date - gridStartMonday).TotalDays / 7);
             if (col < 0 || col >= cols) continue;
             int dow = ((int)date.DayOfWeek + 6) % 7;
-            DrawCell(dc, gridLeft + col * step, gridTop + dow * step, cell, bg);
+            var x = gridLeft + col * step;
+            var y = gridTop + dow * step;
+            DrawCell(dc, x, y, cell, cellData.Background);
+            _hitCells.Add((new Rect(x, y, cell, cell), cellData));
             if (!monthFirstCol.ContainsKey(date.Month)) monthFirstCol[date.Month] = col;
         }
 
@@ -221,6 +240,67 @@ public class YearHeatMapControl : FrameworkElement
 
         // 4) 底部"少 → 多"图例（空 / 低 / 中 / 高）
         DrawLegend(dc, gridLeft, gridTop + rows * step + 4, gridWidth, dpi);
+    }
+
+    /// <summary>鼠标移动时命中热力图日期并显示统一 tooltip。</summary>
+    protected override void OnMouseMove(System.Windows.Input.MouseEventArgs e)
+    {
+        base.OnMouseMove(e);
+        if (TryGetTooltip(e.GetPosition(this), out var data))
+        {
+            HoverTooltipPresenter.Show(this, data);
+            InvalidateVisual();
+        }
+    }
+
+    /// <summary>鼠标离开热力图后关闭 tooltip。</summary>
+    protected override void OnMouseLeave(System.Windows.Input.MouseEventArgs e)
+    {
+        base.OnMouseLeave(e);
+        _hoverIndex = -1;
+        HoverTooltipPresenter.Hide(this);
+        InvalidateVisual();
+    }
+
+    /// <summary>通过方向键在有数据的日期之间浏览。</summary>
+    protected override void OnKeyDown(System.Windows.Input.KeyEventArgs e)
+    {
+        base.OnKeyDown(e);
+        if (_hitCells.Count == 0) return;
+        var next = _hoverIndex < 0 ? 0 : _hoverIndex;
+        next = e.Key switch
+        {
+            System.Windows.Input.Key.Left or System.Windows.Input.Key.Up => Math.Max(0, next - 1),
+            System.Windows.Input.Key.Right or System.Windows.Input.Key.Down => Math.Min(_hitCells.Count - 1, next + 1),
+            System.Windows.Input.Key.Home => 0,
+            System.Windows.Input.Key.End => _hitCells.Count - 1,
+            System.Windows.Input.Key.Enter => next,
+            _ => -1
+        };
+        if (next < 0) return;
+        _hoverIndex = next;
+        if (TryGetTooltip(_hitCells[next].Bounds.Location, out var data))
+            HoverTooltipPresenter.Show(this, data);
+        e.Handled = true;
+    }
+
+    /// <summary>将内部坐标映射为热力图日期及其数值。</summary>
+    public bool TryGetTooltip(Point position, out HoverTooltipData data)
+    {
+        data = default!;
+        for (int i = 0; i < _hitCells.Count; i++)
+        {
+            var hit = _hitCells[i];
+            if (!hit.Bounds.Contains(position)) continue;
+            _hoverIndex = i;
+            var value = string.IsNullOrWhiteSpace(hit.Cell.ValueText)
+                ? $"{hit.Cell.Percent:0.##}"
+                : hit.Cell.ValueText;
+            var unit = string.IsNullOrWhiteSpace(hit.Cell.Unit) ? string.Empty : $" {hit.Cell.Unit}";
+            data = new HoverTooltipData(hit.Cell.Day, $"{value}{unit}", hit.Cell.ComparisonText);
+            return true;
+        }
+        return false;
     }
 
     /// <summary>绘制底部图例：少 [空][低][中][高] 多。</summary>

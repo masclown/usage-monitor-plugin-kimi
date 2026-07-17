@@ -60,25 +60,10 @@
                         <TextBox Text="{Binding TrayTooltipHideDelayMs}" Width="120" HorizontalAlignment="Left" />
                     </StackPanel>
 
-                    <TextBlock Text="触发区域位于屏幕右下角托盘区：宽度向左延伸、高度自任务栏顶部向下延伸" FontSize="12"
+                    <TextBlock Text="触发区域位于屏幕右下角托盘区，可使用下方“悬浮窗触发区域”区块以 X/Y/W/H 4 字段精细调整，或点“在屏幕上调整”蒙版拖拽。" FontSize="12"
                                Foreground="{DynamicResource TextTertiaryBrush}" TextWrapping="Wrap" Margin="0,0,0,8" />
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                        <StackPanel Margin="0,0,16,0">
-                            <TextBlock Text="触发区域宽度（像素，默认 200）" FontSize="13"
-                                       Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,4" />
-                            <TextBox Text="{Binding TrayTriggerWidth}" Width="120" HorizontalAlignment="Left" />
-                        </StackPanel>
-                        <StackPanel>
-                            <TextBlock Text="触发区域高度（像素，默认 40）" FontSize="13"
-                                       Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,4" />
-                            <TextBox Text="{Binding TrayTriggerHeight}" Width="120" HorizontalAlignment="Left" />
-                        </StackPanel>
-                    </StackPanel>
-                    <CheckBox x:Name="ShowTriggerOverlayCheckBox"
-                              Content="显示触发区域调试矩形（1:1 在屏幕上叠加半透明矩形，可拖拽调整边界）"
-                              Margin="0,0,0,12"
-                              Checked="ShowTriggerOverlayCheckBox_Changed"
-                              Unchecked="ShowTriggerOverlayCheckBox_Changed" />
+                    <!-- REQ-004 起：旧的 TrayTriggerWidth/TrayTriggerHeight TextBox 已升级为下方 X/Y/W/H 输入框与蒙版拖拽。
+                         字段本身保留在 AppSettings 里以维持与旧版 config.json 的兼容性。 -->
 
                     <Separator Margin="0,8,0,16" />
 
@@ -110,6 +95,98 @@
                                        Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,4" />
                             <TextBox Text="{Binding RingChartDangerThreshold}" Width="100" HorizontalAlignment="Left" />
                         </StackPanel>
+                    </StackPanel>
+
+                    <Separator Margin="0,4,0,16" />
+
+                    <!-- REQ-003 环形图增强设置：metric 切换顺序 + sticky + 动画 -->
+                    <TextBlock Text="环形图中心数字（鼠标滚轮切换顺序）" FontSize="15" FontWeight="SemiBold"
+                               Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,12" />
+                    <TextBlock TextWrapping="Wrap" FontSize="12"
+                               Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,8">
+                        <Run Text="使用上下按钮调整顺序（拖拽排序留二期）。修改后点击保存设置。离开鼠标后 sticky 秒数后回默认。" />
+                    </TextBlock>
+                    <ListBox x:Name="RingMetricOrderList" Height="120" Margin="0,0,0,8"
+                             ItemsSource="{Binding RingChartMetricOrder}"
+                             Background="{DynamicResource SurfaceBrush}"
+                             Foreground="{DynamicResource TextPrimaryBrush}"
+                             BorderBrush="{DynamicResource TrackBrush}">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Converter={StaticResource RingMetricKeyToDisplay}}" FontSize="13" />
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                        <Button Content="↑ 上移" Margin="0,0,8,0" Padding="12,4"
+                                Command="{Binding MoveRingMetricUpCommand}"
+                                CommandParameter="{Binding ElementName=RingMetricOrderList, Path=SelectedIndex}"
+                                Style="{StaticResource AccentSoftButtonStyle}" />
+                        <Button Content="↓ 下移" Margin="0,0,8,0" Padding="12,4"
+                                Command="{Binding MoveRingMetricDownCommand}"
+                                CommandParameter="{Binding ElementName=RingMetricOrderList, Path=SelectedIndex}"
+                                Style="{StaticResource AccentSoftButtonStyle}" />
+                        <Button Content="恢复默认顺序" Padding="12,4"
+                                Command="{Binding ResetRingMetricOrderCommand}"
+                                Style="{StaticResource GhostButtonStyle}" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
+                        <StackPanel Margin="0,0,16,0">
+                            <TextBlock Text="sticky 秒数（鼠标离开后回默认，默认 5；0 = 永不回）" FontSize="13"
+                                       Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,4" />
+                            <TextBox Text="{Binding RingChartStickySeconds}" Width="120" HorizontalAlignment="Left" />
+                        </StackPanel>
+                        <StackPanel>
+                            <TextBlock Text="切换动画毫秒数（默认 180；0 = 禁用）" FontSize="13"
+                                       Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,4" />
+                            <TextBox Text="{Binding RingChartSwitchAnimationMs}" Width="120" HorizontalAlignment="Left" />
+                        </StackPanel>
+                    </StackPanel>
+
+                    <Separator Margin="0,4,0,16" />
+
+                    <!-- REQ-004 触发区域设置（RectInt 代替旧 Width/Height） -->
+                    <TextBlock Text="悬浮窗触发区域" FontSize="15" FontWeight="SemiBold"
+                               Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,12" />
+                    <TextBlock TextWrapping="Wrap" FontSize="12"
+                               Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,8">
+                        <Run Text="设置屏幕上光标在哪个矩形内才会弹出悬浮窗。与“悬浮窗位置”独立：你可以把窗体拖到触发区域外，但只有光标进入矩形才弹。" />
+                    </TextBlock>
+                    <Grid Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Margin="0,0,8,0">
+                            <TextBlock Text="X（屏幕坐标）" FontSize="12"
+                                       Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,4" />
+                            <TextBox Text="{Binding TriggerRectX, UpdateSourceTrigger=PropertyChanged}" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Margin="0,0,8,0">
+                            <TextBlock Text="Y（屏幕坐标）" FontSize="12"
+                                       Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,4" />
+                            <TextBox Text="{Binding TriggerRectY, UpdateSourceTrigger=PropertyChanged}" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="2" Margin="0,0,8,0">
+                            <TextBlock Text="Width（≥80）" FontSize="12"
+                                       Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,4" />
+                            <TextBox Text="{Binding TriggerRectWidth, UpdateSourceTrigger=PropertyChanged}" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="3">
+                            <TextBlock Text="Height（≥60）" FontSize="12"
+                                       Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,4" />
+                            <TextBox Text="{Binding TriggerRectHeight, UpdateSourceTrigger=PropertyChanged}" />
+                        </StackPanel>
+                    </Grid>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
+                        <Button Content="在屏幕上调整（进入蒙版）" Margin="0,0,8,0" Padding="14,6"
+                                Command="{Binding EditTriggerAreaCommand}"
+                                Style="{StaticResource PrimaryButtonStyle}" />
+                        <Button Content="恢复默认" Padding="14,6"
+                                Command="{Binding ResetTriggerAreaCommand}"
+                                Style="{StaticResource GhostButtonStyle}" />
                     </StackPanel>
 
                     <Button Content="保存设置" HorizontalAlignment="Left"

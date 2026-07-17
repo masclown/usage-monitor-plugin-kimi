@@ -957,6 +957,9 @@ public class MainViewModel : INotifyPropertyChanged
     private readonly RefreshService _refreshService;
     private readonly UsageHistoryStore _historyStore;
 
+    /// <summary>供主窗口和设置窗口复用的全局配置服务。</summary>
+    public ConfigService ConfigService => _configService;
+
     /// <summary>各服务商的用量显示列表（全量，包含被禁用的项，用于切换时保留状态）</summary>
     public ObservableCollection<ProviderUsageViewModel> Usages { get; } = new();
 
@@ -1141,6 +1144,150 @@ public class MainViewModel : INotifyPropertyChanged
     /// <summary>保存设置命令</summary>
     public IRelayCommand SaveSettingsCommand { get; }
 
+    // =====================================================================
+    // REQ-003 环形图增强设置
+    // =====================================================================
+
+    /// <summary>REQ-003：环形图中心数字切换顺序（绑定到 SettingsWindow 的 ListBox）。</summary>
+    public ObservableCollection<string> RingChartMetricOrder { get; } = new();
+
+    /// <summary>REQ-003：sticky 秒数（鼠标离开后回默认）。</summary>
+    public double RingChartStickySeconds
+    {
+        get => _configService.Settings.RingChartStickySeconds;
+        set
+        {
+            var v = Math.Max(0, value);
+            if (Math.Abs(_configService.Settings.RingChartStickySeconds - v) < 0.001) return;
+            _configService.Settings.RingChartStickySeconds = v;
+            _configService.Save();
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>REQ-003：切换动画毫秒数。0 = 禁用。</summary>
+    public int RingChartSwitchAnimationMs
+    {
+        get => _configService.Settings.RingChartSwitchAnimationMs;
+        set
+        {
+            var v = Math.Max(0, value);
+            if (_configService.Settings.RingChartSwitchAnimationMs == v) return;
+            _configService.Settings.RingChartSwitchAnimationMs = v;
+            _configService.Save();
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>REQ-003：把 metric 顺序中选中项上移一位。</summary>
+    public IRelayCommand MoveRingMetricUpCommand { get; private set; } = null!;
+
+    /// <summary>REQ-003：把 metric 顺序中选中项下移一位。</summary>
+    public IRelayCommand MoveRingMetricDownCommand { get; private set; } = null!;
+
+    /// <summary>REQ-003：恢复默认 metric 顺序（覆盖设置 + 同步 ListBox + 落盘）。</summary>
+    public IRelayCommand ResetRingMetricOrderCommand { get; private set; } = null!;
+
+    // =====================================================================
+    // REQ-004 触发区域 RectInt
+    // =====================================================================
+
+    /// <summary>REQ-004：触发区域 X（屏幕坐标）。</summary>
+    public int TriggerRectX
+    {
+        get => _configService.Settings.TrayTooltipTriggerRect.X;
+        set
+        {
+            var r = _configService.Settings.TrayTooltipTriggerRect.With(x: value);
+            r = ClampRect(r);
+            if (r == _configService.Settings.TrayTooltipTriggerRect) return;
+            _configService.Settings.TrayTooltipTriggerRect = r;
+            _configService.Save();
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(TriggerRectY));
+            OnPropertyChanged(nameof(TriggerRectWidth));
+            OnPropertyChanged(nameof(TriggerRectHeight));
+        }
+    }
+
+    /// <summary>REQ-004：触发区域 Y（屏幕坐标）。</summary>
+    public int TriggerRectY
+    {
+        get => _configService.Settings.TrayTooltipTriggerRect.Y;
+        set
+        {
+            var r = _configService.Settings.TrayTooltipTriggerRect.With(y: value);
+            r = ClampRect(r);
+            if (r == _configService.Settings.TrayTooltipTriggerRect) return;
+            _configService.Settings.TrayTooltipTriggerRect = r;
+            _configService.Save();
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(TriggerRectX));
+            OnPropertyChanged(nameof(TriggerRectWidth));
+            OnPropertyChanged(nameof(TriggerRectHeight));
+        }
+    }
+
+    /// <summary>REQ-004：触发区域宽度（≥80）。</summary>
+    public int TriggerRectWidth
+    {
+        get => _configService.Settings.TrayTooltipTriggerRect.Width;
+        set
+        {
+            var r = _configService.Settings.TrayTooltipTriggerRect.With(width: Math.Max(80, value));
+            r = ClampRect(r);
+            if (r == _configService.Settings.TrayTooltipTriggerRect) return;
+            _configService.Settings.TrayTooltipTriggerRect = r;
+            _configService.Save();
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(TriggerRectX));
+            OnPropertyChanged(nameof(TriggerRectY));
+            OnPropertyChanged(nameof(TriggerRectHeight));
+        }
+    }
+
+    /// <summary>REQ-004：触发区域高度（≥60）。</summary>
+    public int TriggerRectHeight
+    {
+        get => _configService.Settings.TrayTooltipTriggerRect.Height;
+        set
+        {
+            var r = _configService.Settings.TrayTooltipTriggerRect.With(height: Math.Max(60, value));
+            r = ClampRect(r);
+            if (r == _configService.Settings.TrayTooltipTriggerRect) return;
+            _configService.Settings.TrayTooltipTriggerRect = r;
+            _configService.Save();
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(TriggerRectX));
+            OnPropertyChanged(nameof(TriggerRectY));
+            OnPropertyChanged(nameof(TriggerRectWidth));
+        }
+    }
+
+    /// <summary>REQ-004：进入"在屏幕上调整"蒙版模式（调用方由 App.xaml.cs 注入）。</summary>
+    public IRelayCommand EditTriggerAreaCommand { get; private set; } = null!;
+
+    /// <summary>REQ-004：恢复默认触发区域（右下方 240×120）。</summary>
+    public IRelayCommand ResetTriggerAreaCommand { get; }
+
+    /// <summary>REQ-004：使用 WPF SystemParameters.WorkArea 夹回 RectInt（避免越屏 / 超出工作区）。</summary>
+    private RectInt ClampRect(RectInt r)
+    {
+        try
+        {
+            var wa = SystemParameters.WorkArea;
+            return r.ClampToScreen((int)wa.Left, (int)wa.Top, (int)wa.Right, (int)wa.Bottom);
+        }
+        catch
+        {
+            // 静态字段访问在异常路径下回退到 1080p 兑底
+            return r.ClampToScreen();
+        }
+    }
+
+    /// <summary>REQ-004：使用方注入“在屏幕上调整”蒙版打开回调（在 App.xaml.cs 里设置）。</summary>
+    public Action? OpenTriggerOverlayAction { get; set; }
+
     public MainViewModel(PluginManager pluginManager, ConfigService configService, RefreshService refreshService, UsageHistoryStore? historyStore = null)
     {
         _pluginManager = pluginManager;
@@ -1151,6 +1298,50 @@ public class MainViewModel : INotifyPropertyChanged
 
         RefreshCommand = new RelayCommand(async () => await refreshService.RefreshAllAsync());
         SaveSettingsCommand = new RelayCommand(() => _configService.Save());
+
+        // REQ-003：环形图 metric 顺序从设置同步到 ListBox 集合；提供上下移动 + 恢复默认三个命令
+        // 使用 RelayCommand<int> 泛型版本（列表索引），CommunityToolkit.Mvvm 8.x 的非泛型 RelayCommand 仅接 Action。
+        SyncRingChartMetricOrderFromConfig();
+        MoveRingMetricUpCommand = new RelayCommand<int>(idx =>
+        {
+            if (idx <= 0 || idx >= RingChartMetricOrder.Count) return;
+            (RingChartMetricOrder[idx - 1], RingChartMetricOrder[idx]) =
+                (RingChartMetricOrder[idx], RingChartMetricOrder[idx - 1]);
+            PersistRingChartMetricOrder();
+        });
+        MoveRingMetricDownCommand = new RelayCommand<int>(idx =>
+        {
+            if (idx < 0 || idx >= RingChartMetricOrder.Count - 1) return;
+            (RingChartMetricOrder[idx + 1], RingChartMetricOrder[idx]) =
+                (RingChartMetricOrder[idx], RingChartMetricOrder[idx + 1]);
+            PersistRingChartMetricOrder();
+        });
+        ResetRingMetricOrderCommand = new RelayCommand(() =>
+        {
+            RingChartMetricOrder.Clear();
+            foreach (var k in RingChartMetricKeys.DefaultOrder) RingChartMetricOrder.Add(k);
+            PersistRingChartMetricOrder();
+        });
+
+        // REQ-004：触发区域默认重置命令 + 进入蒙版
+        ResetTriggerAreaCommand = new RelayCommand(() =>
+        {
+            var def = RectInt.DefaultBottomRight();
+            // 使用当前主屏工作区夹回，避免默认 1920×1080 兑底越界
+            try
+            {
+                var wa = SystemParameters.WorkArea;
+                def = def.ClampToScreen((int)wa.Left, (int)wa.Top, (int)wa.Right, (int)wa.Bottom);
+            }
+            catch { }
+            _configService.Settings.TrayTooltipTriggerRect = def;
+            _configService.Save();
+            OnPropertyChanged(nameof(TriggerRectX));
+            OnPropertyChanged(nameof(TriggerRectY));
+            OnPropertyChanged(nameof(TriggerRectWidth));
+            OnPropertyChanged(nameof(TriggerRectHeight));
+        });
+        EditTriggerAreaCommand = new RelayCommand(() => OpenTriggerOverlayAction?.Invoke());
 
         // 订阅配置变更：当外部（其它入口直接改 Settings、TriggerAreaOverlayWindow 拖拽、程序其它点 Save）修改任意配置时，
         // 通知所有 Settings 派生属性刷新，让 TwoWay 绑定（TextBox、CheckBox 等）拿最新值。
@@ -1385,6 +1576,47 @@ public class MainViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(ThemeMode));
         OnPropertyChanged(nameof(IsDarkTheme));
         OnPropertyChanged(nameof(IsLightTheme));
+
+        // REQ-003：触发区域、sticky、动画同步
+        OnPropertyChanged(nameof(RingChartStickySeconds));
+        OnPropertyChanged(nameof(RingChartSwitchAnimationMs));
+        SyncRingChartMetricOrderFromConfig();
+
+        // REQ-004：触发区域 4 字段同步
+        OnPropertyChanged(nameof(TriggerRectX));
+        OnPropertyChanged(nameof(TriggerRectY));
+        OnPropertyChanged(nameof(TriggerRectWidth));
+        OnPropertyChanged(nameof(TriggerRectHeight));
+    }
+
+    /// <summary>REQ-003：把 ConfigService.Settings.RingChartMetricOrder 同步到 ListBox 绑定集合。</summary>
+    private void SyncRingChartMetricOrderFromConfig()
+    {
+        var src = _configService.Settings.RingChartMetricOrder;
+        if (src == null || src.Count == 0) return;
+        // 简单同步：长度变化或顺序不同时整体重灌；否则保留当前 ListBox 选中状态
+        if (RingChartMetricOrder.Count != src.Count)
+        {
+            RingChartMetricOrder.Clear();
+            foreach (var k in src) RingChartMetricOrder.Add(k);
+            return;
+        }
+        for (var i = 0; i < src.Count; i++)
+        {
+            if (!string.Equals(RingChartMetricOrder[i], src[i], StringComparison.OrdinalIgnoreCase))
+            {
+                RingChartMetricOrder.Clear();
+                foreach (var k in src) RingChartMetricOrder.Add(k);
+                return;
+            }
+        }
+    }
+
+    /// <summary>REQ-003：把当前 ListBox 顺序写回 ConfigService 并落盘。</summary>
+    private void PersistRingChartMetricOrder()
+    {
+        _configService.Settings.RingChartMetricOrder = RingChartMetricOrder.ToList();
+        _configService.Save();
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;

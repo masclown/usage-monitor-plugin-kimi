@@ -80,6 +80,22 @@ public interface IUsageProvider
     };
 
     /// <summary>
+    /// 插件可注册的自定义图表工厂集合（REQ-005 SDK）。
+    /// <para>
+    /// 默认返回空数组表示只使用内置 5 种图表（折线 / 柱状 / 圆环 / 热力 / 时段）。
+    /// 插件可在自己的实现里覆盖此属性，把自研图表通过 <see cref="IUsageChartFactory.Create"/>
+    /// 提供给宿主；宿主在装配 Provider 时把这些工厂合并到全局图表注册表中，
+    /// 第三方控件即可在 <c>MainWindow.xaml</c> 通过 <see cref="Models.IChartData.Kind"/>
+    /// 自动路由到对应模板，无需修改主窗口代码。
+    /// </para>
+    /// <para>
+    /// 设计参考：这是把「数据契约」与「UI 控件契约」解耦的关键位——插件只需声明「我能产哪种 IChartData」，
+    /// 宿主用 chart-data.Kind 路由到对应 IUsageChartFactory.Create 出的实例来展示。
+    /// </para>
+    /// </summary>
+    IReadOnlyList<IUsageChartFactory> ChartFactories => System.Array.Empty<IUsageChartFactory>();
+
+    /// <summary>
     /// 查询当前用量信息
     /// </summary>
     /// <param name="config">服务商配置（包含API Key等信息）</param>

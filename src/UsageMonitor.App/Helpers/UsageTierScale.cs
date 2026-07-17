@@ -104,7 +104,6 @@ public static class UsageTierScale
         foreach (var tier in Tiers)
         {
             if (percent >= tier.MinPercent) hit = tier;
-            else break;
         }
         return hit;
     }

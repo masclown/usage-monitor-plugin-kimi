@@ -20,7 +20,7 @@ namespace UsageMonitor.App.Controls;
 /// - 数据源为 IReadOnlyList&lt;double&gt;，通过 Values 依赖属性传入
 /// 说明：下方 Low/Mid/High 画笔依赖属性已由 UsageTierScale 接管选色，保留仅为兼容既有 XAML 绑定，不再参与实际取色。
 /// </summary>
-public class MiniLineChartControl : FrameworkElement
+public class MiniLineChartControl : FrameworkElement, IHoverTooltipProvider
 {
     /// <summary>数据点集合依赖属性</summary>
     public static readonly DependencyProperty ValuesProperty = DependencyProperty.Register(
@@ -38,6 +38,35 @@ public class MiniLineChartControl : FrameworkElement
     public static readonly DependencyProperty StrokeThicknessProperty = DependencyProperty.Register(
         nameof(StrokeThickness), typeof(double), typeof(MiniLineChartControl),
         new FrameworkPropertyMetadata(1.8, FrameworkPropertyMetadataOptions.AffectsRender));
+
+    /// <summary>Provider 短名称，用于 tooltip 标题</summary>
+    public static readonly DependencyProperty ProviderNameProperty = DependencyProperty.Register(
+        nameof(ProviderName), typeof(string), typeof(MiniLineChartControl),
+        new FrameworkPropertyMetadata(string.Empty));
+
+    /// <summary>数据单位，例如 %、tokens</summary>
+    public static readonly DependencyProperty ValueUnitProperty = DependencyProperty.Register(
+        nameof(ValueUnit), typeof(string), typeof(MiniLineChartControl),
+        new FrameworkPropertyMetadata(string.Empty));
+
+    /// <summary>Provider 短名称</summary>
+    public string ProviderName
+    {
+        get => (string)GetValue(ProviderNameProperty);
+        set => SetValue(ProviderNameProperty, value);
+    }
+
+    /// <summary>数据单位</summary>
+    public string ValueUnit
+    {
+        get => (string)GetValue(ValueUnitProperty);
+        set => SetValue(ValueUnitProperty, value);
+    }
+
+    /// <summary>当前 hover 数据点索引</summary>
+    private int _hoverIndex = -1;
+    private double _plotLeft;
+    private double _plotWidth;
 
     /// <summary>低用量颜色（&lt; 60%）</summary>
     public static readonly DependencyProperty LowBrushProperty = DependencyProperty.Register(
@@ -118,9 +147,10 @@ public class MiniLineChartControl : FrameworkElement
     /// </summary>
     private static int _tierChangedSubscribed;
 
-    /// <summary>控件构造：订阅档位变更。</summary>
+    /// <summary>控件构造：启用鼠标与键盘焦点，以便通过 Tab 和方向键浏览数据点。</summary>
     public MiniLineChartControl()
     {
+        Focusable = true;
         if (System.Threading.Interlocked.Exchange(ref _tierChangedSubscribed, 1) == 0)
         {
             UsageMonitor.App.Helpers.UsageTierScale.TierChanged += OnTierChangedStatic;
@@ -161,6 +191,9 @@ public class MiniLineChartControl : FrameworkElement
 
         // X 步长
         var stepX = plotWidth / (values.Count - 1);
+
+        _plotLeft = padding;
+        _plotWidth = plotWidth;
 
         // 计算所有点坐标
         var points = new Point[values.Count];
@@ -211,6 +244,75 @@ public class MiniLineChartControl : FrameworkElement
         var dot = Math.Max(1.6, StrokeThickness);
         dc.DrawEllipse(MakeTranslucent(brush, 0x40), null, last, dot * 2.2, dot * 2.2);
         dc.DrawEllipse(brush, null, last, dot, dot);
+    }
+
+    /// <summary>鼠标移动时命中最近数据点并显示统一 tooltip。</summary>
+    protected override void OnMouseMove(System.Windows.Input.MouseEventArgs e)
+    {
+        base.OnMouseMove(e);
+        if (TryGetTooltip(e.GetPosition(this), out var data))
+        {
+            var index = GetIndex(e.GetPosition(this).X);
+            if (index != _hoverIndex)
+            {
+                _hoverIndex = index;
+                InvalidateVisual();
+            }
+            HoverTooltipPresenter.Show(this, data);
+        }
+    }
+
+    /// <summary>鼠标离开图表区域后关闭 tooltip 并清除高亮点。</summary>
+    protected override void OnMouseLeave(System.Windows.Input.MouseEventArgs e)
+    {
+        base.OnMouseLeave(e);
+        _hoverIndex = -1;
+        HoverTooltipPresenter.Hide(this);
+        InvalidateVisual();
+    }
+
+    /// <summary>键盘方向键浏览折线数据点，Enter 重显当前点提示。</summary>
+    protected override void OnKeyDown(System.Windows.Input.KeyEventArgs e)
+    {
+        base.OnKeyDown(e);
+        if (Values == null || Values.Count == 0) return;
+        var next = _hoverIndex < 0 ? 0 : _hoverIndex;
+        next = e.Key switch
+        {
+            System.Windows.Input.Key.Left or System.Windows.Input.Key.Up => Math.Max(0, next - 1),
+            System.Windows.Input.Key.Right or System.Windows.Input.Key.Down => Math.Min(Values.Count - 1, next + 1),
+            System.Windows.Input.Key.Home => 0,
+            System.Windows.Input.Key.End => Values.Count - 1,
+            System.Windows.Input.Key.Enter => next,
+            _ => -1
+        };
+        if (next < 0) return;
+        _hoverIndex = next;
+        if (TryGetTooltip(new Point(_plotLeft + (_plotWidth <= 0 ? 0 : next * _plotWidth / Math.Max(1, Values.Count - 1)), 0), out var data))
+            HoverTooltipPresenter.Show(this, data);
+        InvalidateVisual();
+        e.Handled = true;
+    }
+
+    /// <summary>将控件内部坐标映射到最近的折线数据点。</summary>
+    public bool TryGetTooltip(Point position, out HoverTooltipData data)
+    {
+        data = default!;
+        if (Values == null || Values.Count == 0) return false;
+        var index = GetIndex(position.X);
+        var value = Values[index];
+        var unit = string.IsNullOrWhiteSpace(ValueUnit) ? string.Empty : $" {ValueUnit}";
+        var provider = string.IsNullOrWhiteSpace(ProviderName) ? "用量" : ProviderName;
+        data = new HoverTooltipData($"{provider} · 第 {index + 1} 点", $"{value:0.##}{unit}", "时间标签：第 " + (index + 1) + " 个数据点");
+        return true;
+    }
+
+    /// <summary>根据 X 坐标计算最近数据点索引。</summary>
+    private int GetIndex(double x)
+    {
+        if (Values == null || Values.Count <= 1 || _plotWidth <= 0) return 0;
+        var ratio = Math.Clamp((x - _plotLeft) / _plotWidth, 0, 1);
+        return Math.Clamp((int)Math.Round(ratio * (Values.Count - 1)), 0, Values.Count - 1);
     }
 
     /// <summary>
