@@ -113,6 +113,35 @@ public class MiniLineChartControl : FrameworkElement
         => InvalidateVisual();
 
     /// <summary>
+    /// 订阅全局用量色阶变更事件，色阶变了就重绘。
+    /// 只订阅一次（静态事件 / -= 后 +=），避免在多窗口场景中重复回调。
+    /// </summary>
+    private static int _tierChangedSubscribed;
+
+    /// <summary>控件构造：订阅档位变更。</summary>
+    public MiniLineChartControl()
+    {
+        if (System.Threading.Interlocked.Exchange(ref _tierChangedSubscribed, 1) == 0)
+        {
+            UsageMonitor.App.Helpers.UsageTierScale.TierChanged += OnTierChangedStatic;
+        }
+    }
+
+    /// <summary>档位表刷新回调（静态）：色阶变了就重绘所有迷你折线图实例。</summary>
+    private static void OnTierChangedStatic(object? sender, EventArgs e)
+    {
+        // 静态回调只通知一次；具体实例通过遍历无效化（在 WinForms/WPF 混合项目中无需精细化，触发 Application 重绘即可）。
+        System.Windows.Application.Current?.Dispatcher.Invoke(() =>
+        {
+            foreach (var w in System.Windows.Application.Current.Windows)
+            {
+                if (w is System.Windows.Window win)
+                    win.InvalidateVisual();
+            }
+        });
+    }
+
+    /// <summary>
     /// 绘制折线图：渐变面积填充 + 折线 + 最新点发光圆点
     /// </summary>
     protected override void OnRender(DrawingContext dc)

@@ -1,4 +1,5 @@
 ﻿using System;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Windows;
@@ -8,12 +9,16 @@ using UsageMonitor.Core.Services;
 namespace UsageMonitor.App.Views;
 
 /// <summary>
-/// 设置窗口 - 配置刷新间隔、任务栏显示、插件管理、诊断日志入口
+/// 设置窗口 - 配置刷新间隔、任务栏显示、插件管理、诊断日志入口、触发区域调试矩形
 /// </summary>
 public partial class SettingsWindow : Window
 {
-    public SettingsWindow(MainViewModel viewModel)
+    private readonly ConfigService _configService;
+    private TriggerAreaOverlayWindow? _triggerOverlay;
+
+    public SettingsWindow(MainViewModel viewModel, ConfigService configService)
     {
+        _configService = configService;
         InitializeComponent();
         DataContext = viewModel;
         Loaded += OnLoaded;
@@ -24,6 +29,44 @@ public partial class SettingsWindow : Window
         // Display the live log file path so users can copy it for diagnostics.
         if (LogPathTextBox != null)
             LogPathTextBox.Text = FileLogger.GetCurrentLogPath();
+    }
+
+    /// <summary>
+    /// 勾选 / 取消勾选「显示触发区域调试矩形」时创建或销毁覆盖窗口。
+    /// 覆盖窗口的 TextBox 双向同步由 <see cref="TriggerAreaOverlayWindow"/> 内部订阅 ConfigChanged 自行处理。
+    /// </summary>
+    private void ShowTriggerOverlayCheckBox_Changed(object sender, RoutedEventArgs e)
+    {
+        if (ShowTriggerOverlayCheckBox.IsChecked == true)
+        {
+            // 已存在则复用（避免重复创建覆盖窗口导致闪烁）
+            if (_triggerOverlay == null)
+            {
+                _triggerOverlay = new TriggerAreaOverlayWindow(_configService);
+                _triggerOverlay.Closed += (_, _) => _triggerOverlay = null;
+            }
+            if (!_triggerOverlay.IsVisible) _triggerOverlay.Show();
+            FileLogger.Info("SettingsWindow", "TriggerAreaOverlayWindow 已显示");
+        }
+        else
+        {
+            _triggerOverlay?.Close();
+            _triggerOverlay = null;
+            FileLogger.Info("SettingsWindow", "TriggerAreaOverlayWindow 已隐藏");
+        }
+    }
+
+    /// <summary>
+    /// 关闭设置窗口时强制关闭覆盖窗口，避免遗留调试矩形。
+    /// </summary>
+    protected override void OnClosing(CancelEventArgs e)
+    {
+        if (_triggerOverlay != null)
+        {
+            _triggerOverlay.Close();
+            _triggerOverlay = null;
+        }
+        base.OnClosing(e);
     }
 
     /// <summary>Open the logs folder in Windows Explorer.</summary>

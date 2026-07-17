@@ -143,6 +143,18 @@ public class HistoryViewModel : INotifyPropertyChanged
 
         // 默认占位文案
         _statusMessage = "正在加载 Provider 列表…";
+
+        // 订阅全局用量色阶变更：重着色热力图单元（颜色按新色阶刷）。
+        UsageMonitor.App.Helpers.UsageTierScale.TierChanged += OnTierChanged;
+    }
+
+    /// <summary>色阶表变化后重着色热力图单元。</summary>
+    private void OnTierChanged(object? sender, EventArgs e)
+    {
+        foreach (var cell in HeatMapCells)
+        {
+            cell.Background = UsageMonitor.App.Helpers.UsageTierScale.ResolveBrush(cell.Percent);
+        }
     }
 
     private readonly KeyValuePair<HistoryRange, string>[] _rangeOptions;

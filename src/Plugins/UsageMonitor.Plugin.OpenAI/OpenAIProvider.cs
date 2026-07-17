@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using UsageMonitor.Core.Models;
 using UsageMonitor.Core.Plugins;
+using UsageMonitor.Core.Services;
 
 namespace UsageMonitor.Plugin.OpenAI;
 
@@ -39,13 +40,13 @@ public class OpenAIProvider : IUsageProvider
     /// <inheritdoc />
     public IReadOnlyList<ConfigField> ConfigFields => new[]
     {
-        new ConfigField("ApiKey", "API Key", ConfigFieldType.Password, true,
-            placeholder: "sk-xxxxxxxxxxxxxxxx"),
-        new ConfigField("BaseUrl", "API 地址", ConfigFieldType.Text, false,
+        new ConfigField("ApiKey", I18n.T("plugin.OpenAI.field.ApiKey.name"), ConfigFieldType.Password, true,
+            placeholder: I18n.T("plugin.OpenAI.field.ApiKey.placeholder")),
+        new ConfigField("BaseUrl", I18n.T("plugin.OpenAI.field.BaseUrl.name"), ConfigFieldType.Text, false,
             defaultValue: "https://api.openai.com",
-            placeholder: "https://api.openai.com"),
-        new ConfigField("Organization", "Organization ID", ConfigFieldType.Text, false,
-            placeholder: "org-xxxxxxxx (可选)")
+            placeholder: I18n.T("plugin.OpenAI.field.BaseUrl.placeholder")),
+        new ConfigField("Organization", I18n.T("plugin.OpenAI.field.Organization.name"), ConfigFieldType.Text, false,
+            placeholder: I18n.T("plugin.OpenAI.field.Organization.placeholder"))
     };
 
     /// <summary>

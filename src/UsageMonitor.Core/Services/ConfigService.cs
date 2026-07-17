@@ -103,6 +103,15 @@ public class AppSettings
     /// </list>
     /// </summary>
     public double? TaskbarWidth { get; set; }
+
+    /// <summary>
+    /// 用量色阶配置（按已用百分比换色的阈值 + 颜色 + 是否启用）。
+    /// <para>
+    /// 为空时由 <see cref="GetEffectiveUsageTierConfig"/> 回退到出厂默认 4 档（低/注意/中/高）。
+    /// 详情见 <see cref="UsageTierConfig.Defaults"/>。
+    /// </para>
+    /// </summary>
+    public List<UsageMonitor.Core.Models.UsageTierConfig> UsageTierConfig { get; set; } = new();
 }
 
 /// <summary>
@@ -368,6 +377,36 @@ public class ConfigService
             _settings.ProviderConfigs[providerId] = config;
         }
         Save();
+    }
+
+    /// <summary>
+    /// 获取当前生效的用量色阶配置（<see cref="AppSettings.UsageTierConfig"/> 为空时返回出厂默认 4 档）。
+    /// <para>
+    /// 返回一个新 List（不返回内部引用），避免调用方直接修改内部集合引发不一致；序列化时由 <c>JsonSerializer</c> 负责写回。
+    /// </para>
+    /// </summary>
+    public List<UsageMonitor.Core.Models.UsageTierConfig> GetEffectiveUsageTierConfig()
+    {
+        lock (_ioLock)
+        {
+            if (_settings.UsageTierConfig != null && _settings.UsageTierConfig.Count > 0)
+                return new List<UsageMonitor.Core.Models.UsageTierConfig>(_settings.UsageTierConfig);
+            return UsageMonitor.Core.Models.UsageTierConfig.Defaults();
+        }
+    }
+
+    /// <summary>
+    /// 写入用量色阶配置（仅更新内存，不自动 Save；调用方控制持久化时机以实现"先预览后保存"语义）。
+    /// </summary>
+    /// <param name="tiers">新的档位集合（按调用方意愿的顺序传入；运行时会再按 MinPercent 升序排序）。</param>
+    public void SetUsageTierConfig(IReadOnlyList<UsageMonitor.Core.Models.UsageTierConfig> tiers)
+    {
+        lock (_ioLock)
+        {
+            _settings.UsageTierConfig = tiers != null
+                ? new List<UsageMonitor.Core.Models.UsageTierConfig>(tiers)
+                : new List<UsageMonitor.Core.Models.UsageTierConfig>();
+        }
     }
 
     /// <summary>

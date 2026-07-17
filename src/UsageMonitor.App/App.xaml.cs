@@ -59,12 +59,20 @@ public partial class App : Application
         FileLogger.Info("App", $"=== UsageMonitor startup (PID={Environment.ProcessId}) ===");
         FileLogger.RotateIfNeeded();
 
+        // 显式初始化本地化服务（显式调用作为未来从配置/系统区域读取语言的占位入口；
+        // 当前 I18n 已默认 zh-CN，这里主要是为了在日志中留下一条可观察的初始化记录）。
+        I18n.SetLanguage(I18n.DefaultLanguage);
+        FileLogger.Info("App", $"I18n initialized: language='{I18n.CurrentLanguage}'");
+
         // 初始化核心服务
         _configService = new ConfigService();
         _configService.Load();
 
         // 应用已保存的外观主题（必须在任何窗口/控件构造之前，保证首屏即为目标主题）
         Helpers.ThemeManager.Apply(_configService.Settings.Theme);
+
+        // 加载用量色阶到全局静态表（保证 XAML 首次绑定 PercentToBrushConverter 时拿到正确颜色）。
+        UsageMonitor.App.Helpers.UsageTierScale.ApplyConfig(_configService.GetEffectiveUsageTierConfig());
         // Register the live ConfigService with BrowserLoginService so that when login
         // writes new cookies to config.json directly, the in-memory provider config can
         // be reloaded — avoiding the user having to restart the app.
@@ -111,6 +119,12 @@ public partial class App : Application
         // 创建ViewModel
         _viewModel = new MainViewModel(_pluginManager, _configService, _refreshService, _historyStore);
 
+        // 订阅配置变更：让"启用任务栏显示/启用托盘悬浮窗"两个开关在运行时即时生效（关闭时销毁、开启时重建）
+        _configService.ConfigChanged += (_, _) => Dispatcher.Invoke(SyncOverlayWindowsFromSettings);
+        // 订阅配置变更：用量色阶在设置页保存后即时同步到全局色阶（让所有进度条 / 热力图重新取色）。
+        _configService.ConfigChanged += (_, _) => Dispatcher.Invoke(() =>
+            UsageMonitor.App.Helpers.UsageTierScale.ApplyConfig(_configService.GetEffectiveUsageTierConfig()));
+
         // 初始化系统托盘
         InitializeTrayIcon();
 
@@ -120,24 +134,8 @@ public partial class App : Application
         // 启动定时刷新
         _refreshService.Start();
 
-        // 初始化任务栏窗口
-        if (_configService.Settings.ShowInTaskbar)
-            InitializeTaskbarWindow();
-
-        // 初始化托盘悬浮窗
-        if (_configService.Settings.ShowTrayTooltip)
-            InitializeTrayTooltip();
-
-        // 监听 ViewModel 中 Provider 显示模式变化以重算任务栏窗口尺寸
-        _viewModel.Usages.CollectionChanged += (_, _) => _taskbarWindow?.RecalculateSize();
-        foreach (var usage in _viewModel.Usages)
-        {
-            usage.PropertyChanged += (_, ev) =>
-            {
-                if (ev.PropertyName == nameof(ProviderUsageViewModel.DisplayMode))
-                    _taskbarWindow?.RecalculateSize();
-            };
-        }
+        // 按当前配置同步任务栏窗口 + 托盘悬浮窗（运行时勾选/取消会通过 ConfigChanged 回调即时同步）
+        SyncOverlayWindowsFromSettings();
 
         // 显示主窗口
         ShowMainWindow();
@@ -184,10 +182,14 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// 初始化托盘悬浮窗 + 鼠标悬停检测定时器
+    /// 初始化托盘悬浮窗 + 鼠标悬停检测定时器。
+    /// 幂等：已存在则跳过；开关关闭时不创建。
     /// </summary>
     private void InitializeTrayTooltip()
     {
+        if (_trayTooltipWindow != null) return;
+        if (!_configService.Settings.ShowTrayTooltip) return;
+
         // 传入 ConfigService 使悬浮窗可以读取/写入拖拽后的位置
         _trayTooltipWindow = new Views.TrayTooltipWindow(_viewModel, _configService);
 
@@ -198,6 +200,28 @@ public partial class App : Application
         };
         _trayHoverCheckTimer.Tick += OnTrayHoverCheckTick;
         _trayHoverCheckTimer.Start();
+        FileLogger.Info("App", "TrayTooltipWindow 已创建并启动悬停检测定时器");
+    }
+
+    /// <summary>
+    /// 销毁托盘悬浮窗：先停轮询定时器（避免定时器回调继续访问已释放的窗），再关闭悬浮窗实例并清空字段。
+    /// 由 SyncOverlayWindowsFromSettings 在用户关闭对应开关时调用，允许下次需要时重新 Initialize。
+    /// </summary>
+    private void DisposeTrayTooltip()
+    {
+        if (_trayHoverCheckTimer != null)
+        {
+            _trayHoverCheckTimer.Stop();
+            _trayHoverCheckTimer = null;
+        }
+        _isCursorOverTrayArea = false;
+
+        if (_trayTooltipWindow != null)
+        {
+            _trayTooltipWindow.Close();
+            _trayTooltipWindow = null;
+        }
+        FileLogger.Info("App", "TrayTooltipWindow 已销毁并停止悬停检测定时器");
     }
 
     /// <summary>
@@ -295,14 +319,75 @@ public partial class App : Application
 
     /// <summary>
     /// 初始化任务栏嵌入窗口：构造 TaskbarHelper 并真正通过 EmbedWindow 嵌入任务栏。
+    /// 幂等：已存在则跳过；开关关闭时不创建；创建后绑定 Usages 变更回调以响应 Provider 显隐/模式变化。
     /// </summary>
     private void InitializeTaskbarWindow()
     {
+        if (_taskbarWindow != null) return;
         if (!_configService.Settings.ShowInTaskbar) return;
 
         _taskbarHelper = new Helpers.TaskbarHelper();
         _taskbarWindow = new Views.TaskbarWindow(_viewModel, _configService, _taskbarHelper);
         _taskbarWindow.EmbedIntoTaskbar();
+        AttachTaskbarWindowResizeHandlers();
+        FileLogger.Info("App", "TaskbarWindow 已创建并嵌入任务栏");
+    }
+
+    /// <summary>
+    /// 销毁任务栏窗口：先关窗、后解嵌入 TaskbarHelper、最后清空字段，允许 SyncOverlayWindowsFromSettings 之后重新创建。
+    /// </summary>
+    private void DisposeTaskbarWindow()
+    {
+        if (_taskbarWindow == null && _taskbarHelper == null) return;
+
+        // 先关窗后解嵌入：避免 OnPreviewMouseXxx 在 SetParent(0) 之后还访问 _taskbarHelper
+        if (_taskbarWindow != null)
+        {
+            _taskbarWindow.Close();
+            _taskbarWindow = null;
+        }
+        _taskbarHelper?.Dispose();
+        _taskbarHelper = null;
+        FileLogger.Info("App", "TaskbarWindow 已销毁并从任务栏解嵌入");
+    }
+
+    /// <summary>
+    /// 绑定 ViewModel 中 Provider 集合与单个 Provider 的显示模式变化事件，触发任务栏窗口重排宽度/位置。
+    /// 重建 TaskbarWindow 时必须重新订阅一次，否则新窗口失去与 Provider 变化联动的响应能力。
+    /// </summary>
+    private void AttachTaskbarWindowResizeHandlers()
+    {
+        _viewModel.Usages.CollectionChanged += (_, _) => _taskbarWindow?.RecalculateSize();
+        foreach (var usage in _viewModel.Usages)
+        {
+            usage.PropertyChanged += (_, ev) =>
+            {
+                if (ev.PropertyName == nameof(ProviderUsageViewModel.DisplayMode))
+                    _taskbarWindow?.RecalculateSize();
+            };
+        }
+    }
+
+    /// <summary>
+    /// 按当前 ConfigService.Settings 中 ShowInTaskbar / ShowTrayTooltip 两个开关，同步两个 overlay window 的运行实例状态。
+    /// 由 _configService.ConfigChanged 触发（包一层 Dispatcher.Invoke 兼容跨线程），
+    /// 也由 OnStartup 在首次初始化时调用一次，确保启动时配置已生效。
+    /// </summary>
+    private void SyncOverlayWindowsFromSettings()
+    {
+        var s = _configService.Settings;
+
+        // 任务栏窗口
+        if (s.ShowInTaskbar && _taskbarWindow == null)
+            InitializeTaskbarWindow();
+        else if (!s.ShowInTaskbar && _taskbarWindow != null)
+            DisposeTaskbarWindow();
+
+        // 托盘悬浮窗
+        if (s.ShowTrayTooltip && _trayTooltipWindow == null)
+            InitializeTrayTooltip();
+        else if (!s.ShowTrayTooltip && _trayTooltipWindow != null)
+            DisposeTrayTooltip();
     }
 
     /// <summary>
@@ -331,7 +416,7 @@ public partial class App : Application
         // 关闭托盘悬浮窗
         _trayTooltipWindow?.ForceHide();
 
-        var settingsWindow = new Views.SettingsWindow(_viewModel);
+        var settingsWindow = new Views.SettingsWindow(_viewModel, _configService);
         settingsWindow.Owner = _mainWindow;
         settingsWindow.ShowDialog();
     }

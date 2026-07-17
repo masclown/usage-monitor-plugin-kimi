@@ -198,21 +198,16 @@ public class MultiVisibilityOrConverter : IMultiValueConverter
 public class PercentToBrushConverter : IValueConverter
 {
     /// <summary>
-    /// 把已用百分比映射为分档画笔；或按 "low|mid|high" 显式取档。
+    /// 把已用百分比映射为分档画笔；或按 "low|mid|high" 显式取档（按 Tiers 升序的首/中/末）。
     /// </summary>
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
     {
-        // 显式档位（保留旧用法）：按语义键取当前主题画笔。
+        // 显式档位：low / mid / high 按当前 Tiers 升序索引取。
         if (parameter is string level && !string.IsNullOrWhiteSpace(level))
         {
-            var key = level.Trim().ToLowerInvariant() switch
-            {
-                "low" => "UsageLowBrush",
-                "mid" => "UsageMidBrush",
-                "high" => "UsageHighBrush",
-                _ => null,
-            };
-            if (key != null) return UsageTierScale.GetBrushByKey(key);
+            var tier = UsageTierScale.ResolveByLevel(level);
+            if (tier != null)
+                return new System.Windows.Media.SolidColorBrush(tier.Color);
         }
 
         // 按已用百分比（0-100）自动分档。

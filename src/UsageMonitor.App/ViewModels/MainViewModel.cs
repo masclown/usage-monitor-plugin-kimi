@@ -788,6 +788,29 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         return count.ToString();
     }
 
+    /// <summary>
+    /// 重发出本 VM 所有进度条 Percent 属性的 PropertyChanged。
+    /// 供全局色阶变更后让 XAML 上的 PercentToBrushConverter 重新取色使用。
+    /// </summary>
+    public void RefreshAllPercentProperties()
+    {
+        OnPropertyChanged(nameof(PrimaryBarPercent));
+        OnPropertyChanged(nameof(WeeklyBarPercent));
+        OnPropertyChanged(nameof(VideoIntervalPercent));
+        OnPropertyChanged(nameof(VideoWeeklyPercent));
+    }
+
+    /// <summary>
+    /// 重着色本卡片的"每日 Token"热力图单元（按当前全局色阶）。
+    /// </summary>
+    public void RecolorHeatMapCells()
+    {
+        foreach (var cell in HeatMapCells)
+        {
+            cell.Background = UsageMonitor.App.Helpers.UsageTierScale.ResolveBrush(cell.Percent);
+        }
+    }
+
     public event PropertyChangedEventHandler? PropertyChanged;
     protected void OnPropertyChanged([CallerMemberName] string? name = null)
         => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
@@ -942,6 +965,20 @@ public class MainViewModel : INotifyPropertyChanged
 
     /// <summary>插件列表</summary>
     public ObservableCollection<PluginItemViewModel> PluginItems { get; } = new();
+
+    /// <summary>
+    /// 设置页“用量色阶” Tab 的编辑上下文（延迟初始化，首次访问时创建）。
+    /// 供 SettingsWindow 的 DataContext 拿。
+    /// </summary>
+    public TierListEditorViewModel TierEditor
+    {
+        get
+        {
+            _tierEditor ??= new TierListEditorViewModel(this);
+            return _tierEditor;
+        }
+    }
+    private TierListEditorViewModel? _tierEditor;
 
     /// <summary>刷新间隔（秒）</summary>
     public int RefreshInterval
@@ -1115,6 +1152,11 @@ public class MainViewModel : INotifyPropertyChanged
         RefreshCommand = new RelayCommand(async () => await refreshService.RefreshAllAsync());
         SaveSettingsCommand = new RelayCommand(() => _configService.Save());
 
+        // 订阅配置变更：当外部（其它入口直接改 Settings、TriggerAreaOverlayWindow 拖拽、程序其它点 Save）修改任意配置时，
+        // 通知所有 Settings 派生属性刷新，让 TwoWay 绑定（TextBox、CheckBox 等）拿最新值。
+        // 与 App.xaml.cs 中 _configService.ConfigChanged 订阅互不冲突（多订阅者并行接收）。
+        _configService.ConfigChanged += OnConfigChangedRefreshSettings;
+
         // 初始化插件列表与用量显示
         foreach (var plugin in pluginManager.Plugins)
         {
@@ -1181,6 +1223,69 @@ public class MainViewModel : INotifyPropertyChanged
         // 监听历史数据变化
         _historyStore.ProviderHistoryChanged += OnProviderHistoryChanged;
         _historyStore.HistoryChanged += OnAnyHistoryChanged;
+
+        // 订阅全局用量色阶变更：档位 / 颜色改了之后，强制让所有进度条 XAML 绑定刷新
+        // （PercentToBrushConverter 重新走 ResolveBrush → 返回新 Brush），同时重着色卡片热力图单元。
+        UsageMonitor.App.Helpers.UsageTierScale.TierChanged += OnUsageTierChanged;
+    }
+
+    /// <summary>
+    /// 获取当前生效的档位配置供设置页"用量色阶" Tab 回显使用。
+    /// 缺省时返回出厂默认。
+    /// </summary>
+    public List<UsageMonitor.Core.Models.UsageTierConfig> GetCurrentTierConfigForEditor()
+        => _configService.GetEffectiveUsageTierConfig();
+
+    /// <summary>
+    /// 把编辑结果仅推到全局色阶（预览，不写盘）。点保存按钮才会落盘。
+    /// </summary>
+    public void PreviewTierConfig(IReadOnlyList<UsageMonitor.Core.Models.UsageTierConfig> snapshot)
+    {
+        UsageMonitor.App.Helpers.UsageTierScale.ApplyConfig(snapshot);
+    }
+
+    /// <summary>
+    /// 写入内存配置 + 落盘 + 推送全局色阶。
+    /// </summary>
+    public void SaveTierConfig(IReadOnlyList<UsageMonitor.Core.Models.UsageTierConfig> snapshot)
+    {
+        _configService.SetUsageTierConfig(snapshot);
+        _configService.Save();
+        // Save() 内部已会触发 ConfigChanged，App.OnStartup 里挂的 ApplyConfig 会重新拉一次。
+    }
+
+    /// <summary>
+    /// 全局色阶变更回调：依次（1）让所有进度条的 Percent 属性发出 PropertyChanged，让 XAML 上的
+    /// PercentToBrushConverter 重新解析；（2）重着色卡片热力图单元。
+    /// </summary>
+    private void OnUsageTierChanged(object? sender, EventArgs e)
+    {
+        ForceRefreshBars();
+        RecolorAllHeatMaps();
+    }
+
+    /// <summary>
+    /// 对所有 ProviderUsageViewModel 的 4 个进度条 Percent 属性发出 PropertyChanged，
+    /// 让 PercentToBrushConverter 重新取色。
+    /// </summary>
+    private void ForceRefreshBars()
+    {
+        foreach (var vm in Usages)
+        {
+            vm.RefreshAllPercentProperties();
+        }
+    }
+
+    /// <summary>
+    /// 重着色所有卡片热力图单元（用新色阶刷 Background）。
+    /// 历史窗口的热力图由 HistoryViewModel 自行订阅事件负责重着色。
+    /// </summary>
+    private void RecolorAllHeatMaps()
+    {
+        foreach (var vm in Usages)
+        {
+            vm.RecolorHeatMapCells();
+        }
     }
 
     /// <summary>
@@ -1261,6 +1366,25 @@ public class MainViewModel : INotifyPropertyChanged
             usageVm.DisplayMode = mode;
 
         _configService.Save();
+    }
+
+    /// <summary>
+    /// 外部 ConfigService 变更时，统一通知所有 Settings 派生属性刷新。
+    /// 保证触发区域调试矩形拖动 / 其它入口改配置后，SettingsWindow 中的 TextBox 双向绑定能拿到最新值。
+    /// </summary>
+    private void OnConfigChangedRefreshSettings(object? sender, EventArgs e)
+    {
+        OnPropertyChanged(nameof(RefreshInterval));
+        OnPropertyChanged(nameof(ShowInTaskbar));
+        OnPropertyChanged(nameof(ShowTrayTooltip));
+        OnPropertyChanged(nameof(TrayTooltipHideDelayMs));
+        OnPropertyChanged(nameof(TrayTriggerWidth));
+        OnPropertyChanged(nameof(TrayTriggerHeight));
+        OnPropertyChanged(nameof(RingChartWarningThreshold));
+        OnPropertyChanged(nameof(RingChartDangerThreshold));
+        OnPropertyChanged(nameof(ThemeMode));
+        OnPropertyChanged(nameof(IsDarkTheme));
+        OnPropertyChanged(nameof(IsLightTheme));
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;

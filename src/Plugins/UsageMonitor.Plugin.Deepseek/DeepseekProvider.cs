@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using UsageMonitor.Core.Models;
 using UsageMonitor.Core.Plugins;
+using UsageMonitor.Core.Services;
 
 namespace UsageMonitor.Plugin.Deepseek;
 
@@ -40,12 +41,12 @@ public class DeepseekProvider : IUsageProvider
     /// <inheritdoc />
     public IReadOnlyList<ConfigField> ConfigFields => new[]
     {
-        new ConfigField("ApiKey", "API Key", ConfigFieldType.Password, true,
-            placeholder: "sk-xxxxxxxxxxxxxxxx",
+        new ConfigField("ApiKey", I18n.T("plugin.Deepseek.field.ApiKey.name"), ConfigFieldType.Password, true,
+            placeholder: I18n.T("plugin.Deepseek.field.ApiKey.placeholder"),
             defaultValue: null),
-        new ConfigField("BaseUrl", "API 地址", ConfigFieldType.Text, false,
+        new ConfigField("BaseUrl", I18n.T("plugin.Deepseek.field.BaseUrl.name"), ConfigFieldType.Text, false,
             defaultValue: "https://api.deepseek.com",
-            placeholder: "https://api.deepseek.com")
+            placeholder: I18n.T("plugin.Deepseek.field.BaseUrl.placeholder"))
     };
 
     /// <summary>

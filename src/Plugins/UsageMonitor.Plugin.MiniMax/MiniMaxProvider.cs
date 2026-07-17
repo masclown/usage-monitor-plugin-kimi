@@ -9,6 +9,7 @@ using System.Text.Json.Serialization;
 using Microsoft.Data.Sqlite;
 using UsageMonitor.Core.Models;
 using UsageMonitor.Core.Plugins;
+using UsageMonitor.Core.Services;
 
 namespace UsageMonitor.Plugin.MiniMax;
 
@@ -77,21 +78,21 @@ public class MiniMaxProvider : IUsageProvider
     /// <inheritdoc />
     public IReadOnlyList<ConfigField> ConfigFields => new[]
     {
-        new ConfigField("ApiKey", "Token Plan Subscription Key (optional)", ConfigFieldType.Password, false,
-            placeholder: "Optional. Cookie login is the primary auth; key is only used for API fallback"),
-        new ConfigField("Cookie", "Cookie auth (optional fallback)", ConfigFieldType.Password, false,
-            placeholder: "Optional. If Key fails, try the Cookie from your logged-in browser"),
-        new ConfigField("Region", "API Region", ConfigFieldType.Select, false,
+        new ConfigField("ApiKey", I18n.T("plugin.MiniMax.field.ApiKey.name"), ConfigFieldType.Password, false,
+            placeholder: I18n.T("plugin.MiniMax.field.ApiKey.placeholder")),
+        new ConfigField("Cookie", I18n.T("plugin.MiniMax.field.Cookie.name"), ConfigFieldType.Password, false,
+            placeholder: I18n.T("plugin.MiniMax.field.Cookie.placeholder")),
+        new ConfigField("Region", I18n.T("plugin.MiniMax.field.Region.name"), ConfigFieldType.Select, false,
             defaultValue: "CN",
             options: new[] { "CN", "Global" }),
         // 卡片显示控制 - 默认全开
-        new ConfigField("Show5hBar", "显示 5h 限额进度条", ConfigFieldType.Boolean, false,
+        new ConfigField("Show5hBar", I18n.T("plugin.MiniMax.field.Show5hBar.name"), ConfigFieldType.Boolean, false,
             defaultValue: "true"),
-        new ConfigField("ShowWeeklyBar", "显示 周限额 进度条", ConfigFieldType.Boolean, false,
+        new ConfigField("ShowWeeklyBar", I18n.T("plugin.MiniMax.field.ShowWeeklyBar.name"), ConfigFieldType.Boolean, false,
             defaultValue: "true"),
-        new ConfigField("ShowVideo5hBar", "显示 视频赠送 5h 进度条", ConfigFieldType.Boolean, false,
+        new ConfigField("ShowVideo5hBar", I18n.T("plugin.MiniMax.field.ShowVideo5hBar.name"), ConfigFieldType.Boolean, false,
             defaultValue: "true"),
-        new ConfigField("ShowVideoWeeklyBar", "显示 视频赠送 周 进度条", ConfigFieldType.Boolean, false,
+        new ConfigField("ShowVideoWeeklyBar", I18n.T("plugin.MiniMax.field.ShowVideoWeeklyBar.name"), ConfigFieldType.Boolean, false,
             defaultValue: "true")
     };
 

@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using UsageMonitor.Core.Models;
 using UsageMonitor.Core.Plugins;
+using UsageMonitor.Core.Services;
 
 namespace UsageMonitor.Plugin.MiMo;
 
@@ -39,11 +40,11 @@ public class MiMoProvider : IUsageProvider
     /// <inheritdoc />
     public IReadOnlyList<ConfigField> ConfigFields => new[]
     {
-        new ConfigField("ApiKey", "API Key", ConfigFieldType.Password, true,
-            placeholder: "请输入您的 MiMo API Key"),
-        new ConfigField("BaseUrl", "API 地址", ConfigFieldType.Text, false,
+        new ConfigField("ApiKey", I18n.T("plugin.MiMo.field.ApiKey.name"), ConfigFieldType.Password, true,
+            placeholder: I18n.T("plugin.MiMo.field.ApiKey.placeholder")),
+        new ConfigField("BaseUrl", I18n.T("plugin.MiMo.field.BaseUrl.name"), ConfigFieldType.Text, false,
             defaultValue: "https://api.mimo.ai",
-            placeholder: "https://api.mimo.ai")
+            placeholder: I18n.T("plugin.MiMo.field.BaseUrl.placeholder"))
     };
 
     /// <summary>

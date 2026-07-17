@@ -98,6 +98,24 @@ public class YearHeatMapControl : FrameworkElement
     {
         MinHeight = 150;
         MinWidth = 320;
+        // 订阅档位变更：底部图例与各档位颜色随档位表动态更新。
+        if (System.Threading.Interlocked.Exchange(ref _tierSubscribed, 1) == 0)
+            UsageMonitor.App.Helpers.UsageTierScale.TierChanged += OnTierChangedStatic;
+    }
+
+    private static int _tierSubscribed;
+
+    /// <summary>档位表刷新后：触发所有热力图重绘（图例按 Tiers 重新取色）。</summary>
+    private static void OnTierChangedStatic(object? sender, EventArgs e)
+    {
+        System.Windows.Application.Current?.Dispatcher.Invoke(() =>
+        {
+            foreach (var w in System.Windows.Application.Current.Windows)
+            {
+                if (w is System.Windows.Window win)
+                    win.InvalidateVisual();
+            }
+        });
     }
 
     private static void OnCellsChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
@@ -214,7 +232,7 @@ public class YearHeatMapControl : FrameworkElement
         var swatches = new Brush[tiers.Count + 1];
         swatches[0] = EmptyCellBrush;
         for (int i = 0; i < tiers.Count; i++)
-            swatches[i + 1] = UsageMonitor.App.Helpers.UsageTierScale.GetBrush(tiers[i]);
+            swatches[i + 1] = new SolidColorBrush(tiers[i].Color);
         var less = MakeText("少", TextBrush, 10, dpi);
         var more = MakeText("多", TextBrush, 10, dpi);
         double total = less.Width + 4 + swatches.Length * (sw + sgap) + 4 + more.Width;
