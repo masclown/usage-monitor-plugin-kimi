@@ -167,14 +167,8 @@ public class MiniMaxProvider : IUsageProvider
     {
         get
         {
-            // MiniMaxProvider 不直接拿当日数据；Extra 中仅能拿到卡片当前已用的累计信息。
-            // 为了避免与实际 hover 点的值不一致（tooltip “调用”需是当日点调用量），这里只返回
-            // 静态的“缓存命中”提示，实际值交由 VM / 插件后续在 hover 上下文里补充。
-            return new[]
-            {
-                "调用量（当日）",
-                "缓存命中率（参考值）"
-            };
+            // req-034 修复：不再返回静态标签，数值由 ViewModel 动态生成
+            return Array.Empty<string>();
         }
     }
 

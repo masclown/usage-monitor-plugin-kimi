@@ -77,6 +77,8 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
     // 完整数据按日期升序，最多 168 天（MiniMax usage_summary 接口上限）。
     private IReadOnlyList<long> _fullDailyValues = Array.Empty<long>();
     private IReadOnlyList<string> _fullDailyDates = Array.Empty<string>();
+    // req-034 修复：完整缓存命中率数据，供 SliceCardLineByPeriod 按周期切片
+    private IReadOnlyList<double> _fullDailyCacheHitPercents = Array.Empty<double>();
     // req-026：当前 Provider 启用的环形图中心 metric key 列表，绑定到 RingChartControl.EnabledMetrics。
     private IReadOnlyList<string> _enabledRingChartMetrics = Array.Empty<string>();
 
@@ -492,6 +494,22 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         set { _extraTooltipLines = value; OnPropertyChanged(); }
     }
 
+    /// <summary>req-034 修复：缓存命中率（0-100），供折线图 tooltip 显示。负值表示无数据。</summary>
+    public double CacheHitPercent
+    {
+        get => _cacheHitPercent;
+        set { _cacheHitPercent = value; OnPropertyChanged(); }
+    }
+    private double _cacheHitPercent = -1;
+
+    /// <summary>req-034 修复：每独立的缓存命中率集合（与 CardLineValues 等长）。</summary>
+    public IReadOnlyList<double> DailyCacheHitPercents
+    {
+        get => _dailyCacheHitPercents;
+        set { _dailyCacheHitPercents = value ?? Array.Empty<double>(); OnPropertyChanged(); }
+    }
+    private IReadOnlyList<double> _dailyCacheHitPercents = Array.Empty<double>();
+
     /// <summary>插件是否声明支持周期切换（req-007）。为 true 时卡片折线图右上角显示「近 7 天 / 近 30 天」按钮。</summary>
     public bool SupportsPeriodSwitch
     {
@@ -640,6 +658,19 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         else
         {
             Dates = Array.Empty<string>();
+        }
+
+        // req-034 修复：缓存命中率同步切片（与 values/dates 同逻辑，取后 take 个）
+        var fullCacheHit = _fullDailyCacheHitPercents;
+        if (fullCacheHit != null && fullCacheHit.Count == values.Count && take > 0)
+        {
+            var slicedCacheHit = new double[take];
+            for (int i = 0; i < take; i++) slicedCacheHit[i] = fullCacheHit[start + i];
+            DailyCacheHitPercents = slicedCacheHit;
+        }
+        else
+        {
+            DailyCacheHitPercents = Array.Empty<double>();
         }
     }
 
@@ -919,10 +950,14 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         // 读取每日 token 数值序列（Extra 内存直传，值为 List<long>；兼容其它可枚举形态）。
         var values = ReadLongList(extra, "mm_dailyTokenValues");
         var dates = ReadStringList(extra, "mm_dailyTokenDates");
+        // req-034 修复：读取每独立的缓存命中率（提前读取，供热力图和折线图共用）
+        var dailyCacheHitPercents = ReadDoubleList(extra, "mm_dailyCacheHitPercents");
 
         // req-007：缓存完整数据，供 PeriodChanged 重新切片。values 在这里就已经是完整升序序列。
         _fullDailyValues = values;
         _fullDailyDates = dates;
+        // req-034 修复：缓存完整缓存命中率数据，供 SliceCardLineByPeriod 按周期切片
+        _fullDailyCacheHitPercents = dailyCacheHitPercents;
 
         // req-007：把插件声明的周期切换能力、tooltip 扩展行推到 UI。
         SupportsPeriodSwitch = false; // 占位默认值，循环结束后会被插件实际声明覆盖。
@@ -953,10 +988,23 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
                 var slicedDates = new string[take];
                 for (int i = 0; i < take; i++) slicedDates[i] = dates[start + i];
                 Dates = slicedDates;
+
+                // req-034 修复：每独立的缓存命中率同步切片
+                if (dailyCacheHitPercents.Count == values.Count)
+                {
+                    var slicedCacheHit = new double[take];
+                    for (int i = 0; i < take; i++) slicedCacheHit[i] = dailyCacheHitPercents[start + i];
+                    DailyCacheHitPercents = slicedCacheHit;
+                }
+                else
+                {
+                    DailyCacheHitPercents = Array.Empty<double>();
+                }
             }
             else
             {
                 Dates = Array.Empty<string>();
+                DailyCacheHitPercents = Array.Empty<double>();
             }
         }
         else
@@ -980,6 +1028,8 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
                 try { cacheHitPercent = Convert.ToDouble(chp); }
                 catch { cacheHitPercent = -1; }
             }
+            // req-034 修复：存储缓存命中率供折线图 tooltip 使用（属性 setter 会同时更新字段并触发 INPC）
+            CacheHitPercent = cacheHitPercent;
 
             for (int i = 0; i < values.Count; i++)
             {
@@ -999,6 +1049,9 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
                     ? UsageMonitor.App.Helpers.HeatMapTierScale.ResolveBrush(token, "MiniMax")
                     : zeroBrush;
 
+                // req-034 修复：使用每独立的缓存命中率
+                double dayCacheHit = i < dailyCacheHitPercents.Count ? dailyCacheHitPercents[i] : -1;
+
                 HeatMapCells.Add(new YearHeatMapCell
                 {
                     Day = day,
@@ -1006,9 +1059,9 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
                     Token = token, // req-009：供 RecolorHeatMapCells 重算背景色
                     Background = bgBrush,
                     ValueText = token > 0 ? FormatTokens(token) : "--",
-                    Unit = "tokens",
-                    ComparisonText = cacheHitPercent >= 0
-                        ? $"缓存命中 {cacheHitPercent:0.##}%"
+                    Unit = "",
+                    ComparisonText = dayCacheHit >= 0
+                        ? $"缓存命中 {dayCacheHit:0.00}%"
                         : string.Empty
                 });
             }
@@ -1044,6 +1097,25 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         {
             foreach (var item in en)
                 result.Add(item?.ToString() ?? "");
+        }
+        return result;
+    }
+
+    /// <summary>req-034 修复：从 Extra 读取 List&lt;double&gt;（兼容 List&lt;double&gt; 与其它可枚举装箱），失败返回空列表。</summary>
+    private static List<double> ReadDoubleList(Dictionary<string, object> extra, string key)
+    {
+        var result = new List<double>();
+        if (!extra.TryGetValue(key, out var v) || v == null) return result;
+        if (v is List<double> ld) return ld;
+        if (v is System.Collections.IEnumerable en)
+        {
+            foreach (var item in en)
+            {
+                if (item is double d) result.Add(d);
+                else if (item != null && double.TryParse(item.ToString(), System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+                    result.Add(parsed);
+            }
         }
         return result;
     }
@@ -1196,8 +1268,8 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
     private static string FormatTokens(long count)
     {
         if (count < 0) return "不限";
-        if (count >= 1_000_000) return $"{count / 1_000_000.0:F1}M";
-        if (count >= 1_000) return $"{count / 1_000.0:F1}K";
+        if (count >= 1_000_000) return $"{count / 1_000_000.0:F2}M";
+        if (count >= 1_000) return $"{count / 1_000.0:F2}K";
         return count.ToString();
     }
 

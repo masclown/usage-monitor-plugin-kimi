@@ -367,6 +367,8 @@
                                         HighBrush="{DynamicResource UsageHighBrush}"
                                         Dates="{Binding Dates}"
                                         ExtraTooltipLines="{Binding ExtraTooltipLines}"
+                                        CacheHitPercent="{Binding CacheHitPercent}"
+                                        DailyCacheHitPercents="{Binding DailyCacheHitPercents}"
                                         SupportsPeriodSwitch="{Binding SupportsPeriodSwitch}"
                                         CurrentPeriod="{Binding CurrentPeriod}"
                                         IsLoading="{Binding IsLoading}"

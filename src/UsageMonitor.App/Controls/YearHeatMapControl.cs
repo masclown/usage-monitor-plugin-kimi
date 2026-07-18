@@ -3,6 +3,7 @@ using System.Collections.Specialized;
 using System.Globalization;
 using System.Windows;
 using System.Windows.Media;
+using System.Windows.Threading;
 using Brush = System.Windows.Media.Brush;
 using Brushes = System.Windows.Media.Brushes;
 using Color = System.Windows.Media.Color;
@@ -108,6 +109,9 @@ public class YearHeatMapControl : FrameworkElement, IHoverTooltipProvider
 
     private readonly List<(Rect Bounds, YearHeatMapCell Cell)> _hitCells = new();
     private int _hoverIndex = -1;
+    // req-046：tooltip 悬停延迟定时器（100ms）
+    private DispatcherTimer? _tooltipDelayTimer;
+    private HoverTooltipData? _pendingTooltipData;
 
     /// <summary>热力图控件构造：启用 Tab 聚焦和键盘浏览。</summary>
     public YearHeatMapControl()
@@ -265,35 +269,71 @@ public class YearHeatMapControl : FrameworkElement, IHoverTooltipProvider
     protected override void OnMouseMove(System.Windows.Input.MouseEventArgs e)
     {
         base.OnMouseMove(e);
-        // req-046：记录之前的 hover 索引，只在索引变化时才显示 tooltip
+        // req-046 修复：记录之前的 hover 索引，只在索引变化时才重绘和更新 tooltip
         var prevHoverIndex = _hoverIndex;
         if (TryGetTooltip(e.GetPosition(this), out var data))
         {
-            // 只在索引变化时才调用 Show，避免鼠标移动时反复创建销毁导致闪烁
+            // TryGetTooltip 内部会修改 _hoverIndex，所以用 prevHoverIndex 判断是否变化
             if (_hoverIndex != prevHoverIndex)
             {
-                HoverTooltipPresenter.Show(this, data);
+                InvalidateVisual();
+                // req-046：不立即显示 tooltip，启动 100ms 延迟定时器
+                _pendingTooltipData = data;
+                StartTooltipDelayTimer();
             }
-            InvalidateVisual();
+            // 索引未变化时不重绘、不更新 tooltip，避免快速移动时闪烁
         }
         else
         {
+            StopTooltipDelayTimer();
             // 鼠标不在任何日期方格上，关闭 tooltip
             if (prevHoverIndex >= 0)
             {
+                _hoverIndex = -1;
                 HoverTooltipPresenter.Hide(this);
+                InvalidateVisual();
             }
         }
-        // req-018：鼠标在空格网底 / 控件外时不弹 tooltip 是符合预期的，不打错误日志。
     }
 
     /// <summary>鼠标离开热力图后关闭 tooltip。</summary>
     protected override void OnMouseLeave(System.Windows.Input.MouseEventArgs e)
     {
         base.OnMouseLeave(e);
+        StopTooltipDelayTimer();
         _hoverIndex = -1;
         HoverTooltipPresenter.Hide(this);
         InvalidateVisual();
+    }
+
+    /// <summary>req-046：启动 100ms 延迟定时器，鼠标静止后显示 tooltip。</summary>
+    private void StartTooltipDelayTimer()
+    {
+        if (_tooltipDelayTimer == null)
+        {
+            _tooltipDelayTimer = new DispatcherTimer(DispatcherPriority.Normal)
+            {
+                Interval = TimeSpan.FromMilliseconds(100)
+            };
+            _tooltipDelayTimer.Tick += (_, _) =>
+            {
+                _tooltipDelayTimer.Stop();
+                if (_pendingTooltipData != null)
+                {
+                    HoverTooltipPresenter.Show(this, _pendingTooltipData);
+                    _pendingTooltipData = null;
+                }
+            };
+        }
+        _tooltipDelayTimer.Stop();
+        _tooltipDelayTimer.Start();
+    }
+
+    /// <summary>req-046：停止延迟定时器。</summary>
+    private void StopTooltipDelayTimer()
+    {
+        _tooltipDelayTimer?.Stop();
+        _pendingTooltipData = null;
     }
 
     /// <summary>通过方向键在有数据的日期之间浏览。</summary>

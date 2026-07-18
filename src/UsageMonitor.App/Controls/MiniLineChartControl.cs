@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 using Brush = System.Windows.Media.Brush;
 using Brushes = System.Windows.Media.Brushes;
 using Color = System.Windows.Media.Color;
@@ -72,6 +73,16 @@ public class MiniLineChartControl : FrameworkElement, IHoverTooltipProvider
         nameof(ExtraTooltipLines), typeof(IReadOnlyList<string>), typeof(MiniLineChartControl),
         new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
 
+    /// <summary>req-034 修复：缓存命中率（0-100），供 tooltip 显示。负值表示无数据。</summary>
+    public static readonly DependencyProperty CacheHitPercentProperty = DependencyProperty.Register(
+        nameof(CacheHitPercent), typeof(double), typeof(MiniLineChartControl),
+        new FrameworkPropertyMetadata(-1.0, FrameworkPropertyMetadataOptions.AffectsRender));
+
+    /// <summary>req-034 修复：每独立的缓存命中率集合（与 Values 等长），供 tooltip 显示。</summary>
+    public static readonly DependencyProperty DailyCacheHitPercentsProperty = DependencyProperty.Register(
+        nameof(DailyCacheHitPercents), typeof(IReadOnlyList<double>), typeof(MiniLineChartControl),
+        new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
+
     /// <summary>是否在右上角显示周期切换按钮（仅当插件声明 SupportsPeriodSwitch=true 时为 true）。</summary>
     public static readonly DependencyProperty SupportsPeriodSwitchProperty = DependencyProperty.Register(
         nameof(SupportsPeriodSwitch), typeof(bool), typeof(MiniLineChartControl),
@@ -130,6 +141,20 @@ public class MiniLineChartControl : FrameworkElement, IHoverTooltipProvider
         set => SetValue(ExtraTooltipLinesProperty, value);
     }
 
+    /// <summary>req-034 修复：缓存命中率（0-100），负值表示无数据。</summary>
+    public double CacheHitPercent
+    {
+        get => (double)GetValue(CacheHitPercentProperty);
+        set => SetValue(CacheHitPercentProperty, value);
+    }
+
+    /// <summary>req-034 修复：每独立的缓存命中率集合（与 Values 等长）。</summary>
+    public IReadOnlyList<double>? DailyCacheHitPercents
+    {
+        get => (IReadOnlyList<double>?)GetValue(DailyCacheHitPercentsProperty);
+        set => SetValue(DailyCacheHitPercentsProperty, value);
+    }
+
     /// <summary>是否启用右上角周期切换按钮（req-007）。</summary>
     public bool SupportsPeriodSwitch
     {
@@ -153,6 +178,9 @@ public class MiniLineChartControl : FrameworkElement, IHoverTooltipProvider
 
     /// <summary>当前 hover 数据点索引</summary>
     private int _hoverIndex = -1;
+    // req-046：tooltip 悬停延迟定时器（100ms），鼠标静止后才显示 tooltip
+    private DispatcherTimer? _tooltipDelayTimer;
+    private HoverTooltipData? _pendingTooltipData;
     private double _plotLeft;
     private double _plotTop;
     private double _plotWidth;
@@ -664,21 +692,55 @@ public class MiniLineChartControl : FrameworkElement, IHoverTooltipProvider
 
         if (nearestIndex >= 0)
         {
-            // req-046：只在 hover 索引变化时才显示/更新 tooltip，避免鼠标移动时反复创建销毁导致闪烁
+            // req-046：只在 hover 索引变化时才重绘并启动延迟定时器
             if (nearestIndex != _hoverIndex)
             {
                 _hoverIndex = nearestIndex;
                 InvalidateVisual();
-                // 仅在索引变化时调用 Show，避免每次 MouseMove 都重建 tooltip
+                // req-046：不立即显示 tooltip，启动 100ms 延迟定时器
                 if (TryGetTooltip(new Point(_plotLeft + nearestIndex * stepX, 0), out var data))
-                    HoverTooltipPresenter.Show(this, data);
+                {
+                    _pendingTooltipData = data;
+                    StartTooltipDelayTimer();
+                }
             }
-            // 如果索引相同，不重复调用 Show，保持当前 tooltip 稳定显示
+            // 如果索引相同，不重复调用，保持当前 tooltip 稳定显示
         }
         else
         {
+            StopTooltipDelayTimer();
             HideTooltipIfShown();
         }
+    }
+
+    /// <summary>req-046：启动 100ms 延迟定时器，鼠标静止后显示 tooltip。</summary>
+    private void StartTooltipDelayTimer()
+    {
+        if (_tooltipDelayTimer == null)
+        {
+            _tooltipDelayTimer = new DispatcherTimer(DispatcherPriority.Normal)
+            {
+                Interval = TimeSpan.FromMilliseconds(100)
+            };
+            _tooltipDelayTimer.Tick += (_, _) =>
+            {
+                _tooltipDelayTimer.Stop();
+                if (_pendingTooltipData != null)
+                {
+                    HoverTooltipPresenter.Show(this, _pendingTooltipData);
+                    _pendingTooltipData = null;
+                }
+            };
+        }
+        _tooltipDelayTimer.Stop();
+        _tooltipDelayTimer.Start();
+    }
+
+    /// <summary>req-046：停止延迟定时器。</summary>
+    private void StopTooltipDelayTimer()
+    {
+        _tooltipDelayTimer?.Stop();
+        _pendingTooltipData = null;
     }
 
     /// <summary>
@@ -701,6 +763,7 @@ public class MiniLineChartControl : FrameworkElement, IHoverTooltipProvider
     protected override void OnMouseLeave(MouseEventArgs e)
     {
         base.OnMouseLeave(e);
+        StopTooltipDelayTimer();
         _hoverIndex = -1;
         HoverTooltipPresenter.Hide(this);
         InvalidateVisual();
@@ -813,6 +876,7 @@ public class MiniLineChartControl : FrameworkElement, IHoverTooltipProvider
 
     /// <summary>
     /// 将控件内部坐标映射到 tooltip 数据（req-007：Title 优先取自 Dates，Detail 拼接 ExtraTooltipLines）。
+    /// req-034 修复：正确格式化数值（如 250.71M）并显示缓存命中率。
     /// </summary>
     public bool TryGetTooltip(Point position, out HoverTooltipData data)
     {
@@ -820,7 +884,6 @@ public class MiniLineChartControl : FrameworkElement, IHoverTooltipProvider
         if (Values == null || Values.Count == 0) return false;
         var index = GetIndex(position.X);
         var value = Values[index];
-        var unit = string.IsNullOrWhiteSpace(ValueUnit) ? string.Empty : $" {ValueUnit}";
         var provider = string.IsNullOrWhiteSpace(ProviderName) ? "用量" : ProviderName;
 
         // Title：优先 Dates[index]（真实日期），否则用旧的 "Provider · 第 N 点" 形式兜底
@@ -830,21 +893,39 @@ public class MiniLineChartControl : FrameworkElement, IHoverTooltipProvider
         else
             title = $"{provider} · 第 {index + 1} 点";
 
-        var valueText = $"{value:0.##}{unit}";
+        // req-034 修复：格式化数值（如 250.71M），不拼接单位
+        var valueText = FormatTokenValue(value);
 
-        // Detail：优先 ExtraTooltipLines 多行拼接（req-007），否则保留 v1 的"时间标签"占位
+        // Detail：合并 ExtraTooltipLines + 每独立的缓存命中率
         string? detail = null;
         if (ExtraTooltipLines != null && ExtraTooltipLines.Count > 0)
         {
             detail = string.Join("\n", ExtraTooltipLines);
         }
-        else
+        // req-034 修复：使用每独立的缓存命中率
+        double dayCacheHit = -1;
+        if (DailyCacheHitPercents != null && index < DailyCacheHitPercents.Count)
+            dayCacheHit = DailyCacheHitPercents[index];
+        if (dayCacheHit >= 0)
         {
-            detail = "时间标签：第 " + (index + 1) + " 个数据点";
+            if (detail != null) detail += "\n";
+            detail += $"缓存命中 {dayCacheHit:0.00}%";
         }
 
         data = new HoverTooltipData(title, valueText, detail);
         return true;
+    }
+
+    /// <summary>req-034 修复：将 token 数值格式化为人类可读形式（如 250.71M、4.83B）。</summary>
+    private static string FormatTokenValue(double value)
+    {
+        if (value >= 1_000_000_000)
+            return $"{value / 1_000_000_000:0.00}B";
+        if (value >= 1_000_000)
+            return $"{value / 1_000_000:0.00}M";
+        if (value >= 1_000)
+            return $"{value / 1_000:0.00}K";
+        return $"{value:0.00}";
     }
 
     /// <summary>根据 X 坐标计算最近数据点索引。</summary>

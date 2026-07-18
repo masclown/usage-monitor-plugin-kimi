@@ -400,6 +400,7 @@ internal static class MiniMaxDomExtractor
                     // req-010：同步累加 token 加权的缓存命中率（mm_cacheHitPercent）供热力图 tooltip 使用。
                     var dailyDates = new List<string>();
                     var dailyValues = new List<long>();
+                    var dailyCacheHitPercents = new List<double>(); // req-034 修复：每独立的缓存命中率
                     double cacheHitSumNum = 0; // Σ(token × cacheHitPercent) 分子
                     double cacheHitSumDen = 0; // Σ(token) 分母
                     if (root.TryGetProperty("date_model_usage", out var dmu) && dmu.ValueKind == JsonValueKind.Array)
@@ -417,6 +418,7 @@ internal static class MiniMaxDomExtractor
                             dailyValues.Add(tt);
 
                             // req-010：累加 token 加权的缓存命中率（该天被跳过不会影响其他天）
+                            double dayCacheHit = -1; // 该天缓存命中率，-1 表示无数据
                             if (tt > 0 &&
                                 item.TryGetProperty("cache_hit_percent", out var chp) &&
                                 chp.ValueKind == JsonValueKind.String)
@@ -430,8 +432,10 @@ internal static class MiniMaxDomExtractor
                                 {
                                     cacheHitSumNum += tt * pct;
                                     cacheHitSumDen += tt;
+                                    dayCacheHit = pct;
                                 }
                             }
+                            dailyCacheHitPercents.Add(dayCacheHit);
                         }
                     }
                     // date_model_usage 缺失时回退到 daily_token_usage 的数值（无日期，热力图将按“最近 N 天”推断）
@@ -445,6 +449,9 @@ internal static class MiniMaxDomExtractor
                         extras["mm_dailyTokenValues"] = dailyValues;
                     if (dailyDates.Count > 0)
                         extras["mm_dailyTokenDates"] = dailyDates;
+                    // req-034 修复：存储每独立的缓存命中率供热力图 tooltip 使用
+                    if (dailyCacheHitPercents.Count > 0)
+                        extras["mm_dailyCacheHitPercents"] = dailyCacheHitPercents;
                     // req-010：写入按 token 加权的全局平均缓存命中率（0-100）
                     if (cacheHitSumDen > 0)
                     {
