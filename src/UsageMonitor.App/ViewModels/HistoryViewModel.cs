@@ -286,6 +286,14 @@ public class HistoryViewModel : INotifyPropertyChanged
     /// <summary>折线图多线数据</summary>
     public ObservableCollection<HistorySeries> LineSeries { get; } = new();
 
+    /// <summary>req-040：折线图横坐标日期标签（与 LineSeries 中第一个序列的 Values 等长）</summary>
+    public IReadOnlyList<string> LineDates
+    {
+        get => _lineDates;
+        private set { _lineDates = value; OnPropertyChanged(); }
+    }
+    private IReadOnlyList<string> _lineDates = Array.Empty<string>();
+
     /// <summary>热力图单元集合</summary>
     public ObservableCollection<YearHeatMapCell> HeatMapCells { get; } = new();
 
@@ -472,6 +480,11 @@ public class HistoryViewModel : INotifyPropertyChanged
             {
                 var records = await _repository.QueryPointsAsync(p.ProviderId, from, to);
                 var values = records.Select(r => (double)r.UsedPercent).ToList();
+                // req-040：第一个 Provider 的日期作为横坐标标签
+                if (bIdx == 0)
+                {
+                    LineDates = records.Select(r => r.RecordedAt.ToString("M/d", CultureInfo.InvariantCulture)).ToList();
+                }
                 lineList.Add(new HistorySeries
                 {
                     ProviderId = p.ProviderId,

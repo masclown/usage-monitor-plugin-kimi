@@ -88,6 +88,11 @@ public class HistoryLineChartControl : FrameworkElement
         nameof(LegendItemHeight), typeof(double), typeof(HistoryLineChartControl),
         new FrameworkPropertyMetadata(20.0, FrameworkPropertyMetadataOptions.AffectsRender));
 
+    /// <summary>req-040：横坐标日期标签集合（与 Values 等长，格式如"7/11"）</summary>
+    public static readonly DependencyProperty DatesProperty = DependencyProperty.Register(
+        nameof(Dates), typeof(IReadOnlyList<string>), typeof(HistoryLineChartControl),
+        new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
+
     public IEnumerable Series
     {
         get => (IEnumerable)GetValue(SeriesProperty);
@@ -134,6 +139,13 @@ public class HistoryLineChartControl : FrameworkElement
     {
         get => (double)GetValue(LegendItemHeightProperty);
         set => SetValue(LegendItemHeightProperty, value);
+    }
+
+    /// <summary>req-040：横坐标日期标签集合。</summary>
+    public IReadOnlyList<string>? Dates
+    {
+        get => (IReadOnlyList<string>?)GetValue(DatesProperty);
+        set => SetValue(DatesProperty, value);
     }
 
     // hover 状态与最近一次布局（供 OnMouseMove 把鼠标 X 映射为数据索引）
@@ -190,7 +202,8 @@ public class HistoryLineChartControl : FrameworkElement
         var paddingLeft = 36.0;
         var paddingRight = 12.0;
         var paddingTop = 12.0;
-        var paddingBottom = 12.0 + LegendItemHeight;
+        // req-040：底部预留 20px 给横坐标日期标签
+        var paddingBottom = 32.0 + LegendItemHeight;
         var plotWidth = Math.Max(0, width - paddingLeft - paddingRight);
         var plotHeight = Math.Max(0, height - paddingTop - paddingBottom);
 
@@ -211,6 +224,9 @@ public class HistoryLineChartControl : FrameworkElement
         _maxCount = seriesList.Count == 0 ? 0 : seriesList.Max(s => s.Values.Count);
 
         DrawGrid(dc, paddingLeft, paddingTop, plotWidth, plotHeight, max);
+
+        // req-040：横坐标日期标签
+        DrawXAxisLabels(dc, paddingLeft, paddingTop, plotWidth, plotHeight);
 
         if (seriesList.Count > 0)
         {
@@ -244,6 +260,33 @@ public class HistoryLineChartControl : FrameworkElement
             dc.DrawLine(gridPen, new Point(left, y), new Point(left + plotWidth, y));
             DrawTickText(dc, pct.ToString(CultureInfo.InvariantCulture), left - 6, y,
                 HorizontalAlignment.Right, VerticalAlignment.Center);
+        }
+    }
+
+    /// <summary>req-040：绘制横坐标日期标签（等间距 4~5 个）。</summary>
+    private void DrawXAxisLabels(DrawingContext dc, double left, double top, double plotWidth, double plotHeight)
+    {
+        var dates = Dates;
+        if (dates == null || dates.Count == 0 || _maxCount < 2) return;
+        // req-040：横坐标标签数量必须与数据点数一致，否则位置计算会错位
+        if (dates.Count != _maxCount) return;
+
+        // 等间距 4~5 个标签
+        var labelCount = Math.Min(5, dates.Count);
+        var step = Math.Max(1, dates.Count / labelCount);
+        var baselineY = top + plotHeight + 4; // 图表底部下方 4px
+
+        for (int i = 0; i < dates.Count; i += step)
+        {
+            var x = left + plotWidth * i / (_maxCount - 1);
+            DrawTickText(dc, dates[i], x, baselineY, HorizontalAlignment.Center, VerticalAlignment.Top);
+        }
+        // 确保最后一个标签始终显示
+        var lastIdx = dates.Count - 1;
+        if (lastIdx % step != 0)
+        {
+            var x = left + plotWidth * lastIdx / (_maxCount - 1);
+            DrawTickText(dc, dates[lastIdx], x, baselineY, HorizontalAlignment.Center, VerticalAlignment.Top);
         }
     }
 

@@ -96,6 +96,7 @@
                 <Grid>
                     <controls:HistoryLineChartControl x:Name="LineChart"
                                                       Series="{Binding LineSeries}"
+                                                      Dates="{Binding LineDates}"
                                                       AxisBrush="{DynamicResource ChartAxisBrush}"
                                                       GridLineBrush="{DynamicResource ChartGridBrush}"
                                                       TextBrush="{DynamicResource TextSecondaryBrush}"
@@ -232,9 +233,10 @@
                     </StackPanel>
                 </Border>
 
-                <DataGrid Grid.Row="1" ItemsSource="{Binding DetailRows}"
+                <DataGrid x:Name="DetailGrid" Grid.Row="1" ItemsSource="{Binding DetailRows}"
                           AutoGenerateColumns="False" CanUserAddRows="False"
-                          IsReadOnly="True" CanUserSortColumns="True">
+                          IsReadOnly="True" CanUserSortColumns="True"
+                          Sorting="OnDataGridSorting">
                     <DataGrid.Columns>
                         <DataGridTextColumn Header="Provider" Binding="{Binding ProviderName}" Width="*" SortMemberPath="ProviderName" />
                         <DataGridTextColumn Header="日期" Binding="{Binding Day}" Width="100" SortMemberPath="Day" />

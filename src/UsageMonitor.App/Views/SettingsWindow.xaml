@@ -44,29 +44,6 @@
 
                     <Separator Margin="0,8,0,16" />
 
-                    <!-- 桌面悬浮显示：taskbar window 与托盘悬浮窗 两个开关成对呈现 -->
-                    <TextBlock Text="桌面悬浮显示" FontSize="15" FontWeight="SemiBold"
-                               Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,12" />
-                    <CheckBox Content="启用任务栏显示" IsChecked="{Binding ShowInTaskbar}" Margin="0,0,0,12" />
-                    <CheckBox Content="鼠标悬停托盘图标时显示悬浮窗" IsChecked="{Binding ShowTrayTooltip}" Margin="0,0,0,12" />
-
-                    <Separator Margin="0,8,0,16" />
-
-                    <TextBlock Text="托盘悬浮窗" FontSize="15" FontWeight="SemiBold"
-                               Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,12" />
-                    <StackPanel Margin="0,0,0,16">
-                        <TextBlock Text="悬浮窗关闭延迟（毫秒）" FontSize="13"
-                                   Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,4" />
-                        <TextBox Text="{Binding TrayTooltipHideDelayMs}" Width="120" HorizontalAlignment="Left" />
-                    </StackPanel>
-
-                    <TextBlock Text="触发区域位于屏幕右下角托盘区，可使用下方“悬浮窗触发区域”区块以 X/Y/W/H 4 字段精细调整，或点“在屏幕上调整”蒙版拖拽。" FontSize="12"
-                               Foreground="{DynamicResource TextTertiaryBrush}" TextWrapping="Wrap" Margin="0,0,0,8" />
-                    <!-- REQ-004 起：旧的 TrayTriggerWidth/TrayTriggerHeight TextBox 已升级为下方 X/Y/W/H 输入框与蒙版拖拽。
-                         字段本身保留在 AppSettings 里以维持与旧版 config.json 的兼容性。 -->
-
-                    <Separator Margin="0,8,0,16" />
-
                     <TextBlock Text="折线图历史数据" FontSize="15" FontWeight="SemiBold"
                                Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,12" />
                     <StackPanel Margin="0,0,0,16">
@@ -141,52 +118,6 @@
                                        Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,4" />
                             <TextBox Text="{Binding RingChartSwitchAnimationMs}" Width="120" HorizontalAlignment="Left" />
                         </StackPanel>
-                    </StackPanel>
-
-                    <Separator Margin="0,4,0,16" />
-
-                    <!-- REQ-004/006 触发区域设置（RectInt + VirtualScreen，最小 10×10） -->
-                    <TextBlock Text="悬浮窗触发区域" FontSize="15" FontWeight="SemiBold"
-                               Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,12" />
-                    <TextBlock TextWrapping="Wrap" FontSize="12"
-                               Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,8">
-                        <Run Text="设置屏幕上光标在哪个矩形内才会弹出悬浮窗。与“悬浮窗位置”独立：你可以把窗体拖到触发区域外，但只有光标进入矩形才弹。" />
-                    </TextBlock>
-                    <Grid Margin="0,0,0,8">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="*" />
-                        </Grid.ColumnDefinitions>
-                        <StackPanel Grid.Column="0" Margin="0,0,8,0">
-                            <TextBlock Text="X（屏幕坐标）" FontSize="12"
-                                       Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,4" />
-                            <TextBox Text="{Binding TriggerRectX, UpdateSourceTrigger=PropertyChanged}" />
-                        </StackPanel>
-                        <StackPanel Grid.Column="1" Margin="0,0,8,0">
-                            <TextBlock Text="Y（屏幕坐标）" FontSize="12"
-                                       Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,4" />
-                            <TextBox Text="{Binding TriggerRectY, UpdateSourceTrigger=PropertyChanged}" />
-                        </StackPanel>
-                        <StackPanel Grid.Column="2" Margin="0,0,8,0">
-                            <TextBlock Text="Width（≥10）" FontSize="12"
-                                       Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,4" />
-                            <TextBox Text="{Binding TriggerRectWidth, UpdateSourceTrigger=PropertyChanged}" />
-                        </StackPanel>
-                        <StackPanel Grid.Column="3">
-                            <TextBlock Text="Height（≥10）" FontSize="12"
-                                       Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,4" />
-                            <TextBox Text="{Binding TriggerRectHeight, UpdateSourceTrigger=PropertyChanged}" />
-                        </StackPanel>
-                    </Grid>
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
-                        <Button Content="在屏幕上调整（进入蒙版）" Margin="0,0,8,0" Padding="14,6"
-                                Command="{Binding EditTriggerAreaCommand}"
-                                Style="{StaticResource PrimaryButtonStyle}" />
-                        <Button Content="恢复默认" Padding="14,6"
-                                Command="{Binding ResetTriggerAreaCommand}"
-                                Style="{StaticResource GhostButtonStyle}" />
                     </StackPanel>
 
                     <Button Content="保存设置" HorizontalAlignment="Left"
@@ -342,12 +273,114 @@
                             </DataTemplate>
                         </ListView.ItemTemplate>
                     </ListView>
+
+                    <!-- req-042：环形图中心数字设置（从独立 Tab 移入） -->
+                    <Separator Margin="0,16,0,16" />
+                    <TextBlock Text="环形图中心数字（按 Provider 独立设置）" FontSize="15" FontWeight="SemiBold"
+                               Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,8" />
+                    <TextBlock TextWrapping="Wrap" FontSize="12"
+                               Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,12">
+                        <Run Text="以下勾选只控制“关闭后中心数字显浅灰”。插件提供哪些数字类型在此处分项展示。" />
+                    </TextBlock>
+                    <ItemsControl ItemsSource="{Binding ProviderRingChartMetricGroups}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Background="{DynamicResource SurfaceBrush}"
+                                        CornerRadius="{DynamicResource RadiusCard}" Padding="14" Margin="0,0,0,10">
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding ProviderDisplayName}"
+                                                   FontSize="14" FontWeight="SemiBold"
+                                                   Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,8" />
+                                        <ItemsControl ItemsSource="{Binding Metrics}">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <WrapPanel Orientation="Horizontal" />
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <CheckBox Content="{Binding DisplayName}"
+                                                              IsChecked="{Binding IsEnabled, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                              Margin="0,0,16,0"
+                                                              Foreground="{DynamicResource TextPrimaryBrush}" />
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
                 </StackPanel>
             </ScrollViewer>
         </TabItem>
 
-        <!-- 用量色阶 -->
-        <TabItem Header="用量色阶">
+        <!-- req-044：悬浮窗独立选项卡（触发区域 + 延迟） -->
+        <TabItem Header="悬浮窗">
+            <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,6,0">
+                <StackPanel Margin="16">
+                    <TextBlock Text="悬浮窗设置" FontSize="20" FontWeight="Bold"
+                               Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,16" />
+
+                    <!-- 悬浮窗开关 + 延迟 -->
+                    <CheckBox Content="鼠标悬停托盘图标时显示悬浮窗" IsChecked="{Binding ShowTrayTooltip}" Margin="0,0,0,12" />
+                    <StackPanel Margin="0,0,0,16">
+                        <TextBlock Text="悬浮窗关闭延迟（毫秒）" FontSize="13"
+                                   Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,4" />
+                        <TextBox Text="{Binding TrayTooltipHideDelayMs}" Width="120" HorizontalAlignment="Left" />
+                    </StackPanel>
+
+                    <Separator Margin="0,8,0,16" />
+
+                    <!-- 触发区域设置（从常规设置移入） -->
+                    <TextBlock Text="悬浮窗触发区域" FontSize="15" FontWeight="SemiBold"
+                               Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,12" />
+                    <TextBlock TextWrapping="Wrap" FontSize="12"
+                               Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,8">
+                        <Run Text="设置屏幕上光标在哪个矩形内才会弹出悬浮窗。与“悬浮窗位置”独立：你可以把窗体拖到触发区域外，但只有光标进入矩形才弹。" />
+                    </TextBlock>
+                    <Grid Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Margin="0,0,8,0">
+                            <TextBlock Text="X（屏幕坐标）" FontSize="12"
+                                       Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,4" />
+                            <TextBox Text="{Binding TriggerRectX, UpdateSourceTrigger=PropertyChanged}" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Margin="0,0,8,0">
+                            <TextBlock Text="Y（屏幕坐标）" FontSize="12"
+                                       Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,4" />
+                            <TextBox Text="{Binding TriggerRectY, UpdateSourceTrigger=PropertyChanged}" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="2" Margin="0,0,8,0">
+                            <TextBlock Text="Width（≥10）" FontSize="12"
+                                       Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,4" />
+                            <TextBox Text="{Binding TriggerRectWidth, UpdateSourceTrigger=PropertyChanged}" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="3">
+                            <TextBlock Text="Height（≥10）" FontSize="12"
+                                       Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,4" />
+                            <TextBox Text="{Binding TriggerRectHeight, UpdateSourceTrigger=PropertyChanged}" />
+                        </StackPanel>
+                    </Grid>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
+                        <Button Content="在屏幕上调整（进入蒙版）" Margin="0,0,8,0" Padding="14,6"
+                                Command="{Binding EditTriggerAreaCommand}"
+                                Style="{StaticResource PrimaryButtonStyle}" />
+                        <Button Content="恢复默认" Padding="14,6"
+                                Command="{Binding ResetTriggerAreaCommand}"
+                                Style="{StaticResource GhostButtonStyle}" />
+                    </StackPanel>
+                </StackPanel>
+            </ScrollViewer>
+        </TabItem>
+
+        <!-- req-043：色阶（合并用量色阶 + 热力图色阶） -->
+        <TabItem Header="色阶">
             <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,6,0">
                 <StackPanel Margin="16" DataContext="{Binding TierEditor}">
                     <TextBlock Text="用量色阶" FontSize="20" FontWeight="Bold"
@@ -439,14 +472,9 @@
                                    VerticalAlignment="Center" Margin="12,0,0,0"
                                    Foreground="{DynamicResource TextTertiaryBrush}" />
                     </StackPanel>
-                </StackPanel>
-            </ScrollViewer>
-        </TabItem>
 
-        <!-- 热力图色阶（req-011：镜像"用量色阶" Tab 结构，按 Provider 独立配置 token 绝对值分档） -->
-        <TabItem Header="热力图色阶">
-            <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,6,0">
-                <StackPanel Margin="16" DataContext="{Binding HeatMapTierEditor}">
+                    <!-- req-043：热力图色阶分节（从独立 Tab 合并入） -->
+                    <Separator Margin="0,20,0,20" />
                     <TextBlock Text="热力图色阶" FontSize="20" FontWeight="Bold"
                                Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,8" />
                     <TextBlock TextWrapping="Wrap" FontSize="12" Margin="0,0,0,16"
@@ -455,134 +483,71 @@
                         <LineBreak />
                         <Run Text="调整后点&quot;保存设置&quot;才会写入 config.json；&quot;应用预览&quot;仅为实时查看效果不落盘。" />
                     </TextBlock>
-
-                    <TextBlock Text="Provider：" FontSize="13" FontWeight="SemiBold"
-                               Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,6" />
-                    <ComboBox ItemsSource="{Binding ProviderOptions}"
-                              DisplayMemberPath="Value" SelectedValuePath="Key"
-                              SelectedValue="{Binding SelectedProviderId}"
-                              Width="240" HorizontalAlignment="Left" Margin="0,0,0,16" />
-
-                    <!-- 表头 -->
-                    <Grid Margin="0,0,0,6">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="40" />
-                            <ColumnDefinition Width="140" />
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Grid.Column="0" Text="启用" FontSize="12"
-                                   Foreground="{DynamicResource TextTertiaryBrush}" />
-                        <TextBlock Grid.Column="1" Text="阈值（tokens）" FontSize="12"
-                                   Foreground="{DynamicResource TextTertiaryBrush}" />
-                        <TextBlock Grid.Column="2" Text="颜色" FontSize="12"
-                                   Foreground="{DynamicResource TextTertiaryBrush}" />
-                        <TextBlock Grid.Column="3" Text="HEX" FontSize="12" Width="120" Margin="6,0,6,0"
-                                   Foreground="{DynamicResource TextTertiaryBrush}" />
-                    </Grid>
-
-                    <ItemsControl ItemsSource="{Binding TierItems}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <Grid Margin="0,0,0,8">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="40" />
-                                        <ColumnDefinition Width="140" />
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                    <!-- 启用 -->
-                                    <CheckBox Grid.Column="0" IsChecked="{Binding IsEnabled}" VerticalAlignment="Center" />
-                                    <!-- 阈值 tokens -->
-                                    <TextBox Grid.Column="1" Text="{Binding MinTokens, UpdateSourceTrigger=PropertyChanged}"
-                                             VerticalAlignment="Center" />
-                                    <!-- 颜色预览 + 选择按钮 -->
-                                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                                        <Border Width="32" Height="22" CornerRadius="4" Margin="0,0,8,0"
-                                                BorderBrush="{DynamicResource TrackBrush}" BorderThickness="1"
-                                                Background="{Binding Color}" />
-                                        <Button Content="选择颜色…" Padding="10,4"
-                                                Command="{Binding PickColorCommand}"
-                                                Style="{StaticResource AccentSoftButtonStyle}" />
-                                    </StackPanel>
-                                    <!-- HEX -->
-                                    <TextBlock Grid.Column="3" Text="{Binding ColorHex}" FontSize="12"
-                                               VerticalAlignment="Center" Width="120" Margin="6,0,6,0"
-                                               Foreground="{DynamicResource TextSecondaryBrush}" />
-                                    <!-- 删除 -->
-                                    <Button Grid.Column="4" Content="删除" Padding="10,4"
-                                            Command="{Binding RemoveCommand}"
-                                            Style="{StaticResource GhostButtonStyle}" />
-                                </Grid>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-
-                    <StackPanel Orientation="Horizontal" Margin="0,8,0,16">
-                        <Button Content="添加档位" Margin="0,0,8,0" Padding="14,6"
-                                Command="{Binding AddTierCommand}"
-                                Style="{StaticResource AccentSoftButtonStyle}" />
-                        <Button Content="恢复默认" Margin="0,0,8,0" Padding="14,6"
-                                Command="{Binding ResetToDefaultsCommand}"
-                                Style="{StaticResource GhostButtonStyle}" />
-                        <Button Content="应用预览" Margin="0,0,8,0" Padding="14,6"
-                                Command="{Binding ApplyPreviewCommand}"
-                                Style="{StaticResource GhostButtonStyle}" />
+                    <StackPanel DataContext="{Binding HeatMapTierEditor}">
+                        <TextBlock Text="Provider：" FontSize="13" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,6" />
+                        <ComboBox ItemsSource="{Binding ProviderOptions}"
+                                  DisplayMemberPath="Value" SelectedValuePath="Key"
+                                  SelectedValue="{Binding SelectedProviderId}"
+                                  Width="240" HorizontalAlignment="Left" Margin="0,0,0,16" />
+                        <Grid Margin="0,0,0,6">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="40" />
+                                <ColumnDefinition Width="140" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="启用" FontSize="12" Foreground="{DynamicResource TextTertiaryBrush}" />
+                            <TextBlock Grid.Column="1" Text="阈值（tokens）" FontSize="12" Foreground="{DynamicResource TextTertiaryBrush}" />
+                            <TextBlock Grid.Column="2" Text="颜色" FontSize="12" Foreground="{DynamicResource TextTertiaryBrush}" />
+                            <TextBlock Grid.Column="3" Text="HEX" FontSize="12" Width="120" Margin="6,0,6,0" Foreground="{DynamicResource TextTertiaryBrush}" />
+                        </Grid>
+                        <ItemsControl ItemsSource="{Binding TierItems}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Margin="0,0,0,8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="40" />
+                                            <ColumnDefinition Width="140" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <CheckBox Grid.Column="0" IsChecked="{Binding IsEnabled}" VerticalAlignment="Center" />
+                                        <TextBox Grid.Column="1" Text="{Binding MinTokens, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center" />
+                                        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                            <Border Width="32" Height="22" CornerRadius="4" Margin="0,0,8,0"
+                                                    BorderBrush="{DynamicResource TrackBrush}" BorderThickness="1"
+                                                    Background="{Binding Color}" />
+                                            <Button Content="选择颜色…" Padding="10,4" Command="{Binding PickColorCommand}"
+                                                    Style="{StaticResource AccentSoftButtonStyle}" />
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="3" Text="{Binding ColorHex}" FontSize="12"
+                                                   VerticalAlignment="Center" Width="120" Margin="6,0,6,0"
+                                                   Foreground="{DynamicResource TextSecondaryBrush}" />
+                                        <Button Grid.Column="4" Content="删除" Padding="10,4" Command="{Binding RemoveCommand}"
+                                                Style="{StaticResource GhostButtonStyle}" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <StackPanel Orientation="Horizontal" Margin="0,8,0,16">
+                            <Button Content="添加档位" Margin="0,0,8,0" Padding="14,6" Command="{Binding AddTierCommand}"
+                                    Style="{StaticResource AccentSoftButtonStyle}" />
+                            <Button Content="恢复默认" Margin="0,0,8,0" Padding="14,6" Command="{Binding ResetToDefaultsCommand}"
+                                    Style="{StaticResource GhostButtonStyle}" />
+                            <Button Content="应用预览" Margin="0,0,8,0" Padding="14,6" Command="{Binding ApplyPreviewCommand}"
+                                    Style="{StaticResource GhostButtonStyle}" />
+                        </StackPanel>
+                        <Separator Margin="0,4,0,16" />
+                        <StackPanel Orientation="Horizontal">
+                            <Button Content="保存设置" Padding="18,8" Command="{Binding SaveCommand}"
+                                    Style="{StaticResource PrimaryButtonStyle}" />
+                            <TextBlock Text="（即时生效；下次启动按磁盘值恢复）" FontSize="12"
+                                       VerticalAlignment="Center" Margin="12,0,0,0"
+                                       Foreground="{DynamicResource TextTertiaryBrush}" />
+                        </StackPanel>
                     </StackPanel>
-
-                    <Separator Margin="0,4,0,16" />
-
-                    <StackPanel Orientation="Horizontal">
-                        <Button Content="保存设置" Padding="18,8"
-                                Command="{Binding SaveCommand}"
-                                Style="{StaticResource PrimaryButtonStyle}" />
-                        <TextBlock Text="（即时生效；下次启动按磁盘值恢复）" FontSize="12"
-                                   VerticalAlignment="Center" Margin="12,0,0,0"
-                                   Foreground="{DynamicResource TextTertiaryBrush}" />
-                    </StackPanel>
-                </StackPanel>
-            </ScrollViewer>
-        </TabItem>
-
-        <!-- req-026 环形图中心：按 Provider 独立配置要显示的数字 -->
-        <TabItem Header="环形图中心">
-            <ScrollViewer VerticalScrollBarVisibility="Auto">
-                <StackPanel Margin="16">
-                    <TextBlock Text="环形图中心数字（按 Provider 独立设置）" FontSize="20" FontWeight="Bold"
-                               Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,8" />
-                    <TextBlock TextWrapping="Wrap" FontSize="12"
-                               Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,16">
-                        <Run Text="以下勾选只控制“关闭后中心数字显浅灰”。插件提供哪些数字类型在此处分项展示。" />
-                    </TextBlock>
-                    <ItemsControl ItemsSource="{Binding ProviderRingChartMetricGroups}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <Border Background="{DynamicResource SurfaceBrush}"
-                                        CornerRadius="{DynamicResource RadiusCard}" Padding="14" Margin="0,0,0,10">
-                                    <StackPanel>
-                                        <TextBlock Text="{Binding ProviderDisplayName}"
-                                                   FontSize="15" FontWeight="SemiBold"
-                                                   Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,8" />
-                                        <ItemsControl ItemsSource="{Binding Metrics}">
-                                            <ItemsControl.ItemsPanel>
-                                                <ItemsPanelTemplate>
-                                                    <WrapPanel Orientation="Horizontal" />
-                                                </ItemsPanelTemplate>
-                                            </ItemsControl.ItemsPanel>
-                                            <ItemsControl.ItemTemplate>
-                                                <DataTemplate>
-                                                    <CheckBox Content="{Binding DisplayName}"
-                                                              IsChecked="{Binding IsEnabled, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                                              Margin="0,0,16,0"
-                                                              Foreground="{DynamicResource TextPrimaryBrush}" />
-                                                </DataTemplate>
-                                            </ItemsControl.ItemTemplate>
-                                        </ItemsControl>
-                                    </StackPanel>
-                                </Border>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
                 </StackPanel>
             </ScrollViewer>
         </TabItem>

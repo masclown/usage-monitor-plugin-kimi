@@ -1,4 +1,7 @@
+using System.ComponentModel;
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Data;
 using Microsoft.Win32;
 using UsageMonitor.App.ViewModels;
 // ★ WPF/WinForms 命名冲突 alias（项目 UseWPF + UseWindowsForms + ImplicitUsings 触发 CS0104）
@@ -28,7 +31,12 @@ public partial class HistoryWindow : Window
         DataContext = ViewModel;
 
         // 初次进入时一次性加载 Provider 列表与默认数据
-        Loaded += async (_, _) => await ViewModel.InitializeProvidersAsync();
+        Loaded += async (_, _) =>
+        {
+            await ViewModel.InitializeProvidersAsync();
+            // req-041：加载完成后应用默认排序（日期倒序）
+            ApplyDefaultSort();
+        };
     }
 
     /// <summary>
@@ -57,5 +65,54 @@ public partial class HistoryWindow : Window
             ok ? "导出成功" : "导出失败",
             MessageBoxButton.OK,
             ok ? MessageBoxImage.Information : MessageBoxImage.Warning);
+    }
+
+    /// <summary>
+    /// req-041：应用默认排序（日期倒序）。
+    /// </summary>
+    private void ApplyDefaultSort()
+    {
+        if (DetailGrid.ItemsSource == null) return;
+        var dateColumn = DetailGrid.Columns.FirstOrDefault(c => c.SortMemberPath == "Day");
+        if (dateColumn != null)
+        {
+            dateColumn.SortDirection = ListSortDirection.Descending;
+        }
+        var collectionView = CollectionViewSource.GetDefaultView(DetailGrid.ItemsSource);
+        if (collectionView != null)
+        {
+            collectionView.SortDescriptions.Clear();
+            collectionView.SortDescriptions.Add(new SortDescription("Day", ListSortDirection.Descending));
+            collectionView.Refresh();
+        }
+    }
+
+    /// <summary>
+    /// req-041：DataGrid 排序事件处理。更新列的排序方向指示器。
+    /// </summary>
+    private void OnDataGridSorting(object sender, DataGridSortingEventArgs e)
+    {
+        // 清除其他列的排序方向
+        foreach (var col in DetailGrid.Columns)
+        {
+            if (col != e.Column) col.SortDirection = null;
+        }
+
+        // 切换当前列的排序方向
+        var newDirection = e.Column.SortDirection == ListSortDirection.Ascending
+            ? ListSortDirection.Descending
+            : ListSortDirection.Ascending;
+        e.Column.SortDirection = newDirection;
+
+        // 应用排序
+        var collectionView = CollectionViewSource.GetDefaultView(DetailGrid.ItemsSource);
+        if (collectionView != null)
+        {
+            collectionView.SortDescriptions.Clear();
+            collectionView.SortDescriptions.Add(new SortDescription(e.Column.SortMemberPath, newDirection));
+            collectionView.Refresh();
+        }
+
+        e.Handled = true;
     }
 }
