@@ -263,6 +263,20 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
     /// <summary>5h 限额重置剩余文案（"2 小时 21 分钟后重置"）</summary>
     public string PrimaryResetText { get => _primaryResetText; set { _primaryResetText = value; OnPropertyChanged(); } }
 
+    /// <summary>req-051：当前圆环图显示的 metric 名称（如"5h 用量"、"周用量"等）。</summary>
+    public string CurrentMetricName { get => _currentMetricName; set { _currentMetricName = value; OnPropertyChanged(); OnPropertyChanged(nameof(TaskbarToolTipText)); } }
+    private string _currentMetricName = "5h 用量";
+
+    /// <summary>req-051：任务栏圆环图 tooltip 文本（Provider 名字 + 数据名字 + 重置倒计时）。</summary>
+    public string TaskbarToolTipText
+    {
+        get
+        {
+            var resetInfo = string.IsNullOrEmpty(FiveHourCountdownText) ? "" : $"\n重置：{FiveHourCountdownText}";
+            return $"{DisplayName}\n{CurrentMetricName}{resetInfo}";
+        }
+    }
+
     /// <summary>
     /// req-028：根据 <see cref="Next5hResetAt"/> 重新计算 <see cref="FiveHourCountdownText"/>。
     /// <para>由 MainViewModel 的全局每秒 timer 调用；不需要 INPC 子订阅。
@@ -325,7 +339,7 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
     public string FiveHourCountdownText
     {
         get => _fiveHourCountdownText;
-        set { if (_fiveHourCountdownText == value) return; _fiveHourCountdownText = value; OnPropertyChanged(); }
+        set { if (_fiveHourCountdownText == value) return; _fiveHourCountdownText = value; OnPropertyChanged(); OnPropertyChanged(nameof(TaskbarToolTipText)); }
     }
 
     /// <summary>req-028：是否存在有效 5h 重置时间（用于按需显隐倒计时 UI）。</summary>

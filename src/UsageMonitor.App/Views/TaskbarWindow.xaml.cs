@@ -111,42 +111,17 @@ public partial class TaskbarWindow : Window
 
     private void OnRootBorderMouseEnter(object sender, System.Windows.Input.MouseEventArgs e)
     {
-        if (RefreshAllButton != null && RefreshAllButton.Visibility != Visibility.Visible)
-        {
-            RefreshAllButton.Visibility = Visibility.Visible;
-        }
+        // req-051：全局刷新按钮已移除，无需处理
     }
 
     private void OnRootBorderMouseLeave(object sender, System.Windows.Input.MouseEventArgs e)
     {
-        if (RefreshAllButton != null && RefreshAllButton.Visibility != Visibility.Collapsed)
-        {
-            RefreshAllButton.Visibility = Visibility.Collapsed;
-        }
+        // req-051：全局刷新按钮已移除，无需处理
     }
 
     private async void OnRefreshAllClick(object sender, RoutedEventArgs e)
     {
-        if (RefreshAllButton == null) return;
-        // req-029：启动旋转动画 + 调 RefreshService.RefreshProviderAsync 并行刷新 taskbar 内所有 Provider。
-        var storyboard = (Storyboard)RefreshAllButton.Resources["RefreshAllSpinStoryboard"];
-        storyboard?.Begin();
-        RefreshAllButton.IsEnabled = false;
-        try
-        {
-            var tasks = _viewModel.EnabledUsages
-                .Select(u => _viewModel.ConfigService != null
-                    ? TryRefreshAsync(u.ProviderId)
-                    : Task.CompletedTask)
-                .ToList();
-            await Task.WhenAll(tasks);
-        }
-        finally
-        {
-            storyboard?.Stop();
-            RefreshAllButton.IsEnabled = true;
-            RefreshAllButton.Visibility = Visibility.Collapsed;
-        }
+        // req-051：全局刷新按钮已移除，此方法保留但不再使用
     }
 
     /// <summary>
@@ -610,7 +585,7 @@ public partial class TaskbarWindow : Window
             var h = usage.DisplayMode switch
             {
                 TaskbarDisplayMode.MiniLineChart => 56,
-                TaskbarDisplayMode.RingChart => 56,
+                TaskbarDisplayMode.RingChart => 40,
                 _ => 36
             };
             if (h > max) max = h;
@@ -643,7 +618,7 @@ public partial class TaskbarWindow : Window
             total += usage.DisplayMode switch
             {
                 TaskbarDisplayMode.MiniLineChart => 132,
-                TaskbarDisplayMode.RingChart => 96,
+                TaskbarDisplayMode.RingChart => 58,
                 _ => MeasureTextItemWidth(usage)   // 文字模式：按实际内容长度自适应
             };
         }
@@ -704,5 +679,57 @@ public partial class TaskbarWindow : Window
         // ★ 关键修复：与拖拽同源 bug——原写 Y=0 会把窗口移到屏幕最顶端。
         //   顶级窗口须用屏幕坐标，Y 恒为任务栏顶端。
         TaskbarNativeMethods.MoveWindow(_hwnd, newLeft, _taskbarRect.Top, _embedWidth, _taskbarRect.Height, true);
+    }
+
+    // =========================================================
+    // req-051：圆环图中心点击刷新
+    // =========================================================
+
+    /// <summary>req-051：点击圆环图中心数字时刷新对应的 Provider。</summary>
+    private async void OnRingChartCenterClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Controls.RingChartControl ringChart) return;
+        var providerId = ringChart.Tag as string;
+        if (string.IsNullOrEmpty(providerId)) return;
+
+        await TryRefreshAsync(providerId);
+    }
+
+    /// <summary>req-051：圆环图 metric 变化时更新 ViewModel 的 CurrentMetricName。</summary>
+    private void OnRingChartMetricKeyChanged(object sender, System.Windows.DependencyPropertyChangedEventArgs e)
+    {
+        if (sender is not Controls.RingChartControl ringChart) return;
+        if (ringChart.DataContext is ProviderUsageViewModel vm)
+        {
+            var metricName = ringChart.MetricKey switch
+            {
+                "Percent" => "5h 用量",
+                "Credits" => "积分余额",
+                "WeeklyLimit" => "周剩余用量",
+                "RemainingQuota" => "剩余配额",
+                "ApiTokenUsed" => "API Token 已用",
+                _ => "当前用量"
+            };
+            vm.CurrentMetricName = metricName;
+        }
+    }
+
+    /// <summary>req-051：PreviewMouseWheel 事件处理，确保滚轮事件能到达 RingChartControl。</summary>
+    private void OnRingChartPreviewMouseWheel(object sender, System.Windows.Input.MouseWheelEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.Grid grid) return;
+        foreach (var child in grid.Children)
+        {
+            if (child is Controls.RingChartControl ringChart)
+            {
+                // 手动触发 RingChartControl 的滚轮处理
+                var steps = e.Delta > 0 ? 1 : -1;
+                var units = Math.Max(1, Math.Abs(e.Delta) / 120);
+                for (var i = 0; i < units; i++)
+                    ringChart.CycleMetric(steps);
+                e.Handled = true;
+                break;
+            }
+        }
     }
 }

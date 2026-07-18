@@ -280,11 +280,44 @@ public class RingChartControl : FrameworkElement, IHoverTooltipProvider
         set => SetValue(EnabledMetricsProperty, value);
     }
 
+    /// <summary>req-051：是否显示 hover tooltip。默认 true，设为 false 时禁用内置 tooltip。</summary>
+    public static readonly DependencyProperty ShowHoverTooltipProperty = DependencyProperty.Register(
+        nameof(ShowHoverTooltip), typeof(bool), typeof(RingChartControl),
+        new FrameworkPropertyMetadata(true));
+
+    /// <summary>req-051：是否显示 hover tooltip。</summary>
+    public bool ShowHoverTooltip
+    {
+        get => (bool)GetValue(ShowHoverTooltipProperty);
+        set => SetValue(ShowHoverTooltipProperty, value);
+    }
+
+    /// <summary>req-051：是否为半圆环模式。默认 false（全圆环），设为 true 时 0% 在底部中心，100% 在顶部。</summary>
+    public static readonly DependencyProperty IsHalfRingProperty = DependencyProperty.Register(
+        nameof(IsHalfRing), typeof(bool), typeof(RingChartControl),
+        new FrameworkPropertyMetadata(false, FrameworkPropertyMetadataOptions.AffectsRender));
+
+    /// <summary>req-051：是否为半圆环模式。</summary>
+    public bool IsHalfRing
+    {
+        get => (bool)GetValue(IsHalfRingProperty);
+        set => SetValue(IsHalfRingProperty, value);
+    }
+
     /// <summary>req-026：当前 metric 被关闭时中心数字显示的画笔。</summary>
     public Brush DisabledBrush
     {
         get => (Brush)GetValue(DisabledBrushProperty);
         set => SetValue(DisabledBrushProperty, value);
+    }
+
+    /// <summary>req-051：MetricKey 变化时触发的事件，用于通知 ViewModel 更新 tooltip 内容。</summary>
+    public event DependencyPropertyChangedEventHandler? MetricKeyChanged;
+
+    /// <summary>触发 MetricKeyChanged 事件。</summary>
+    private void RaiseMetricKeyChanged(DependencyPropertyChangedEventArgs e)
+    {
+        MetricKeyChanged?.Invoke(this, e);
     }
 
     // =========================
@@ -349,6 +382,8 @@ public class RingChartControl : FrameworkElement, IHoverTooltipProvider
     protected override void OnMouseMove(System.Windows.Input.MouseEventArgs e)
     {
         base.OnMouseMove(e);
+        // req-051：只有 ShowHoverTooltip=true 时才显示内置 tooltip
+        if (!ShowHoverTooltip) return;
         if (TryGetTooltip(e.GetPosition(this), out var data))
             HoverTooltipPresenter.Show(this, data);
     }
@@ -402,6 +437,24 @@ public class RingChartControl : FrameworkElement, IHoverTooltipProvider
         for (var i = 0; i < units; i++)
             CycleMetric(steps);
         e.Handled = true;
+    }
+
+    /// <summary>req-051：中心区域点击事件。当点击圆环中心数字时触发，用于刷新等操作。</summary>
+    public event RoutedEventHandler? CenterClick;
+
+    /// <summary>req-051：鼠标左键按下时，如果点击在中心区域则触发 CenterClick 事件。</summary>
+    protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e)
+    {
+        base.OnMouseLeftButtonDown(e);
+        var pos = e.GetPosition(this);
+        var center = new Point(ActualWidth / 2, ActualHeight / 2);
+        var radius = Math.Min(ActualWidth, ActualHeight) / 4; // 中心区域半径约为控件尺寸的 1/4
+        var dist = Math.Sqrt(Math.Pow(pos.X - center.X, 2) + Math.Pow(pos.Y - center.Y, 2));
+        if (dist <= radius)
+        {
+            CenterClick?.Invoke(this, new RoutedEventArgs());
+            e.Handled = true;
+        }
     }
 
     /// <summary>REQ-003：根据方向把当前 metric 在 <see cref="MetricOrder"/> 中循环切 1 格。</summary>
@@ -550,7 +603,10 @@ public class RingChartControl : FrameworkElement, IHoverTooltipProvider
     /// <summary>REQ-003 metric 键变化回调：触发重绘。</summary>
     private static void OnMetricKeyChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
-        ((RingChartControl)d).InvalidateVisual();
+        var control = (RingChartControl)d;
+        control.InvalidateVisual();
+        // req-051：触发事件通知 ViewModel 更新 tooltip
+        control.RaiseMetricKeyChanged(e);
     }
 
     /// <summary>REQ-003 metric provider 列表变化回调：触发重绘。</summary>
@@ -577,10 +633,7 @@ public class RingChartControl : FrameworkElement, IHoverTooltipProvider
 
         if (radius <= 0) return;
 
-        // 1. 背景轨道（浅色）
-        dc.DrawEllipse(null, new Pen(TrackBrush, stroke), center, radius, radius);
-
-        // 2. 进度百分比（0-1）
+        // 进度百分比（0-1）
         var percent = Percent;
         if (percent < 0) percent = 0;
         if (percent > 100) percent = 100;
@@ -592,26 +645,65 @@ public class RingChartControl : FrameworkElement, IHoverTooltipProvider
         else
         {
             progressBrush = SelectBrush(percent);
+        }
 
-            // 3. 进度弧
-            var progressGeometry = CreateArcGeometry(center, radius, percent / 100.0);
+        // req-051：半圆环模式只绘制上半部分
+        if (IsHalfRing)
+        {
+            // 背景轨道（只绘制上半圆，从 6 点钟逆时针到 6 点钟，即上半部分）
+            var trackGeometry = CreateHalfRingGeometry(center, radius, 1.0);
+            dc.DrawGeometry(null, new Pen(TrackBrush, stroke), trackGeometry);
 
-            // 发光
-            var glowPen = new Pen(MakeTranslucent(progressBrush, 0x40), stroke + 3)
+            if (percent > 0)
             {
-                StartLineCap = PenLineCap.Round,
-                EndLineCap = PenLineCap.Round
-            };
-            if (glowPen.CanFreeze) glowPen.Freeze();
-            dc.DrawGeometry(null, glowPen, progressGeometry);
+                // 进度弧（半圆环，0% 在底部中心，100% 在顶部）
+                var progressGeometry = CreateHalfRingGeometry(center, radius, percent / 100.0);
 
-            var pen = new Pen(progressBrush, stroke)
+                // 发光
+                var glowPen = new Pen(MakeTranslucent(progressBrush, 0x40), stroke + 3)
+                {
+                    StartLineCap = PenLineCap.Round,
+                    EndLineCap = PenLineCap.Round
+                };
+                if (glowPen.CanFreeze) glowPen.Freeze();
+                dc.DrawGeometry(null, glowPen, progressGeometry);
+
+                var pen = new Pen(progressBrush, stroke)
+                {
+                    StartLineCap = PenLineCap.Round,
+                    EndLineCap = PenLineCap.Round
+                };
+                if (pen.CanFreeze) pen.Freeze();
+                dc.DrawGeometry(null, pen, progressGeometry);
+            }
+        }
+        else
+        {
+            // 1. 背景轨道（浅色）
+            dc.DrawEllipse(null, new Pen(TrackBrush, stroke), center, radius, radius);
+
+            if (percent > 0)
             {
-                StartLineCap = PenLineCap.Round,
-                EndLineCap = PenLineCap.Round
-            };
-            if (pen.CanFreeze) pen.Freeze();
-            dc.DrawGeometry(null, pen, progressGeometry);
+                // 3. 进度弧
+                var progressGeometry = CreateArcGeometry(center, radius, percent / 100.0);
+
+                // 发光
+                var glowPen = new Pen(MakeTranslucent(progressBrush, 0x40), stroke + 3)
+                {
+                    StartLineCap = PenLineCap.Round,
+                    EndLineCap = PenLineCap.Round
+                };
+                if (glowPen.CanFreeze) glowPen.Freeze();
+                dc.DrawGeometry(null, glowPen, progressGeometry);
+
+                var pen = new Pen(progressBrush, stroke)
+                {
+                    StartLineCap = PenLineCap.Round,
+                    EndLineCap = PenLineCap.Round
+                };
+                if (pen.CanFreeze) pen.Freeze();
+                dc.DrawGeometry(null, pen, progressGeometry);
+            }
         }
 
         // 4. 中心 Logo + 数字（垂直堆叠）
@@ -646,9 +738,10 @@ public class RingChartControl : FrameworkElement, IHoverTooltipProvider
         // 计算 logo 边长：直径的 32%，居中靠上
         var logoSize = Math.Max(0, size * 0.32);
         var gap = Math.Max(1.0, size * 0.04);
-        // 数字字号：直径的 26%（比原 36% 小，留空间给 logo）
-        var fontSize = Math.Max(7.0, size * 0.26);
-        var typeface = new Typeface(new FontFamily("Segoe UI"), FontStyles.Normal, FontWeights.SemiBold, FontStretches.Normal);
+        // 数字字号：直径的 26% + 2（req-051：字号 +2）
+        var fontSize = Math.Max(7.0, size * 0.26) + 2;
+        // req-051：数字加粗
+        var typeface = new Typeface(new FontFamily("Segoe UI"), FontStyles.Normal, FontWeights.Bold, FontStretches.Normal);
 
         // 加载 logo bitmap（按需缓存）
         var iconPath = IconPath;
@@ -670,9 +763,20 @@ public class RingChartControl : FrameworkElement, IHoverTooltipProvider
         }
 
         // 数字位置：紧贴 logo 下沿 + gap
-        var logoBottom = !string.IsNullOrEmpty(iconPath) && logoSize > 0
-            ? (size - (logoSize + gap + fontSize)) / 2.0 + logoSize + gap
-            : (size - fontSize) / 2.0;
+        // req-051：半圆环模式下，数字放在圆心位置，水平+垂直都居中
+        double logoBottom;
+        if (IsHalfRing)
+        {
+            // 半圆环：弧从7点到5点（300度），弧内区域在圆心附近
+            // 数字基线放在圆心偏上（size*0.5 - 10px），确保不被底部裁切
+            logoBottom = size * 0.5 + fontSize * 0.1 - 10;
+        }
+        else
+        {
+            logoBottom = !string.IsNullOrEmpty(iconPath) && logoSize > 0
+                ? (size - (logoSize + gap + fontSize)) / 2.0 + logoSize + gap
+                : (size - fontSize) / 2.0;
+        }
 
         // 老虎机动画：根据进度计算 y 偏移（旧值向上滚出 / 新值从下方滚入）
         if (_switchAnimTimer != null && _switchOldText != null && _switchNewText != null)
@@ -823,6 +927,61 @@ public class RingChartControl : FrameworkElement, IHoverTooltipProvider
         if (percent >= DangerThreshold) return DangerBrush;
         if (percent >= WarningThreshold) return WarningBrush;
         return ProgressBrush;
+    }
+
+    /// <summary>req-051：创建半圆环几何图形。0% 在 8 点钟，100% 在 4 点钟，顺时针 240 度弧。</summary>
+    /// <param name="center">圆心</param>
+    /// <param name="radius">半径</param>
+    /// <param name="fraction">进度分数（0-1）</param>
+    private static PathGeometry CreateHalfRingGeometry(Point center, double radius, double fraction)
+    {
+        // 半圆环：从 8 点钟开始，顺时针经过 9 点钟（左）、12 点钟（顶）、3 点钟（右）到 4 点钟
+        // WPF 角度：0°=3 点钟，90°=6 点钟，180°=9 点钟，270°=12 点钟
+        // 8 点钟 = 150° (WPF), 4 点钟 = 30° (WPF)
+        // 从 150° 顺时针到 30° = 240° 弧（150° → 180° → 270° → 360°/0° → 30°）
+        var startAngle = 150.0; // 8 点钟
+        var totalArc = 240.0; // 总弧度 240°
+        var angle = Math.Min(totalArc, fraction * totalArc);
+
+        // 计算起点（8 点钟）
+        var startRadians = startAngle * Math.PI / 180.0;
+        var start = new Point(
+            center.X + radius * Math.Cos(startRadians),
+            center.Y + radius * Math.Sin(startRadians));
+
+        var figure = new PathFigure { StartPoint = start, IsClosed = false, IsFilled = false };
+
+        if (angle <= 0)
+        {
+            // 0% 时不绘制弧
+        }
+        else if (angle >= totalArc)
+        {
+            // 100% 时绘制完整的 240° 弧（从 8 点钟到 4 点钟）
+            var endAngle = (startAngle + totalArc) % 360.0; // 30° = 4 点钟
+            var endRadians = endAngle * Math.PI / 180.0;
+            var end = new Point(
+                center.X + radius * Math.Cos(endRadians),
+                center.Y + radius * Math.Sin(endRadians));
+            // 240° > 180°，所以是大弧
+            figure.Segments.Add(new ArcSegment(end, new Size(radius, radius), 0, true, SweepDirection.Clockwise, true));
+        }
+        else
+        {
+            // 部分进度：计算终点位置
+            var currentAngle = (startAngle + angle) % 360.0;
+            var endRadians = currentAngle * Math.PI / 180.0;
+            var end = new Point(
+                center.X + radius * Math.Cos(endRadians),
+                center.Y + radius * Math.Sin(endRadians));
+            var isLargeArc = angle > 180.0;
+            figure.Segments.Add(new ArcSegment(end, new Size(radius, radius), 0, isLargeArc, SweepDirection.Clockwise, true));
+        }
+
+        var geometry = new PathGeometry();
+        geometry.Figures.Add(figure);
+        geometry.Freeze();
+        return geometry;
     }
 }
 

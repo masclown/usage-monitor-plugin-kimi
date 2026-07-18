@@ -30,12 +30,11 @@ public static class RingChartControlMetricProviders
             }),
             new DelegateMetricProvider(RingChartMetricKeys.Credits, () =>
             {
-                // req-008：从 BalanceItems 集合中找"积分余额"项（默认 4 项之一）的 Value。
-                // 无该项时（如失败场景）回退为 "--"。
+                // req-051：从 BalanceItems 集合中找"积分余额"项（默认 4 项之一）的 Value。
+                // 无该项时（如失败场景）回退为 "-"。
                 var credits = vm.BalanceItems.FirstOrDefault(b =>
                     string.Equals(b.Label, "积分余额", System.StringComparison.OrdinalIgnoreCase));
-                var v = credits == null || string.IsNullOrWhiteSpace(credits.Value) ? "--" : credits.Value;
-                // 单位从 Detail 推导：默认无单位（"积分"已包含在 Value 文本中）。
+                var v = credits == null || string.IsNullOrWhiteSpace(credits.Value) ? "-" : credits.Value;
                 return v;
             }),
             new DelegateMetricProvider(RingChartMetricKeys.WeeklyLimit, () =>
@@ -46,14 +45,15 @@ public static class RingChartControlMetricProviders
             }),
             new DelegateMetricProvider(RingChartMetricKeys.RemainingQuota, () =>
             {
-                // ProviderUsageViewModel.RemainingText 已包含单位（"12.50 USD" / "剩余 45%" / "1.2K"）。
-                // 取数原样返回，避免重复拼接。
-                return string.IsNullOrWhiteSpace(vm.RemainingText) ? "--" : vm.RemainingText;
+                // req-051：ProviderUsageViewModel.RemainingText 已包含单位。
+                // 无数据时显示 "-"。
+                return string.IsNullOrWhiteSpace(vm.RemainingText) ? "-" : vm.RemainingText;
             }),
             new DelegateMetricProvider(RingChartMetricKeys.ApiTokenUsed, () =>
             {
-                // ProviderUsageViewModel.UsedText 同样已包含单位（"{value:F2} {Unit}" 或 FormatTokens 输出的 "1.2M"）。
-                return string.IsNullOrWhiteSpace(vm.UsedText) ? "--" : vm.UsedText;
+                // req-051：ProviderUsageViewModel.UsedText 同样已包含单位。
+                // 无数据时显示 "-"。
+                return string.IsNullOrWhiteSpace(vm.UsedText) ? "-" : vm.UsedText;
             }),
         };
     }

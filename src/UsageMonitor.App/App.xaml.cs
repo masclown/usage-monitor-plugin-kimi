@@ -287,6 +287,8 @@ public partial class App : Application
                 var cursorPos = System.Windows.Forms.Cursor.Position;
                 if (!IsCursorInTrayArea(cursorPos)) return;
                 var counterVm = _viewModel.Usages?.FirstOrDefault(vm => vm.HasFiveHourCountdown);
+                // req-051：先刷新倒计时值，确保托盘 tooltip 显示最新倒计时
+                counterVm?.RefreshFiveHourCountdownText(DateTime.Now);
                 var countdown = counterVm?.FiveHourCountdownText ?? "00:00:00";
                 var firstLine = _viewModel.Usages?.FirstOrDefault()?.ProviderId;
                 // 托盘 tooltip Text 最大约 63 char（Windows 限制），拼接 "用量/倒计时" 形式。

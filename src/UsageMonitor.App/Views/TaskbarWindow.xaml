@@ -5,7 +5,7 @@
         xmlns:views="clr-namespace:UsageMonitor.App.Views"
         Title="UsageMonitor Taskbar"
         Icon="{Binding CurrentLogoSource}"
-        Height="56" Width="500"
+        Height="44" Width="500"
         WindowStyle="None"
         AllowsTransparency="True"
         Background="Transparent"
@@ -35,7 +35,7 @@
                 </TextBlock>
                 <TextBlock FontSize="12" Foreground="{DynamicResource AccentBrush}"
                            VerticalAlignment="Center" Margin="4,0,0,0">
-                    <!-- 任务栏文字模式显示“剩余”百分比，加前缀避免与已用%混淆 -->
+                    <!-- 任务栏文字模式显示"剩余"百分比，加前缀避免与已用%混淆 -->
                     <Run Text="{Binding RemainingText, Mode=OneWay, Converter={StaticResource RemainingPrefix}}" />
                 </TextBlock>
             </StackPanel>
@@ -73,18 +73,32 @@
             </Grid>
         </DataTemplate>
 
-        <!-- 圆环图模式模板：req-035 去掉 Provider 名字，仅显示圆环 -->
+        <!-- 圆环图模式模板：req-051 重构 - 半圆环样式 -->
         <DataTemplate x:Key="TaskbarRingChartTemplate">
-            <controls:RingChartControl Width="44" Height="44"
-                                        Percent="{Binding UsagePercentage, Mode=OneWay}"
-                                        Size="44" StrokeThickness="5"
-                                        IconPath="{Binding IconPath, Mode=OneWay}"
-                                        TrackBrush="{DynamicResource TrackBrush}"
-                                        ProgressBrush="{DynamicResource AccentBrush}"
-                                        WarningBrush="{DynamicResource WarningBrush}"
-                                        DangerBrush="{DynamicResource DangerBrush}"
-                                        ToolTip="{Binding StatusText, Mode=OneWay}"
-                                        Margin="0,0,12,0" />
+            <Grid Width="38" Height="38" Margin="0,0,8,0"
+                  Background="Transparent"
+                  ToolTip="{Binding TaskbarToolTipText, Mode=OneWay}"
+                  ToolTipService.Placement="Top"
+                  ToolTipService.VerticalOffset="-8"
+                  ToolTipService.HorizontalOffset="0"
+                  PreviewMouseWheel="OnRingChartPreviewMouseWheel">
+                <!-- 半圆环图（0% 在 8 点钟，100% 在 4 点钟），中心数字点击可刷新，禁用内置 tooltip -->
+                <controls:RingChartControl Width="38" Height="38"
+                                            Percent="{Binding UsagePercentage, Mode=OneWay}"
+                                            Size="38" StrokeThickness="4"
+                                            TrackBrush="{DynamicResource TrackBrush}"
+                                            ProgressBrush="{DynamicResource AccentBrush}"
+                                            WarningBrush="{DynamicResource WarningBrush}"
+                                            DangerBrush="{DynamicResource DangerBrush}"
+                                            HorizontalAlignment="Center"
+                                            VerticalAlignment="Top"
+                                            Margin="0,0,0,0"
+                                            IsHalfRing="True"
+                                            ShowHoverTooltip="False"
+                                            Tag="{Binding ProviderId}"
+                                            CenterClick="OnRingChartCenterClick"
+                                            MetricKeyChanged="OnRingChartMetricKeyChanged" />
+            </Grid>
         </DataTemplate>
 
         <!-- 模板选择器，绑定到上面三种模板 -->
@@ -98,31 +112,6 @@
             BorderBrush="{DynamicResource OverlayBorderBrush}" BorderThickness="1"
             x:Name="RootBorder">
         <Grid>
-            <!-- req-035：刷新按钮居中（覆盖圆环图中心） -->
-            <Button x:Name="RefreshAllButton"
-                    HorizontalAlignment="Center" VerticalAlignment="Center"
-                    Width="22" Height="22"
-                    Background="{DynamicResource SurfaceBrush}"
-                    BorderBrush="{DynamicResource AccentBrush}"
-                    BorderThickness="1"
-                    ToolTip="刷新所有 Provider"
-                    Visibility="Collapsed"
-                    Click="OnRefreshAllClick">
-                <Button.RenderTransform>
-                    <RotateTransform x:Name="RefreshAllRotate" Angle="0" CenterX="11" CenterY="11" />
-                </Button.RenderTransform>
-                <Button.Resources>
-                    <Storyboard x:Key="RefreshAllSpinStoryboard">
-                        <DoubleAnimation Storyboard.TargetName="RefreshAllRotate"
-                                         Storyboard.TargetProperty="Angle"
-                                         From="0" To="360"
-                                         Duration="0:0:1.5"
-                                         RepeatBehavior="Forever" />
-                    </Storyboard>
-                </Button.Resources>
-                <TextBlock Text="⟳" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center" />
-            </Button>
-
             <ScrollViewer HorizontalScrollBarVisibility="Auto"
                           VerticalScrollBarVisibility="Disabled"
                           Padding="0">
