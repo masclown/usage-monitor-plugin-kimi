@@ -41,12 +41,9 @@ public class DeepseekProvider : IUsageProvider
     /// <inheritdoc />
     public IReadOnlyList<ConfigField> ConfigFields => new[]
     {
-        new ConfigField("ApiKey", I18n.T("plugin.Deepseek.field.ApiKey.name"), ConfigFieldType.Password, true,
-            placeholder: I18n.T("plugin.Deepseek.field.ApiKey.placeholder"),
-            defaultValue: null),
-        new ConfigField("BaseUrl", I18n.T("plugin.Deepseek.field.BaseUrl.name"), ConfigFieldType.Text, false,
-            defaultValue: "https://api.deepseek.com",
-            placeholder: I18n.T("plugin.Deepseek.field.BaseUrl.placeholder"))
+        // req-013：从 StandardConfigFields 工厂方法生成"重复声明模板"，字段 key / i18n key / 类型 / required 全部对齐重构前。
+        StandardConfigFields.ApiKey("Deepseek"),
+        StandardConfigFields.BaseUrl("Deepseek", "https://api.deepseek.com")
     };
 
     /// <summary>

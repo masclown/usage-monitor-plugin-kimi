@@ -100,6 +100,41 @@ public partial class App : Application
         _historyRepository = UsageHistoryRepository.CreateDefault();
         _historyRepository.EnsureSchema();
 
+        // req-021：启动时清理历史 token=0 错误数据（MiniMax Only）。仅在首次或距上次清理 >30 天时执行。
+        // OnStartup 是 void，清理是 I/O 操作 → 用 fire-and-forget 异步启动，不阻塞 UI 启动流程。
+        try
+        {
+            var lastCleaned = _configService.Settings.LastCleanedZeroTokensAt;
+            var shouldClean = lastCleaned == null || (DateTime.Now - lastCleaned.Value).TotalDays > 30;
+            if (shouldClean)
+            {
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        var deleted = await _historyRepository.CleanHistoricalZeroTokenDataAsync();
+                        if (deleted > 0)
+                        {
+                            await _historyRepository.RecomputeDailyAggregatesAsync();
+                        }
+                        Dispatcher.Invoke(() =>
+                        {
+                            _configService.Settings.LastCleanedZeroTokensAt = DateTime.Now;
+                            _configService.Save();
+                        });
+                    }
+                    catch (Exception ex)
+                    {
+                        FileLogger.Error("App", "req-021 historical token=0 cleanup inner failed", ex);
+                    }
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Error("App", "req-021 historical token=0 cleanup scheduling failed", ex);
+        }
+
         // 创建历史数据存储，并同位启用持久化：刷新时 AddPoint 会 fire-and-forget 写 SQL
         _historyStore = new UsageHistoryStore(_historyRepository);
         _historyStore.MaxPoints = Math.Max(1, _configService.Settings.HistoryPointCount);
@@ -117,7 +152,7 @@ public partial class App : Application
             FileLogger.Error("App", "Initial LoadFromRepositoryAsync failed", ex);
         }
 
-        _refreshService = new RefreshService(_pluginManager, _configService, _historyStore);
+        _refreshService = new RefreshService(_pluginManager, _configService, _historyStore, _historyRepository);
 
         // 创建ViewModel
         _viewModel = new MainViewModel(_pluginManager, _configService, _refreshService, _historyStore);
@@ -235,11 +270,46 @@ public partial class App : Application
         _notifyIcon = new NotifyIcon
         {
             Text = "UsageMonitor - AI用量监控",
-            Icon = SystemIcons.Application, // 后续替换为自定义图标
+            Icon = LoadTrayIconFromLogo(Helpers.ThemeManager.Current), // req-016：项目 logo
             Visible = true
         };
 
         _notifyIcon.DoubleClick += (_, _) => ShowMainWindow();
+
+        // req-028：托盘 tooltip 不能依赖 NotifyIcon.Text 改变事件（Win32 NotifyIcon 不提供该事件）。
+        // 退而求其次：鼠标移动到托盘图标上时（同 req-004 的 IsCursorInTrayArea 区域）
+        // 立即重新计算 5h 倒计时并刷新 NotifyIcon.Text，避免等下一次 RefreshAll 周期才更新。
+        _notifyIcon.MouseMove += (_, _) =>
+        {
+            if (_notifyIcon == null) return;
+            try
+            {
+                var cursorPos = System.Windows.Forms.Cursor.Position;
+                if (!IsCursorInTrayArea(cursorPos)) return;
+                var counterVm = _viewModel.Usages?.FirstOrDefault(vm => vm.HasFiveHourCountdown);
+                var countdown = counterVm?.FiveHourCountdownText ?? "00:00:00";
+                var firstLine = _viewModel.Usages?.FirstOrDefault()?.ProviderId;
+                // 托盘 tooltip Text 最大约 63 char（Windows 限制），拼接 "用量/倒计时" 形式。
+                if (counterVm != null)
+                    _notifyIcon.Text = $"用量 {counterVm.UsagePercentage:0}% · 5h 倒计时 {countdown}";
+                else
+                    _notifyIcon.Text = "UsageMonitor";
+            }
+            catch (Exception ex)
+            {
+                FileLogger.Error("App", $"MouseMove tooltip refresh failed: {ex.Message}", ex);
+            }
+        };
+
+        // req-016：订阅主题变化，刷新托盘图标（双主题适配）
+        Helpers.ThemeManager.ThemeChanged += (_, _) =>
+        {
+            if (_notifyIcon != null)
+            {
+                try { _notifyIcon.Icon = LoadTrayIconFromLogo(Helpers.ThemeManager.Current); }
+                catch (Exception ex) { FileLogger.Error("App", $"Refresh tray icon failed: {ex.Message}", ex); }
+            }
+        };
 
         // 构建右键菜单
         var contextMenu = new ContextMenuStrip();
@@ -254,6 +324,31 @@ public partial class App : Application
         contextMenu.Items.Add("退出", null, (_, _) => Shutdown());
 
         _notifyIcon.ContextMenuStrip = contextMenu;
+    }
+
+    /// <summary>
+    /// req-016：从项目 Logo PNG 构造托盘 <see cref="System.Drawing.Icon"/>。
+    /// <para>
+    /// PNG 不是 Windows 原生托盘格式（NotifyIcon 期望 .ico），所以走 Bitmap.GetHicon + Icon.FromHandle 路径。
+    /// 该 Icon 仅作过渡使用；高分屏可能略糊。后续如需清晰图标，准备多尺寸 .ico 后替换本方法。
+    /// </para>
+    /// </summary>
+    private static System.Drawing.Icon LoadTrayIconFromLogo(UsageMonitor.Core.Models.ThemeMode theme)
+    {
+        try
+        {
+            var path = Helpers.LogoProvider.GetLogoPath(theme);
+            using var bmp = new System.Drawing.Bitmap(path);
+            var hIcon = bmp.GetHicon();
+            // Icon.FromHandle 不接管 hIcon 释放 → 必须 Clone 出独立 Icon，否则旧 hIcon 被释放后托盘图标失效
+            var icon = (System.Drawing.Icon)System.Drawing.Icon.FromHandle(hIcon).Clone();
+            return icon;
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Error("App", $"LoadTrayIconFromLogo({theme}) failed: {ex.Message}", ex);
+            return SystemIcons.Application;
+        }
     }
 
     /// <summary>
@@ -403,10 +498,18 @@ public partial class App : Application
             // 更新托盘提示文本
             if (_notifyIcon != null)
             {
-                var tooltipParts = e.Usages
+                // req-028：托盘 tooltip 加上 5h 倒计时。格式：用量 X% · 5h 倒计时 HH:mm:ss
+                // 多 Provider 场景只取第一个有 5h 字段的 VM（MiniMax）。
+                var lines = e.Usages
                     .Where(u => u.IsSuccess)
-                    .Select(u => u.GetShortDisplayText());
-                var tooltip = string.Join("\n", tooltipParts);
+                    .Select(u => u.GetShortDisplayText())
+                    .ToList();
+                var counterVm = _viewModel.Usages?.FirstOrDefault(vm => vm.HasFiveHourCountdown);
+                if (counterVm != null)
+                {
+                    lines.Add($"5h 倒计时 {counterVm.FiveHourCountdownText}");
+                }
+                var tooltip = string.Join("\n", lines);
                 _notifyIcon.Text = string.IsNullOrEmpty(tooltip) ? "UsageMonitor" : tooltip;
             }
         });
@@ -422,7 +525,7 @@ public partial class App : Application
         if (!_configService.Settings.ShowInTaskbar) return;
 
         _taskbarHelper = new Helpers.TaskbarHelper();
-        _taskbarWindow = new Views.TaskbarWindow(_viewModel, _configService, _taskbarHelper);
+        _taskbarWindow = new Views.TaskbarWindow(_viewModel, _configService, _taskbarHelper, _refreshService);
         _taskbarWindow.EmbedIntoTaskbar();
         AttachTaskbarWindowResizeHandlers();
         FileLogger.Info("App", "TaskbarWindow 已创建并嵌入任务栏");
@@ -461,6 +564,17 @@ public partial class App : Application
                     _taskbarWindow?.RecalculateSize();
             };
         }
+        // req-022：全局默认或每 Provider 覆盖变化时，刷新所有 Provider 的 DisplayMode（resolver 重算）+ 重排 taskbar 尺寸。
+        _viewModel.TaskbarModeChanged += (_, _) =>
+        {
+            foreach (var usage in _viewModel.Usages)
+            {
+                var resolved = UsageMonitor.App.Helpers.TaskbarModeResolver.Resolve(
+                    _configService.Settings, usage.ProviderId);
+                if (usage.DisplayMode != resolved) usage.DisplayMode = resolved;
+            }
+            _taskbarWindow?.RecalculateSize();
+        };
     }
 
     /// <summary>
@@ -553,6 +667,8 @@ public partial class App : Application
     {
         FileLogger.Info("App", "=== UsageMonitor exiting ===");
         _trayHoverCheckTimer?.Stop();
+        // req-028：停止 5h 倒计时 timer（避免 DispatcherTimer 持续持有 root 引用）
+        _viewModel?.StopFiveHourCountdownTimer();
         _refreshService.Dispose();
         _taskbarWindow?.Close();
         _historyWindow?.Close();

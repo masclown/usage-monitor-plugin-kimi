@@ -4,6 +4,7 @@
         xmlns:controls="clr-namespace:UsageMonitor.App.Controls"
         xmlns:views="clr-namespace:UsageMonitor.App.Views"
         Title="UsageMonitor Taskbar"
+        Icon="{Binding CurrentLogoSource}"
         Height="56" Width="500"
         WindowStyle="None"
         AllowsTransparency="True"
@@ -102,18 +103,46 @@
     </Window.Resources>
 
     <Border Background="{DynamicResource OverlayBackgroundBrush}" CornerRadius="8" Padding="12,6" Margin="2"
-            BorderBrush="{DynamicResource OverlayBorderBrush}" BorderThickness="1">
-        <ScrollViewer HorizontalScrollBarVisibility="Auto"
-                      VerticalScrollBarVisibility="Disabled"
-                      Padding="0">
-            <ItemsControl ItemsSource="{Binding EnabledUsages, Mode=OneWay}"
-                          ItemTemplateSelector="{StaticResource TaskbarItemTemplateSelector}">
-                <ItemsControl.ItemsPanel>
-                    <ItemsPanelTemplate>
-                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center" />
-                    </ItemsPanelTemplate>
-                </ItemsControl.ItemsPanel>
-            </ItemsControl>
-        </ScrollViewer>
+            BorderBrush="{DynamicResource OverlayBorderBrush}" BorderThickness="1"
+            x:Name="RootBorder">
+        <Grid>
+            <!-- req-029：鼠标悬停 taskbar window 时右上角浮现"刷新全部"按钮（覆盖在 ItemsControl 之上）。 -->
+            <Button x:Name="RefreshAllButton"
+                    HorizontalAlignment="Right" VerticalAlignment="Top"
+                    Width="22" Height="22" Margin="0,-8,0,0"
+                    Background="{DynamicResource SurfaceBrush}"
+                    BorderBrush="{DynamicResource AccentBrush}"
+                    BorderThickness="1"
+                    ToolTip="刷新所有 Provider"
+                    Visibility="Collapsed"
+                    Click="OnRefreshAllClick">
+                <Button.RenderTransform>
+                    <RotateTransform x:Name="RefreshAllRotate" Angle="0" CenterX="11" CenterY="11" />
+                </Button.RenderTransform>
+                <Button.Resources>
+                    <Storyboard x:Key="RefreshAllSpinStoryboard">
+                        <DoubleAnimation Storyboard.TargetName="RefreshAllRotate"
+                                         Storyboard.TargetProperty="Angle"
+                                         From="0" To="360"
+                                         Duration="0:0:1.5"
+                                         RepeatBehavior="Forever" />
+                    </Storyboard>
+                </Button.Resources>
+                <TextBlock Text="⟳" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center" />
+            </Button>
+
+            <ScrollViewer HorizontalScrollBarVisibility="Auto"
+                          VerticalScrollBarVisibility="Disabled"
+                          Padding="0">
+                <ItemsControl ItemsSource="{Binding EnabledUsages, Mode=OneWay}"
+                              ItemTemplateSelector="{StaticResource TaskbarItemTemplateSelector}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                </ItemsControl>
+            </ScrollViewer>
+        </Grid>
     </Border>
 </Window>

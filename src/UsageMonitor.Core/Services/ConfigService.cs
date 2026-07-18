@@ -51,6 +51,24 @@ public class AppSettings
     /// <summary>各 Provider 在任务栏的显示模式（key=ProviderId，缺省时为 Text）</summary>
     public Dictionary<string, TaskbarDisplayMode> ProviderTaskbarModes { get; set; } = new();
 
+    /// <summary>req-026：环形图中心数字"已启用 metric key"按 Provider 索引。
+    /// 缺失 / 为空时回退到 <see cref="GlobalEnabledRingChartMetrics"/>。
+    /// 典型 key：<c>"Percent"</c>、<c>"Credits"</c>、<c>"WeeklyLimit"</c> 等。
+    /// </summary>
+    public Dictionary<string, List<string>> ProviderEnabledRingChartMetrics { get; set; } = new();
+
+    /// <summary>req-026：环形图中心数字"全局已启用 metric key"列表（Provider 单独配置缺失时使用）。</summary>
+    public List<string> GlobalEnabledRingChartMetrics { get; set; } = new() { "Percent" };
+
+    /// <summary>
+    /// req-022：任务栏显示的全局默认模式（当某 Provider 没有单独覆盖时使用）。默认 <see cref="TaskbarDisplayMode.Text"/>。
+    /// <para>
+    /// 兼容旧配置：旧版没有 <c>GlobalTaskbarMode</c> 字段时，反序列化后默认 Text；UI 端通过
+    /// <see cref="UsageMonitor.App.Helpers.TaskbarModeResolver"/> 与 <see cref="ProviderTaskbarModes"/> 合并解析。
+    /// </para>
+    /// </summary>
+    public TaskbarDisplayMode GlobalTaskbarMode { get; set; } = TaskbarDisplayMode.Text;
+
     /// <summary>圆环图警告阈值（百分比，达到后切到琥珀色，默认 60）</summary>
     public int RingChartWarningThreshold { get; set; } = 60;
 
@@ -198,6 +216,20 @@ public class AppSettings
 
     /// <summary>REQ-004：托盘悬浮窗触发区域矩形（屏幕坐标系绝对坐标，单位像素）。</summary>
     public Models.RectInt TrayTooltipTriggerRect { get; set; } = Models.RectInt.DefaultBottomRight();
+
+    // =====================================================================
+    // REQ-021 历史 token=0 数据清理时间戳
+    // 防重复清理：仅当 LastCleanedZeroTokensAt 为 null 或超过指定间隔才再次清理。
+    // =====================================================================
+
+    /// <summary>
+    /// req-021：上次清理 <c>usage_points</c> 中 token=0 记录的时间戳（null = 从未清理）。
+    /// <para>
+    /// 启动时检查：null 或距今 > 30 天 → 执行一次清理；否则跳过。清理成功后写入当前时间戳。
+    /// 此设计避免每次启动都跑 DELETE SQL（MiniMax 数据量大时浪费 IO）。
+    /// </para>
+    /// </summary>
+    public DateTime? LastCleanedZeroTokensAt { get; set; }
 }
 
 /// <summary>

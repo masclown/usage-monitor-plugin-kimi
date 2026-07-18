@@ -40,11 +40,9 @@ public class MiMoProvider : IUsageProvider
     /// <inheritdoc />
     public IReadOnlyList<ConfigField> ConfigFields => new[]
     {
-        new ConfigField("ApiKey", I18n.T("plugin.MiMo.field.ApiKey.name"), ConfigFieldType.Password, true,
-            placeholder: I18n.T("plugin.MiMo.field.ApiKey.placeholder")),
-        new ConfigField("BaseUrl", I18n.T("plugin.MiMo.field.BaseUrl.name"), ConfigFieldType.Text, false,
-            defaultValue: "https://api.mimo.ai",
-            placeholder: I18n.T("plugin.MiMo.field.BaseUrl.placeholder"))
+        // req-013：从 StandardConfigFields 工厂方法生成"重复声明模板"，字段 key / i18n key / 类型 / required 全部对齐重构前。
+        StandardConfigFields.ApiKey("MiMo"),
+        StandardConfigFields.BaseUrl("MiMo", "https://api.mimo.ai")
     };
 
     /// <summary>

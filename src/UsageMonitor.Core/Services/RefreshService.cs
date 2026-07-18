@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Globalization;
 using UsageMonitor.Core.Models;
 using UsageMonitor.Core.Plugins;
 
@@ -12,6 +13,7 @@ public class RefreshService : IDisposable
     private readonly PluginManager _pluginManager;
     private readonly ConfigService _configService;
     private readonly UsageHistoryStore _historyStore;
+    private readonly UsageHistoryRepository? _historyRepository;
     private Timer? _timer;
     private bool _isRefreshing;
 
@@ -34,11 +36,19 @@ public class RefreshService : IDisposable
     /// <param name="historyStore">
     /// 历史仓库（可选）。传入后刷新过程中会同时将数据点入 SQLite（需在 historyStore 内部持有 Repository）。
     /// </param>
-    public RefreshService(PluginManager pluginManager, ConfigService configService, UsageHistoryStore? historyStore = null)
+    /// <param name="historyRepository">
+    /// req-013：历史仓库（Repository，可选）。传入后会在每次刷新后异步写入 <c>usage_refresh_aggregates</c>。
+    /// </param>
+    public RefreshService(
+        PluginManager pluginManager,
+        ConfigService configService,
+        UsageHistoryStore? historyStore = null,
+        UsageHistoryRepository? historyRepository = null)
     {
         _pluginManager = pluginManager;
         _configService = configService;
         _historyStore = historyStore ?? new UsageHistoryStore();
+        _historyRepository = historyRepository;
         _historyStore.MaxPoints = Math.Max(1, _configService.Settings.HistoryPointCount);
     }
 
@@ -66,7 +76,8 @@ public class RefreshService : IDisposable
     /// <summary>
     /// 立即刷新所有已启用的插件
     /// </summary>
-    public async Task RefreshAllAsync()
+    /// <param name="triggerKind">触发类型（"manual" / "auto"），传给 req-013 刷新聚合</param>
+    public async Task RefreshAllAsync(string triggerKind = "manual")
     {
         if (_isRefreshing) return;
         _isRefreshing = true;
@@ -79,7 +90,7 @@ public class RefreshService : IDisposable
                 .Where(p => p.IsEnabled && _configService.Settings.PluginEnabled.GetValueOrDefault(p.Provider.ProviderId, true))
                 .ToList();
 
-            var tasks = enabledPlugins.Select(RefreshPluginAsync);
+            var tasks = enabledPlugins.Select(p => RefreshPluginAsync(p, triggerKind));
             await Task.WhenAll(tasks);
 
             // 触发数据更新事件
@@ -99,7 +110,9 @@ public class RefreshService : IDisposable
     /// <summary>
     /// 刷新指定服务商的用量
     /// </summary>
-    public async Task RefreshPluginAsync(LoadedPlugin plugin)
+    /// <param name="plugin">插件包装</param>
+    /// <param name="triggerKind">触发类型（"manual" / "auto"），传给 req-013 刷新聚合</param>
+    public async Task RefreshPluginAsync(LoadedPlugin plugin, string triggerKind = "manual")
     {
         var providerId = plugin.Provider.ProviderId;
         // per-provider 锁：同一 provider 的全量刷新与单卡片刷新互斥，不同 provider 仍可并行。
@@ -117,10 +130,15 @@ public class RefreshService : IDisposable
                 plugin.LastQuerySuccess = usage.IsSuccess;
 
                 // 成功记有效历史点；失败记一个 IsError 点（避免折线无痕断裂）。
+                // req-015：传完整 usage，Store 内部走 InsertUsagePointIfChangedAsync（业务指纹比对去重）。
                 if (usage.IsSuccess)
-                    _historyStore.AddPoint(providerId, usage.GetUsagePercentage());
+                    _historyStore.AddPoint(providerId, usage);
                 else
                     _historyStore.AddErrorPoint(providerId);
+
+                // req-013：成功刷新后异步写入“刷新聚合”记录，供历史窗口展示每次刷新。
+                if (usage.IsSuccess)
+                    RecordRefreshAggregateAsync(providerId, triggerKind);
             }
             catch (Exception ex)
             {
@@ -164,7 +182,44 @@ public class RefreshService : IDisposable
     /// </summary>
     private void OnTimerTick(object? state)
     {
-        _ = RefreshAllAsync();
+        _ = RefreshAllAsync("auto");
+    }
+
+    /// <summary>
+    /// req-013：在一次成功刷新后，把本次刷新区间的最大 / 最小 / 末尾 / 平均值写入
+    /// <c>usage_refresh_aggregates</c>，供历史窗口 DataGrid 展示。区间来源为 <see cref="UsageHistoryStore"/>
+    /// 的当前内存快照（最近 <c>MaxPoints</c> 个点）。写入是 fire-and-forget，失败仅日志。
+    /// </summary>
+    /// <param name="providerId">服务商唯一标识</param>
+    /// <param name="triggerKind">触发类型（"manual" / "auto"）</param>
+    private void RecordRefreshAggregateAsync(string providerId, string triggerKind)
+    {
+        if (_historyRepository == null) return;
+        var points = _historyStore.GetHistory(providerId);
+        if (points == null || points.Count == 0) return;
+
+        // 过滤错误点（IsError=true）；错误点不参与"用量"的聚合统计。
+        var valid = new List<HistoryPoint>(points.Count);
+        foreach (var p in points)
+        {
+            if (!p.IsError) valid.Add(p);
+        }
+        if (valid.Count == 0) return;
+
+        var now = DateTime.Now;
+        var agg = new RefreshAggregate(
+            Id: 0,
+            ProviderId: providerId,
+            RefreshAt: now,
+            BusinessDay: now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+            MaxUsedPercent: valid.Max(p => p.UsagePercent),
+            MinUsedPercent: valid.Min(p => p.UsagePercent),
+            EndUsedPercent: valid[^1].UsagePercent,
+            AvgUsedPercent: valid.Average(p => p.UsagePercent),
+            SnapshotCount: valid.Count,
+            TriggerKind: triggerKind);
+
+        _ = _historyRepository.InsertRefreshAggregateAsync(agg);
     }
 
     public void Dispose()

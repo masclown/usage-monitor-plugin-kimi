@@ -625,21 +625,73 @@ public class MiniLineChartControl : FrameworkElement, IHoverTooltipProvider
     }
 
     /// <summary>
-    /// 鼠标移动时命中最近数据点并显示统一 tooltip（req-007：Title 优先取自 Dates，Detail 拼接 ExtraTooltipLines）。
+    /// req-017：端点 hover 命中半径（DIP 像素）。鼠标仅在端点 ± 此范围内才触发 tooltip。
+    /// </summary>
+    private const double EndpointHitRadius = 8.0;
+
+    /// <summary>
+    /// req-017：鼠标移动时仅在端点 ± <see cref="EndpointHitRadius"/> 像素内触发 tooltip。
+    /// <para>
+    /// 原 req-007 实现在任意鼠标位置都 <see cref="TryGetTooltip"/> 返回 true → 贴线移动会一直弹 tooltip，
+    /// 不符合"鼠标移到端点"的交互语义。本需求缩小触发范围为端点附近。
+    /// </para>
     /// </summary>
     protected override void OnMouseMove(MouseEventArgs e)
     {
         base.OnMouseMove(e);
-        if (TryGetTooltip(e.GetPosition(this), out var data))
+        if (Values == null || Values.Count < 2 || _plotWidth <= 0)
         {
-            var index = GetIndex(e.GetPosition(this).X);
-            if (index != _hoverIndex)
+            HideTooltipIfShown();
+            return;
+        }
+
+        var pos = e.GetPosition(this);
+        var stepX = _plotWidth / (Values.Count - 1);
+
+        // 仅在端点 ± 半径内才触发（req-017 Q2 A 决策）
+        int nearestIndex = -1;
+        double nearestDist = double.MaxValue;
+        for (int i = 0; i < Values.Count; i++)
+        {
+            var px = _plotLeft + i * stepX;
+            var dist = Math.Abs(pos.X - px);
+            if (dist < EndpointHitRadius && dist < nearestDist)
             {
-                _hoverIndex = index;
+                nearestDist = dist;
+                nearestIndex = i;
+            }
+        }
+
+        if (nearestIndex >= 0)
+        {
+            if (nearestIndex != _hoverIndex)
+            {
+                _hoverIndex = nearestIndex;
                 InvalidateVisual();
             }
-            HoverTooltipPresenter.Show(this, data);
+            if (TryGetTooltip(new Point(_plotLeft + nearestIndex * stepX, 0), out var data))
+                HoverTooltipPresenter.Show(this, data);
         }
+        else
+        {
+            HideTooltipIfShown();
+        }
+    }
+
+    /// <summary>
+    /// req-017：清空 hover 状态并关闭 tooltip。
+    /// <para>
+    /// 仅在 hoverIndex 已激活时才重绘，避免每个 MouseMove 都触发 InvalidateVisual。
+    /// </para>
+    /// </summary>
+    private void HideTooltipIfShown()
+    {
+        if (_hoverIndex != -1)
+        {
+            _hoverIndex = -1;
+            InvalidateVisual();
+        }
+        HoverTooltipPresenter.Hide(this);
     }
 
     /// <summary>鼠标离开图表区域后关闭 tooltip 并清除高亮点。</summary>
@@ -665,11 +717,19 @@ public class MiniLineChartControl : FrameworkElement, IHoverTooltipProvider
 
         var pos = e.GetPosition(this);
         var hit = HitTestPeriodButton(pos);
-        if (hit == null) return;
+        if (hit == null)
+        {
+            // req-020：诊断日志。未命中时记录鼠标位置 + 控件尺寸 + 期望按钮区范围，供排错。
+            UsageMonitor.Core.Services.FileLogger.Info("MiniLineChartControl",
+                $"OnMouseLeftButtonDown miss: pos={pos}, ActualWidth={ActualWidth}, ActualHeight={ActualHeight}, CurrentPeriod={CurrentPeriod}");
+            return;
+        }
 
         // 同样的周期重复点击不触发事件
         if (string.Equals(CurrentPeriod, hit, StringComparison.OrdinalIgnoreCase)) return;
 
+        UsageMonitor.Core.Services.FileLogger.Info("MiniLineChartControl",
+            $"OnMouseLeftButtonDown hit: {CurrentPeriod} -> {hit}");
         CurrentPeriod = hit;
         var args = new PeriodChangedEventArgs(hit) { Source = this };
         RaiseEvent(args);
@@ -677,7 +737,22 @@ public class MiniLineChartControl : FrameworkElement, IHoverTooltipProvider
         InvalidateVisual();
     }
 
-    /// <summary>根据点击位置判断命中哪个周期按钮（"7d" / "30d"），未命中返回 null。</summary>
+    /// <summary>
+    /// req-020：周期切换按钮的额外点击命中 padding（DIP），避免“点不到按钮”问题。
+    /// <para>
+    /// 自定义绘制的按钮视觉区在右上角（132×22 px），但因为鼠标位置精度 + 窗体轻微偏移，靠近边缘的点击可能
+    /// 落在视觉矩形外缘。本扩展使 HitTestPeriodButton 接受在视觉矩形 + 该 padding 范围内作为命中。
+    /// </para>
+    /// </summary>
+    private const double PeriodButtonHitPadding = 4.0;
+
+    /// <summary>
+    /// req-007：根据点击位置判断命中哪个周期按钮（"7d" / "30d"），未命中返回 null。
+    /// <para>
+    /// req-020：接受视觉矩形 ± <see cref="PeriodButtonHitPadding"/> 像素范围内的点击作为命中，
+    /// 避免“按钮太小”造成“近 30 天点不到”。点击未命中时也写一条 Info 日志供诊断。
+    /// </para>
+    /// </summary>
     private string? HitTestPeriodButton(Point pos)
     {
         var width = ActualWidth;
@@ -687,11 +762,25 @@ public class MiniLineChartControl : FrameworkElement, IHoverTooltipProvider
         var rowBottom = rowTop + PeriodButtonHeight;
         var halfW = PeriodButtonRowWidth / 2.0;
 
-        // 只在按钮矩形内判定
-        if (pos.Y < rowTop || pos.Y > rowBottom) return null;
-        if (pos.X < rowLeft || pos.X > rowRight) return null;
+        // req-020：在视觉矩形基础上额外接受 ± padding 范围内的点击
+        var pad = PeriodButtonHitPadding;
+        if (pos.Y < rowTop - pad || pos.Y > rowBottom + pad)
+        {
+            System.Diagnostics.Debug.WriteLine($"[MiniLineChart] PeriodButton miss: pos={pos} rowY=[{rowTop},{rowBottom}]");
+            return null;
+        }
+        if (pos.X < rowLeft - pad || pos.X > rowRight + pad)
+        {
+            System.Diagnostics.Debug.WriteLine($"[MiniLineChart] PeriodButton miss: pos={pos} rowX=[{rowLeft},{rowRight}]");
+            return null;
+        }
 
-        // 左半 / 右半
+        // req-020：pos.X 越界（负方向）但 Y 在范围内 → 默认落到 Week
+        if (pos.X < rowLeft) return ChartPeriods.Week;
+        // req-020：pos.X 越界（正方向）但 Y 在范围内 → 默认落到 Month
+        if (pos.X > rowRight) return ChartPeriods.Month;
+
+        // 左半 / 右半（视觉矩形内）
         if (pos.X < rowLeft + halfW) return ChartPeriods.Week;
         return ChartPeriods.Month;
     }

@@ -115,15 +115,16 @@ public class YearHeatMapControl : FrameworkElement, IHoverTooltipProvider
         MinHeight = 150;
         MinWidth = 320;
         Focusable = true;
-        // 订阅档位变更：底部图例与各档位颜色随档位表动态更新。
+        // req-018：订阅 HeatMapTierScale（6 档 Token 绝对值色阶）替代旧的 UsageTierScale（4 档百分比色阶）。
+        // 两个订阅用同一个 _tierSubscribed 静态互斥锁保护，避免双重订阅。
         if (System.Threading.Interlocked.Exchange(ref _tierSubscribed, 1) == 0)
-            UsageMonitor.App.Helpers.UsageTierScale.TierChanged += OnTierChangedStatic;
+            UsageMonitor.App.Helpers.HeatMapTierScale.TierChanged += OnHeatMapTierChangedStatic;
     }
 
     private static int _tierSubscribed;
 
-    /// <summary>档位表刷新后：触发所有热力图重绘（图例按 Tiers 重新取色）。</summary>
-    private static void OnTierChangedStatic(object? sender, EventArgs e)
+    /// <summary>req-018：热力图色阶（按 Provider Token）档位表刷新后，所有 YearHeatMapControl 重绘。</summary>
+    private static void OnHeatMapTierChangedStatic(object? sender, EventArgs e)
     {
         System.Windows.Application.Current?.Dispatcher.Invoke(() =>
         {
@@ -133,6 +134,21 @@ public class YearHeatMapControl : FrameworkElement, IHoverTooltipProvider
                     win.InvalidateVisual();
             }
         });
+    }
+
+    /// <summary>
+    /// req-018：当前控件绑定的 ProviderId，用于按 Provider 选色阶表（<see cref="HeatMapTierScale.ProviderTiers"/>）。
+    /// 不传时回退到 <see cref="HeatMapTierScale.GenericDefaults"/> 兑底。
+    /// </summary>
+    public static readonly DependencyProperty ProviderIdProperty = DependencyProperty.Register(
+        nameof(ProviderId), typeof(string), typeof(YearHeatMapControl),
+        new FrameworkPropertyMetadata(string.Empty, FrameworkPropertyMetadataOptions.AffectsRender));
+
+    /// <summary>req-018：当前 ProviderId（不区分大小写去 ProviderTiers 取档位）。</summary>
+    public string ProviderId
+    {
+        get => (string)GetValue(ProviderIdProperty);
+        set => SetValue(ProviderIdProperty, value);
     }
 
     private static void OnCellsChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
@@ -195,6 +211,7 @@ public class YearHeatMapControl : FrameworkElement, IHoverTooltipProvider
         var colsCountMax = Math.Max(1, (int)Math.Floor((gridWidth + gap) / step));
 
         // 计算网格起始周一 + 需要的列数（列数超出可视宽度时保留最近若干周）
+        // req-021：网格起点改为以最后数据日期为终点、向左铺列（最新日期在右、左边无数据显空格）。
         DateTime gridStartMonday;
         int cols;
         if (parsed.Count > 0)
@@ -202,11 +219,17 @@ public class YearHeatMapControl : FrameworkElement, IHoverTooltipProvider
             var first = parsed[0].date;
             var last = parsed[^1].date;
             int dowFirst = ((int)first.DayOfWeek + 6) % 7; // 周一=0
-            gridStartMonday = first.AddDays(-dowFirst);
-            int totalCols = (int)((last - gridStartMonday).TotalDays / 7) + 1;
+            int dowLast = ((int)last.DayOfWeek + 6) % 7; // 周一=0
+            gridStartMonday = last.AddDays(-dowLast);
+            // 计算首末跨度的总列数（含首尾之间缺的周）
+            int totalCols = (int)((last - first).TotalDays / 7) + 1 + dowFirst;
+            // req-021：右对齐——若实际列数 > 可视列数，从右侧截取（保留最新日期）
             cols = Math.Min(totalCols, colsCountMax);
             if (totalCols > cols)
-                gridStartMonday = gridStartMonday.AddDays((totalCols - cols) * 7);
+            {
+                // 起点 = 终点 - (cols - 1) 周
+                gridStartMonday = gridStartMonday.AddDays(-(cols - 1) * 7);
+            }
         }
         else
         {
@@ -241,8 +264,8 @@ public class YearHeatMapControl : FrameworkElement, IHoverTooltipProvider
             dc.DrawText(t, new Point(gridLeft + kv.Value * step, 1));
         }
 
-        // 4) 底部"少 → 多"图例（空 / 低 / 中 / 高）
-        DrawLegend(dc, gridLeft, gridTop + rows * step + 4, gridWidth, dpi);
+        // 4) 底部"少 → 多"图例（req-018：按 ProviderId 走 HeatMapTierScale，色块数 4~6 动态）
+        DrawLegend(dc, gridLeft, gridTop + rows * step + 4, gridWidth, dpi, ProviderId);
     }
 
     /// <summary>鼠标移动时命中热力图日期并显示统一 tooltip。</summary>
@@ -254,6 +277,7 @@ public class YearHeatMapControl : FrameworkElement, IHoverTooltipProvider
             HoverTooltipPresenter.Show(this, data);
             InvalidateVisual();
         }
+        // req-018：鼠标在空格网底 / 控件外时不弹 tooltip 是符合预期的，不打错误日志。
     }
 
     /// <summary>鼠标离开热力图后关闭 tooltip。</summary>
@@ -306,16 +330,29 @@ public class YearHeatMapControl : FrameworkElement, IHoverTooltipProvider
         return false;
     }
 
-    /// <summary>绘制底部图例：少 [空][低][中][高] 多。</summary>
-    private void DrawLegend(DrawingContext dc, double left, double top, double gridWidth, double dpi)
+    /// <summary>
+    /// req-018：绘制底部图例"少 → 多"。色阶改走 <see cref="UsageMonitor.App.Helpers.HeatMapTierScale"/>（按 Provider Token 绝对值分档）。
+    /// 色块数 = 当前 Provider 的档位数（MiniMax 6 档 / 其他 4 档），动态自适应。
+    /// </summary>
+    private void DrawLegend(DrawingContext dc, double left, double top, double gridWidth, double dpi, string? providerId)
     {
         double sw = 11, sgap = 3;
-        // 图例色块 = 空档 + UsageTierScale 各档位（低/注意/中/高），随档位表增减自动同步。
-        var tiers = UsageMonitor.App.Helpers.UsageTierScale.Tiers;
+
+        // req-018：从 HeatMapTierScale 按 ProviderId 取色阶表。空 / 未知 → 走 GenericDefaults。
+        var key = (providerId ?? string.Empty).Trim();
+        IReadOnlyList<UsageMonitor.App.Helpers.HeatMapTier> tiers;
+        if (!string.IsNullOrEmpty(key) && UsageMonitor.App.Helpers.HeatMapTierScale.ProviderTiers.TryGetValue(key, out var t) && t.Count > 0)
+            tiers = t;
+        else
+            tiers = UsageMonitor.App.Helpers.HeatMapTierScale.GenericDefaults;
+
+        // 色块数组：首块 = "无用量"档（HeatMapTierScale.MiniMaxDefaults[0] / GenericDefaults[0]），
+        // 与 EmptyCellBrush 视觉上区分（图例本身就是色阶提示，不是空格网底）。
         var swatches = new Brush[tiers.Count + 1];
-        swatches[0] = EmptyCellBrush;
-        for (int i = 0; i < tiers.Count; i++)
-            swatches[i + 1] = new SolidColorBrush(tiers[i].Color);
+        swatches[0] = tiers[0].ToBrush();
+        for (int i = 1; i < tiers.Count; i++)
+            swatches[i] = tiers[i].ToBrush();
+
         var less = MakeText("少", TextBrush, 10, dpi);
         var more = MakeText("多", TextBrush, 10, dpi);
         double total = less.Width + 4 + swatches.Length * (sw + sgap) + 4 + more.Width;

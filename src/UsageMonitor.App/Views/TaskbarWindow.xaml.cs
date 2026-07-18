@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using UsageMonitor.App.Helpers;
 using UsageMonitor.App.ViewModels;
@@ -24,6 +25,7 @@ public partial class TaskbarWindow : Window
     private readonly MainViewModel _viewModel;
     private readonly ConfigService _configService;
     private readonly TaskbarHelper _taskbarHelper;
+    private readonly RefreshService _refreshService;
 
     // Win32 句柄与父坐标系参考
     private IntPtr _hwnd;
@@ -50,11 +52,12 @@ public partial class TaskbarWindow : Window
     // 位置保存节流
     private DispatcherTimer? _savePositionTimer;
 
-    public TaskbarWindow(MainViewModel viewModel, ConfigService configService, TaskbarHelper taskbarHelper)
+    public TaskbarWindow(MainViewModel viewModel, ConfigService configService, TaskbarHelper taskbarHelper, RefreshService refreshService)
     {
         _viewModel = viewModel;
         _configService = configService;
         _taskbarHelper = taskbarHelper;
+        _refreshService = refreshService;
         InitializeComponent();
         DataContext = _viewModel;
         // 默认光标为移动样式（进入边缘热区时由 UpdateCursorForPosition 切换为水平调整箭头）
@@ -69,6 +72,86 @@ public partial class TaskbarWindow : Window
         SourceInitialized += OnSourceInitializedOverride;
         Loaded += OnLoadedOverride;
         Activated += OnActivatedOverride;
+
+        // req-016：TaskbarWindow.Icon 绑定 MainViewModel.CurrentLogoSource，
+        // 主题切换由 MainViewModel.OnThemeChanged 统一推送，本窗口无需再独立订阅。
+
+        // req-029：鼠标悬停 / 离开 taskbar window 触发右上角"刷新全部"按钮的显示 / 隐藏。
+        // 使用 Border 子元素的 MouseEnter / MouseLeave（不是 Window 层级，避免拖拽事件误触）。
+        Loaded += (_, _) =>
+        {
+            if (RootBorder != null)
+            {
+                RootBorder.MouseEnter += OnRootBorderMouseEnter;
+                RootBorder.MouseLeave += OnRootBorderMouseLeave;
+            }
+        };
+        Unloaded += (_, _) =>
+        {
+            if (RootBorder != null)
+            {
+                RootBorder.MouseEnter -= OnRootBorderMouseEnter;
+                RootBorder.MouseLeave -= OnRootBorderMouseLeave;
+            }
+        };
+    }
+
+    private void OnRootBorderMouseEnter(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        if (RefreshAllButton != null && RefreshAllButton.Visibility != Visibility.Visible)
+        {
+            RefreshAllButton.Visibility = Visibility.Visible;
+        }
+    }
+
+    private void OnRootBorderMouseLeave(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        if (RefreshAllButton != null && RefreshAllButton.Visibility != Visibility.Collapsed)
+        {
+            RefreshAllButton.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    private async void OnRefreshAllClick(object sender, RoutedEventArgs e)
+    {
+        if (RefreshAllButton == null) return;
+        // req-029：启动旋转动画 + 调 RefreshService.RefreshProviderAsync 并行刷新 taskbar 内所有 Provider。
+        var storyboard = (Storyboard)RefreshAllButton.Resources["RefreshAllSpinStoryboard"];
+        storyboard?.Begin();
+        RefreshAllButton.IsEnabled = false;
+        try
+        {
+            var tasks = _viewModel.EnabledUsages
+                .Select(u => _viewModel.ConfigService != null
+                    ? TryRefreshAsync(u.ProviderId)
+                    : Task.CompletedTask)
+                .ToList();
+            await Task.WhenAll(tasks);
+        }
+        finally
+        {
+            storyboard?.Stop();
+            RefreshAllButton.IsEnabled = true;
+            RefreshAllButton.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    /// <summary>
+    /// req-029：安全包装单个 Provider 刷新调用——捕捉异常 + 写日志，避免一个 Provider 崩溃影响其他。
+    /// <para>调用链路：<c>MainViewModel</c> 持有 <c>RefreshService</c>（私有）。本类通过 <see cref="_refreshService"/>
+    /// 直接调底层避免加在 VM 上额外公开接口。</para>
+    /// </summary>
+    private async Task TryRefreshAsync(string providerId)
+    {
+        try
+        {
+            await _refreshService.RefreshProviderAsync(providerId);
+        }
+        catch (Exception ex)
+        {
+            UsageMonitor.Core.Services.FileLogger.Warn("TaskbarWindow",
+                $"req-029 RefreshProviderAsync({providerId}) failed: {ex.Message}", ex);
+        }
     }
 
     private void OnSourceInitializedOverride(object? sender, EventArgs e)

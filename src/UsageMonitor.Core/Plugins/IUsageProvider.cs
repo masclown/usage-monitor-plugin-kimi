@@ -111,6 +111,19 @@ public interface IUsageProvider
     Task<bool> ValidateConfigAsync(ProviderConfig config);
 
     /// <summary>
+    /// req-026：插件声明支持的环形图中心数字 metric key 集合。
+    /// <para>
+    /// 默认返回 <c>["Percent"]</c>（仅显示已用百分比）。有更多数字类型的插件可重写，
+    /// 例如 MiniMax 重写为 <c>["Percent", "Credits"]</c>。
+    /// </para>
+    /// <para>
+    /// 用户侧（设置窗口 → "环形图中心" Tab）按此集合展示 CheckBox；
+    /// 用户勾选结果存到 <c>AppSettings.ProviderEnabledRingChartMetrics[ProviderId]</c>。
+    /// </para>
+    /// </summary>
+    IReadOnlyList<string> SupportedRingChartMetrics => new[] { "Percent" };
+
+    /// <summary>
     /// 插件是否支持在主窗口卡片折线图右上角显示"近 7 天 / 近 30 天"等周期切换按钮。
     /// <para>
     /// 返回 <c>true</c> 时，宿主会在控件右上角绘制分段按钮，<see cref="SetPeriodAsync"/>

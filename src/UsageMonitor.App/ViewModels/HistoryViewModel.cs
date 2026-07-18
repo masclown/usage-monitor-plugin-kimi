@@ -81,13 +81,19 @@ public enum HistoryChartKind
 }
 
 /// <summary>
-/// 日聚合详情表格行（按 Provider × 日期）
+/// req-013：详情表格行（按 Provider × 刷新事件）。
+/// <para>
+/// 数据源从原 <c>usage_daily</c>（日聚合）切换为 <c>usage_refresh_aggregates</c>（每次刷新聚合）。
+/// 热力图仍走 <c>usage_daily</c>，保留“按天聚合”的语义不变。
+/// </para>
 /// </summary>
 public class DailyDetailRow
 {
     public string ProviderId { get; set; } = string.Empty;
     public string ProviderName { get; set; } = string.Empty;
     public string Day { get; set; } = string.Empty;
+    /// <summary>req-013：本次刷新的时间（HH:mm:ss）</summary>
+    public string RefreshedAtText { get; set; } = string.Empty;
     public string MaxPercent { get; set; } = "--";
     public string MinPercent { get; set; } = "--";
     public string EndPercent { get; set; } = "--";
@@ -496,10 +502,12 @@ public class HistoryViewModel : INotifyPropertyChanged
                 RingSeries = new HistorySeries();
             }
 
-            // 日聚合：多 provider 一次拉
+            // req-013：详情表格数据源切换为“刷新聚合”（usage_refresh_aggregates）。
+            // 注意：热力图仍使用 usage_daily（与原逻辑保持一致），仅详情表格同步换为 refresh aggregates。
+            var refreshList = await _repository.QueryRefreshAggregatesAsync(ids, from, to);
             var dailyList = await _repository.QueryDailyAsync(ids, from, to);
             DetailRows.Clear();
-            foreach (var agg in dailyList)
+            foreach (var agg in refreshList)
             {
                 var name = selected.FirstOrDefault(p =>
                                 string.Equals(p.ProviderId, agg.ProviderId, StringComparison.OrdinalIgnoreCase));
@@ -507,7 +515,8 @@ public class HistoryViewModel : INotifyPropertyChanged
                 {
                     ProviderId = agg.ProviderId,
                     ProviderName = name?.DisplayName ?? agg.ProviderId,
-                    Day = agg.Day,
+                    Day = agg.BusinessDay,
+                    RefreshedAtText = agg.RefreshAt.ToString("HH:mm:ss", CultureInfo.InvariantCulture),
                     MaxPercent = $"{agg.MaxUsedPercent:0.##}%",
                     MinPercent = $"{agg.MinUsedPercent:0.##}%",
                     EndPercent = $"{agg.EndUsedPercent:0.##}%",
@@ -544,7 +553,7 @@ public class HistoryViewModel : INotifyPropertyChanged
 
             StatusMessage = LineSeries.Count == 0
                 ? "暂无任何历史数据，先在主窗口点几下'刷新'"
-                : $"已加载 {LineSeries.Count} 个 Provider，{DetailRows.Count} 行日聚合";
+                : $"已加载 {LineSeries.Count} 个 Provider，{DetailRows.Count} 行刷新聚合";
             NoDataWarning = LineSeries.Count == 0;
 
             // 通知依赖于 Provider 选择数变化的 UI 属性

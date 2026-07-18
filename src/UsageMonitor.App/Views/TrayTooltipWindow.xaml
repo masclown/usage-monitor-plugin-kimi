@@ -79,6 +79,11 @@
                                     </StackPanel>
                                 </UniformGrid>
 
+                                <!-- req-028：5h 倒计时大字号（Hover 时实时刷新） -->
+                                <TextBlock Text="{Binding FiveHourCountdownText}" FontSize="18" FontWeight="Bold"
+                                           HorizontalAlignment="Right" Margin="0,8,0,0"
+                                           Foreground="{DynamicResource TextSecondaryBrush}" />
+
                                 <!-- 错误信息 -->
                                 <TextBlock Text="{Binding ErrorMessage}"
                                            Foreground="{DynamicResource DangerBrush}"

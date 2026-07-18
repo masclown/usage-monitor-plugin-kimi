@@ -4,6 +4,7 @@
         xmlns:controls="clr-namespace:UsageMonitor.App.Controls"
         xmlns:helpers="clr-namespace:UsageMonitor.App.Helpers"
         Title="UsageMonitor - AI用量监控"
+        Icon="{Binding CurrentLogoSource}"
         Height="640" Width="820"
         MinHeight="440" MinWidth="620"
         Background="{DynamicResource AppBackgroundBrush}"
@@ -33,8 +34,33 @@
             </StackPanel>
             <StackPanel Orientation="Horizontal" DockPanel.Dock="Right"
                         HorizontalAlignment="Right" VerticalAlignment="Center">
-                <Button Content="刷新" Command="{Binding RefreshCommand}"
-                        Style="{StaticResource PrimaryButtonStyle}" Margin="8,0,0,0" />
+                <Button Content="刷新" Command="{Binding RefreshCommand}" Margin="8,0,0,0">
+                    <Button.RenderTransform>
+                        <RotateTransform Angle="0" />
+                    </Button.RenderTransform>
+                    <Button.Style>
+                        <Style TargetType="Button" BasedOn="{StaticResource PrimaryButtonStyle}">
+                            <Style.Triggers>
+                                <!-- req-025：顶部"刷新"按钮旋转动画（IsRunning=True 触发 Storyboard） -->
+                                <DataTrigger Binding="{Binding RefreshCommand.IsRunning}" Value="True">
+                                    <DataTrigger.EnterActions>
+                                        <BeginStoryboard x:Name="TopRefreshSpinStoryboard">
+                                            <Storyboard>
+                                                <DoubleAnimation
+                                                    Storyboard.TargetProperty="(UIElement.RenderTransform).(RotateTransform.Angle)"
+                                                    From="0" To="360" Duration="0:0:1.0"
+                                                    RepeatBehavior="Forever" />
+                                            </Storyboard>
+                                        </BeginStoryboard>
+                                    </DataTrigger.EnterActions>
+                                    <DataTrigger.ExitActions>
+                                        <StopStoryboard BeginStoryboardName="TopRefreshSpinStoryboard" />
+                                    </DataTrigger.ExitActions>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                </Button>
                 <Button Content="历史" Click="OnHistoryClick"
                         Style="{StaticResource GhostButtonStyle}" Margin="8,0,0,0" />
                 <Button Content="设置" Click="OnSettingsClick"
@@ -278,34 +304,41 @@
                                                    Foreground="{DynamicResource TextSecondaryBrush}"
                                                    Margin="0,0,0,8" />
                                         <ItemsControl ItemsSource="{Binding BalanceItems}">
+                                            <!-- req-019：余额快照等宽分布 → ItemsPanel 由 StackPanel 换为 UniformGrid（Rows=1，动态列数） -->
                                             <ItemsControl.ItemsPanel>
                                                 <ItemsPanelTemplate>
-                                                    <StackPanel Orientation="Horizontal" />
+                                                    <UniformGrid Rows="1" Columns="{Binding Count}" />
                                                 </ItemsPanelTemplate>
                                             </ItemsControl.ItemsPanel>
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate>
-                                                    <Grid Margin="0,0,12,0" MinWidth="72"
+                                                    <!-- req-019：取消 MinWidth=72 与外边距；每列由 UniformGrid 等宽分布 -->
+                                                    <Grid Margin="0"
                                                           Visibility="{Binding IsVisible, Converter={StaticResource BoolToVisibility}}">
                                                         <Grid.ColumnDefinitions>
                                                             <ColumnDefinition Width="*" />
                                                             <ColumnDefinition Width="Auto" />
                                                         </Grid.ColumnDefinitions>
-                                                        <!-- 数据项：标签 12px / 主数字 26px Bold / 辅助行 10px -->
-                                                        <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                                        <!-- req-019：数据项全居中 + Value 字号 22 → 26 -->
+                                                        <StackPanel Grid.Column="0"
+                                                                    HorizontalAlignment="Center"
+                                                                    VerticalAlignment="Center">
                                                             <TextBlock Text="{Binding Label}" FontSize="12"
+                                                                       HorizontalAlignment="Center"
                                                                        Foreground="{DynamicResource TextSecondaryBrush}" />
-                                                            <TextBlock Text="{Binding Value}" FontSize="22" FontWeight="Bold"
+                                                            <TextBlock Text="{Binding Value}" FontSize="26" FontWeight="Bold"
+                                                                       HorizontalAlignment="Center"
                                                                        Foreground="{DynamicResource AccentBrush}"
                                                                        TextTrimming="CharacterEllipsis" />
                                                             <TextBlock Text="{Binding Detail}" FontSize="10"
+                                                                       HorizontalAlignment="Center"
                                                                        Foreground="{DynamicResource TextTertiaryBrush}"
                                                                        TextWrapping="Wrap"
                                                                        Visibility="{Binding Detail, Converter={StaticResource StringToVisibility}}" />
                                                         </StackPanel>
-                                                        <!-- 竖向分隔线（仅在不是首项时由 XAML 显示——末项不显示） -->
-                                                        <Rectangle Grid.Column="1" Width="1" Height="40"
-                                                                   Margin="10,0,0,0" VerticalAlignment="Center"
+                                                        <!-- req-019：竖向分隔线居中，末项由 IsLast 控制可见性（沿用 req-008 的 BoolToVisibility + Invert） -->
+                                                        <Rectangle Grid.Column="1" Width="1" Height="32"
+                                                                   Margin="8,0,0,0" VerticalAlignment="Center"
                                                                    Fill="{DynamicResource TrackBrush}"
                                                                    Visibility="{Binding IsLast, Converter={StaticResource BoolToVisibility}, ConverterParameter=Invert}" />
                                                     </Grid>
@@ -361,6 +394,7 @@
                                         Cells="{Binding HeatMapCells}"
                                         EmptyCellBrush="{DynamicResource TrackBrush}"
                                         TextBrush="{DynamicResource TextSecondaryBrush}"
+                                        ProviderId="{Binding ProviderId}"
                                         Visibility="{Binding CardChartKinds, Converter={StaticResource CardChartKindsContains}, ConverterParameter=HeatMap}" />
                                     <!-- 编程时段：示例数据（暂无真实逐时活跃度数据源） -->
                                     <controls:DayNightArcControl Height="132" Margin="0,0,0,8"

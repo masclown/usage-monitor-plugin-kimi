@@ -169,6 +169,23 @@ CREATE TABLE IF NOT EXISTS usage_daily (
     updated_at          DATETIME NOT NULL,
     PRIMARY KEY(provider_id, day)
 );
+
+-- req-013: 刷新聚合表。主窗口每次刷新（手动 + 定时）写入一行；
+-- 供历史窗口 DataGrid 展示“每次刷新”级别的明细。
+CREATE TABLE IF NOT EXISTS usage_refresh_aggregates (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    provider_id         TEXT NOT NULL,
+    refresh_at          TEXT NOT NULL,    -- yyyy-MM-dd HH:mm:ss
+    business_day        TEXT NOT NULL,    -- yyyy-MM-dd
+    max_used_percent    REAL NOT NULL,
+    min_used_percent    REAL NOT NULL,
+    end_used_percent    REAL NOT NULL,
+    avg_used_percent    REAL NOT NULL,
+    snapshot_count      INTEGER NOT NULL,
+    trigger_kind        TEXT NOT NULL     -- 'manual' / 'auto'
+);
+CREATE INDEX IF NOT EXISTS idx_ura_provider_day
+    ON usage_refresh_aggregates(provider_id, refresh_at DESC);
 ";
             cmd.ExecuteNonQuery();
             FileLogger.Info("UsageHistoryRepository", "EnsureSchema ok");
@@ -314,6 +331,367 @@ WHERE provider_id = $pid AND day = $day
     public Task UpsertPointAsync(UsageInfo usage)
     {
         return Task.Run(() => UpsertPoint(usage));
+    }
+
+    /// <summary>
+    /// req-013：插入一条刷新聚合记录。主窗口每次刷新（手动 / 定时）调用。
+    /// 失败仅日志，不向上抛。
+    /// </summary>
+    public async Task InsertRefreshAggregateAsync(RefreshAggregate agg)
+    {
+        if (agg == null || string.IsNullOrEmpty(agg.ProviderId)) return;
+        try
+        {
+            await using var conn = OpenConnection();
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = @"
+INSERT INTO usage_refresh_aggregates
+(provider_id, refresh_at, business_day, max_used_percent, min_used_percent,
+ end_used_percent, avg_used_percent, snapshot_count, trigger_kind)
+VALUES ($pid, $rat, $bd, $mx, $mn, $en, $av, $cnt, $tk);";
+            cmd.Parameters.AddWithValue("$pid", agg.ProviderId);
+            cmd.Parameters.AddWithValue("$rat", agg.RefreshAt.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture));
+            cmd.Parameters.AddWithValue("$bd", agg.BusinessDay);
+            cmd.Parameters.AddWithValue("$mx", agg.MaxUsedPercent);
+            cmd.Parameters.AddWithValue("$mn", agg.MinUsedPercent);
+            cmd.Parameters.AddWithValue("$en", agg.EndUsedPercent);
+            cmd.Parameters.AddWithValue("$av", agg.AvgUsedPercent);
+            cmd.Parameters.AddWithValue("$cnt", agg.SnapshotCount);
+            cmd.Parameters.AddWithValue("$tk", agg.TriggerKind);
+            await cmd.ExecuteNonQueryAsync();
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Error("UsageHistoryRepository",
+                $"InsertRefreshAggregateAsync({agg.ProviderId}) failed", ex);
+        }
+    }
+
+    /// <summary>
+    /// req-013：查询指定 provider 列表的刷新聚合记录，默认按 refresh_at DESC 排序。
+    /// from / to 可选，限定 refresh_at 范围。
+    /// </summary>
+    public async Task<List<RefreshAggregate>> QueryRefreshAggregatesAsync(
+        IEnumerable<string> providerIds, DateTime? from = null, DateTime? to = null)
+    {
+        var list = new List<RefreshAggregate>();
+        var ids = providerIds?.Where(x => !string.IsNullOrEmpty(x)).Distinct().ToList()
+                  ?? new List<string>();
+        if (ids.Count == 0) return list;
+        try
+        {
+            await using var conn = OpenConnection();
+            await using var cmd = conn.CreateCommand();
+            var placeholders = string.Join(",", ids.Select((_, i) => $"$p{i}"));
+            cmd.CommandText = $@"
+SELECT id, provider_id, refresh_at, business_day,
+       max_used_percent, min_used_percent, end_used_percent,
+       avg_used_percent, snapshot_count, trigger_kind
+FROM usage_refresh_aggregates
+WHERE provider_id IN ({placeholders})
+  {(from.HasValue ? "AND refresh_at >= $from" : "")}
+  {(to.HasValue ? "AND refresh_at <= $to" : "")}
+ORDER BY refresh_at DESC, provider_id ASC;";
+            for (int i = 0; i < ids.Count; i++)
+                cmd.Parameters.AddWithValue($"$p{i}", ids[i]);
+            if (from.HasValue)
+                cmd.Parameters.AddWithValue("$from", from.Value.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture));
+            if (to.HasValue)
+                cmd.Parameters.AddWithValue("$to", to.Value.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture));
+
+            await using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                list.Add(new RefreshAggregate(
+                    Id: reader.GetInt64(0),
+                    ProviderId: reader.GetString(1),
+                    RefreshAt: DateTime.ParseExact(reader.GetString(2), "yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
+                    BusinessDay: reader.GetString(3),
+                    MaxUsedPercent: reader.GetDouble(4),
+                    MinUsedPercent: reader.GetDouble(5),
+                    EndUsedPercent: reader.GetDouble(6),
+                    AvgUsedPercent: reader.GetDouble(7),
+                    SnapshotCount: reader.GetInt32(8),
+                    TriggerKind: reader.GetString(9)));
+            }
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Error("UsageHistoryRepository",
+                $"QueryRefreshAggregatesAsync failed", ex);
+        }
+        return list;
+    }
+
+    /// <summary>
+    /// req-021：一次性清理历史错误数据（token=0 的所有采样点）。
+    /// <para>
+    /// 背景：早期版本 MiniMax DOM 抓取会偶尔产出 token=0 的点，这些点对应"无用量但被错误着色"
+    /// 的热力图格子。本清理逻辑：扫描 <c>usage_points</c> 中 <c>used_tokens=0</c> 的所有记录，删除之。
+    /// </para>
+    /// <para>
+    /// 删除而非标记的原因：<c>usage_points</c> 不存 background 字段，标记需要新增列（schema 变更）。
+    /// 而 0 token 在折线图 / 热力图 / 统计上都无意义，保留反而占空间。
+    /// </para>
+    /// </summary>
+    /// <returns>删除的记录条数</returns>
+    public async Task<int> CleanHistoricalZeroTokenDataAsync()
+    {
+        int cleaned = 0;
+        try
+        {
+            await using var conn = OpenConnection();
+            await using var cmd = conn.CreateCommand();
+            // req-021：限定 used_tokens=0（避免误删其他 Provider 的 token=0 应保留数据）
+            // 为安全起见，仅当 ProviderId 是 MiniMax 时清理（其他 Provider 0 token 可能合法）。
+            cmd.CommandText = "DELETE FROM usage_points WHERE used_tokens = 0 AND provider_id = 'MiniMax';";
+            cleaned = await cmd.ExecuteNonQueryAsync();
+            if (cleaned > 0)
+            {
+                FileLogger.Info("UsageHistoryRepository",
+                    $"CleanHistoricalZeroTokenDataAsync: deleted {cleaned} MiniMax rows with used_tokens=0");
+            }
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Warn("UsageHistoryRepository",
+                "CleanHistoricalZeroTokenDataAsync failed (will not block startup)", ex);
+        }
+        return cleaned;
+    }
+
+    /// <summary>
+    /// req-021：清理后的每日聚合重算。逐 Provider × Day 重新计算 usage_daily，保证热力图色阶正确。
+    /// <para>
+    /// 适用场景：清理完 token=0 后，原 usage_daily 表里的 avg_used_percent / end_used_percent 仍
+    /// 可能受 0 token 影响。本方法对所有受影响的 (provider, day) 行触发重算。
+    /// </para>
+    /// </summary>
+    public async Task RecomputeDailyAggregatesAsync()
+    {
+        try
+        {
+            await using var conn = OpenConnection();
+            await using var cmd = conn.CreateCommand();
+            // 查找所有受影响的 day
+            cmd.CommandText = @"
+SELECT DISTINCT substr(bucket_key, 1, 8), provider_id
+FROM usage_points
+ORDER BY provider_id;";
+            await using var reader = await cmd.ExecuteReaderAsync();
+            var targets = new List<(string providerId, string day8)>();
+            while (await reader.ReadAsync())
+            {
+                targets.Add((reader.GetString(1), reader.GetString(0)));
+            }
+            await reader.CloseAsync();
+
+            // 对每对 (provider, day) 重算 usage_daily
+            foreach (var (pid, day8) in targets)
+            {
+                var day = $"{day8.Substring(0, 4)}-{day8.Substring(4, 2)}-{day8.Substring(6, 2)}";
+                await using var tx = conn.BeginTransaction();
+                UpsertDailyInternal(conn, tx, pid, day);
+                tx.Commit();
+            }
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Warn("UsageHistoryRepository",
+                "RecomputeDailyAggregatesAsync failed", ex);
+        }
+    }
+
+    /// <summary>
+    /// req-015：按需写入采样点。与上次同 Provider 同日采样点比对，业务指纹一致则跳过（仅日志）。
+    /// <para>
+    /// 指纹字段：<c>used_percent</c> + Provider 关键 extras（MiniMax：<c>mm_5hUsedPercent</c> /
+    /// <c>mm_weeklyUsedPercent</c> / <c>mm_remainingCredits</c> / <c>mm_subscriptionTitle</c> /
+    /// <c>mm_subscriptionActive</c>；其他：<c>used_tokens</c> / <c>total_tokens</c>）。
+    /// </para>
+    /// <para>
+    /// 异常时（fingerprint 比较失败）落入“决策 5B”：回退为写入 + FileLogger.Warn。不丢数据。
+    /// </para>
+    /// </summary>
+    /// <param name="usage">本次采样点（含 extras）</param>
+    /// <returns>true 表示已写入；false 表示指纹一致已跳过</returns>
+    public async Task<bool> InsertUsagePointIfChangedAsync(UsageInfo usage)
+    {
+        if (usage == null || string.IsNullOrEmpty(usage.ProviderId)) return false;
+        try
+        {
+            var percent = Math.Max(0, Math.Min(100, usage.GetUsagePercentage()));
+            var recordedAt = usage.LastUpdated == default ? DateTime.Now : usage.LastUpdated;
+            var day = recordedAt.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            var last = await GetLastUsagePointForDayAsync(usage.ProviderId, day);
+            if (last != null)
+            {
+                var lastUsage = ToUsageInfo(last);
+                if (BuildBusinessFingerprint(usage) == BuildBusinessFingerprint(lastUsage))
+                {
+                    FileLogger.Info("UsageHistoryRepository",
+                        $"UsagePoint skipped (no change): provider={usage.ProviderId} day={day} recordedAt={recordedAt:o}");
+                    return false;
+                }
+            }
+            UpsertPoint(usage);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Warn("UsageHistoryRepository",
+                $"InsertUsagePointIfChangedAsync({usage.ProviderId}) fingerprint compare failed, falling back to write", ex);
+            try { UpsertPoint(usage); } catch { /* swallow to not break refresh */ }
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// req-015：查询指定 Provider 当日最近一条采样点。
+    /// </summary>
+    public async Task<HistoryPointRecord?> GetLastUsagePointForDayAsync(string providerId, string day)
+    {
+        if (string.IsNullOrEmpty(providerId) || string.IsNullOrEmpty(day)) return null;
+        try
+        {
+            await using var conn = OpenConnection();
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = @"
+SELECT id, provider_id, bucket_key, recorded_at, used_percent,
+       used_amount, total_amount, used_tokens, total_tokens, unit, extra_json
+FROM usage_points
+WHERE provider_id = $pid AND substr(bucket_key, 1, 8) = $day8
+ORDER BY recorded_at DESC
+LIMIT 1;";
+            cmd.Parameters.AddWithValue("$pid", providerId);
+            cmd.Parameters.AddWithValue("$day8", day.Replace("-", ""));
+            await using var reader = await cmd.ExecuteReaderAsync();
+            if (await reader.ReadAsync())
+            {
+                return ReadPointRecord(reader);
+            }
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Error("UsageHistoryRepository",
+                $"GetLastUsagePointForDayAsync({providerId}, {day}) failed", ex);
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// req-015：构造本次采样的“业务指纹”——同值指纹一致才跳过写入。
+    /// <para>
+    /// 指纹字段：
+    /// <list type="bullet">
+    /// <item><description><c>used_percent</c>（决策 2C 顶层字段）</description></item>
+    /// <item><description>MiniMax：<c>mm_5hUsedPercent</c> / <c>mm_weeklyUsedPercent</c> / <c>mm_remainingCredits</c> / <c>mm_subscriptionTitle</c> / <c>mm_subscriptionActive</c></description></item>
+    /// <item><description>其他 Provider：<c>used_tokens</c> / <c>total_tokens</c></description></item>
+    /// </list>
+    /// </para>
+    /// </summary>
+    public static string BuildBusinessFingerprint(UsageInfo usage)
+    {
+        if (usage == null) return string.Empty;
+        var fields = new List<string>
+        {
+            $"percent={usage.GetUsagePercentage():0.####}"
+        };
+        if (usage.Extra != null)
+        {
+            if (string.Equals(usage.ProviderId, "MiniMax", StringComparison.OrdinalIgnoreCase))
+            {
+                fields.Add($"5h={TryGetDouble(usage.Extra, "mm_5hUsedPercent")}");
+                fields.Add($"week={TryGetDouble(usage.Extra, "mm_weeklyUsedPercent")}");
+                fields.Add($"credits={TryGetDouble(usage.Extra, "mm_remainingCredits")}");
+                fields.Add($"subTitle={TryGetString(usage.Extra, "mm_subscriptionTitle")}");
+                fields.Add($"subActive={TryGetBool(usage.Extra, "mm_subscriptionActive")}");
+            }
+            else
+            {
+                fields.Add($"usedTokens={TryGetLong(usage.Extra, "used_tokens")}");
+                fields.Add($"totalTokens={TryGetLong(usage.Extra, "total_tokens")}");
+            }
+        }
+        return string.Join("|", fields);
+    }
+
+    private static double TryGetDouble(IReadOnlyDictionary<string, object> extras, string key)
+    {
+        if (extras.TryGetValue(key, out var v) && v != null)
+        {
+            if (v is double d) return d;
+            if (v is float f) return f;
+            if (v is int i) return i;
+            if (v is long l) return l;
+            if (v is decimal m) return (double)m;
+            if (double.TryParse(v.ToString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var p)) return p;
+        }
+        return 0;
+    }
+
+    private static string TryGetString(IReadOnlyDictionary<string, object> extras, string key)
+    {
+        if (extras.TryGetValue(key, out var v) && v != null) return v.ToString() ?? string.Empty;
+        return string.Empty;
+    }
+
+    private static long TryGetLong(IReadOnlyDictionary<string, object> extras, string key)
+    {
+        if (extras.TryGetValue(key, out var v) && v != null)
+        {
+            if (v is long l) return l;
+            if (v is int i) return i;
+            if (v is double d) return (long)d;
+            if (v is decimal m) return (long)m;
+            if (long.TryParse(v.ToString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var p)) return p;
+        }
+        return 0;
+    }
+
+    private static bool TryGetBool(IReadOnlyDictionary<string, object> extras, string key)
+    {
+        if (extras.TryGetValue(key, out var v) && v != null)
+        {
+            if (v is bool b) return b;
+            if (bool.TryParse(v.ToString(), out var p)) return p;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// req-015：把持久化的 <see cref="HistoryPointRecord"/> 还原为 <see cref="UsageInfo"/> 用于指纹比对。
+    /// <para>
+    /// 注意：只填充指纹计算必需的字段，其他字段允许为默认。extras 从 <c>extra_json</c> 反序列化。
+    /// </para>
+    /// </summary>
+    private static UsageInfo ToUsageInfo(HistoryPointRecord r)
+    {
+        var info = new UsageInfo
+        {
+            ProviderId = r.ProviderId,
+            ProviderName = r.ProviderId,
+            UsedAmount = (decimal)(r.UsedAmount ?? r.UsedPercent),
+            TotalAmount = (decimal)(r.TotalAmount ?? 100),
+            UsedTokens = r.UsedTokens ?? 0,
+            TotalTokens = r.TotalTokens ?? 0,
+            Unit = r.Unit ?? string.Empty,
+            LastUpdated = r.RecordedAt,
+            IsSuccess = true
+        };
+        if (!string.IsNullOrEmpty(r.ExtraJson))
+        {
+            try
+            {
+                var dict = JsonSerializer.Deserialize<Dictionary<string, object>>(r.ExtraJson);
+                if (dict != null)
+                {
+                    foreach (var kv in dict) info.Extra[kv.Key] = kv.Value;
+                }
+            }
+            catch { /* extras 解析失败不阻塞；指纹退化为 percent-only */ }
+        }
+        return info;
     }
 
     /// <summary>
@@ -512,12 +890,18 @@ ORDER BY day ASC, provider_id ASC;
                 cmd.Parameters.AddWithValue("$id", providerId);
                 var n2 = await cmd.ExecuteNonQueryAsync();
 
+                // req-013: 同时清理刷新聚合表
+                cmd.Parameters.Clear();
+                cmd.CommandText = "DELETE FROM usage_refresh_aggregates WHERE provider_id = $id";
+                cmd.Parameters.AddWithValue("$id", providerId);
+                var n3 = await cmd.ExecuteNonQueryAsync();
+
                 await tx.CommitAsync();
-                return (n1, n2);
+                return (n1, n2, n3);
             });
-            var (n1Final, n2Final) = await deleteAsync;
+            var (n1Final, n2Final, n3Final) = await deleteAsync;
             FileLogger.Info("UsageHistoryRepository",
-                $"DeleteProviderDataAsync({providerId}): usage_points={n1Final} 行, usage_daily={n2Final} 行");
+                $"DeleteProviderDataAsync({providerId}): usage_points={n1Final} 行, usage_daily={n2Final} 行, usage_refresh_aggregates={n3Final} 行");
         }
         catch (Exception ex)
         {

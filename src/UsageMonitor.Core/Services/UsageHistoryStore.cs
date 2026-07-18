@@ -90,21 +90,7 @@ public class UsageHistoryStore
         if (usagePercent < 0) usagePercent = 0;
         if (usagePercent > 100) usagePercent = 100;
 
-        // 同步入内存队列
-        var queue = _histories.GetOrAdd(providerId, _ => new Queue<HistoryPoint>());
-        lock (queue)
-        {
-            queue.Enqueue(new HistoryPoint
-            {
-                UsagePercent = usagePercent,
-                Timestamp = DateTime.Now
-            });
-            while (queue.Count > _maxPoints)
-                queue.Dequeue();
-        }
-
-        ProviderHistoryChanged?.Invoke(this, providerId);
-        HistoryChanged?.Invoke(this, EventArgs.Empty);
+        EnqueueMemoryPoint(providerId, usagePercent, isError: false);
 
         // 异步写库（fire-and-forget）。仓库内部已 try/catch + FileLogger，这里不需要再包装。
         if (_repository != null)
@@ -130,6 +116,52 @@ public class UsageHistoryStore
             };
             _ = Task.Run(() => _repository.UpsertPoint(dummy));
         }
+    }
+
+    /// <summary>
+    /// req-015：添加一个包含完整 extras 的用量历史点。
+    /// 内存入队走与 <see cref="AddPoint(string, double)"/> 相同的路径；
+    /// 写库走 <see cref="UsageHistoryRepository.InsertUsagePointIfChangedAsync"/>：
+    /// 先与上次同 Provider 同日采样点比对业务指纹，一致则跳过写入（仅日志）。
+    /// </summary>
+    /// <param name="providerId">服务商唯一标识</param>
+    /// <param name="usage">本次刷新的完整用量（含 extras）</param>
+    public void AddPoint(string providerId, UsageInfo usage)
+    {
+        if (string.IsNullOrEmpty(providerId) || usage == null) return;
+
+        var usagePercent = usage.GetUsagePercentage();
+        if (usagePercent < 0) usagePercent = 0;
+        if (usagePercent > 100) usagePercent = 100;
+
+        EnqueueMemoryPoint(providerId, usagePercent, isError: false);
+
+        if (_repository != null)
+        {
+            _ = Task.Run(() => _repository.InsertUsagePointIfChangedAsync(usage));
+        }
+    }
+
+    /// <summary>
+    /// req-015 + 通用：把内存点压入队列 + 触发事件（线程安全）。
+    /// </summary>
+    private void EnqueueMemoryPoint(string providerId, double usagePercent, bool isError)
+    {
+        var queue = _histories.GetOrAdd(providerId, _ => new Queue<HistoryPoint>());
+        lock (queue)
+        {
+            queue.Enqueue(new HistoryPoint
+            {
+                UsagePercent = usagePercent,
+                Timestamp = DateTime.Now,
+                IsError = isError
+            });
+            while (queue.Count > _maxPoints)
+                queue.Dequeue();
+        }
+
+        ProviderHistoryChanged?.Invoke(this, providerId);
+        HistoryChanged?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>

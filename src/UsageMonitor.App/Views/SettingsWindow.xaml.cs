@@ -108,4 +108,51 @@ public partial class SettingsWindow : Window
                 "UsageMonitor", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
         }
     }
+
+    /// <summary>
+    /// req-027：保存设置按钮的 Click 处理器——保存成功→关闭窗口；保存失败→弹错误 MessageBox + 不关闭。
+    /// <para>
+    /// 与之前 <c>SaveSettingsCommand</c> 的区别：本方法把"窗口关闭"嵌入到成功路径里，
+    /// 用户点击一次就完成"保存 + 退出设置"两步。失败时不关闭，让用户改完再点一次。
+    /// </para>
+    /// <para>
+    /// 数据源：<see cref="ConfigService.LastSaveError"/>。Save() 同步执行：成功时清空该属性，
+    /// 失败时填上 <c>$"{异常类型}: {消息}"</c>；窗体读它的状态决定后续动作。
+    /// </para>
+    /// </summary>
+    private void OnSaveClick(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            // 触发保存（直接调 _configService.Save() 以保证异常路径被本 try/catch 接住）
+            _configService.Save();
+
+            if (!string.IsNullOrEmpty(_configService.LastSaveError))
+            {
+                // 保存失败：弹错误 + 不关闭
+                FileLogger.Warn("SettingsWindow",
+                    $"保存设置失败（LastSaveError 已设置）：{_configService.LastSaveError}");
+                System.Windows.MessageBox.Show(
+                    $"配置保存失败：\n{_configService.LastSaveError}\n\n可能是磁盘满、权限不足或文件被占用。窗口已保持打开，请修改后重试。",
+                    "保存失败",
+                    System.Windows.MessageBoxButton.OK,
+                    System.Windows.MessageBoxImage.Error);
+                return;
+            }
+
+            // 保存成功：关闭窗口（按 req-027 Q1 A + Q4 A，无 toast 反馈）
+            FileLogger.Info("SettingsWindow", "保存设置成功，关闭设置窗口");
+            this.Close();
+        }
+        catch (Exception ex)
+        {
+            // Save() 自身抛出（如 JSON 写入失败）的兜底
+            FileLogger.Warn("SettingsWindow", "保存设置抛出异常", ex);
+            System.Windows.MessageBox.Show(
+                $"保存失败：\n{ex.Message}",
+                "保存失败",
+                System.Windows.MessageBoxButton.OK,
+                System.Windows.MessageBoxImage.Error);
+        }
+    }
 }

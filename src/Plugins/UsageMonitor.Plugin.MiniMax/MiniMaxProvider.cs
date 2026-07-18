@@ -131,6 +131,17 @@ public class MiniMaxProvider : IUsageProvider
     /// </summary>
     public IReadOnlyList<UsageMonitor.Core.Models.BalanceItem> BalanceItems => System.Array.Empty<UsageMonitor.Core.Models.BalanceItem>();
 
+    /// <summary>
+    /// req-026：MiniMax 环形图中心支持的数字类型。
+    /// <para>
+    /// MiniMax 同时提供「已用百分比」<c>Percent</c> 与「积分余额」<c>Credits</c> 两种数字
+    /// （<c>Credits</c> 由 <c>usage_summary</c> 返回的剩余 Credits 折算为 K 数）。
+    /// 覆盖接口默认仅提供 <c>["Percent"]</c> 的行为，以便设置窗口 Tab "环形图中心"
+    /// 同时生成两个 CheckBox，用户可独立启用/关闭。
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<string> SupportedRingChartMetrics => new[] { "Percent", "Credits" };
+
     // req-009：HeatMapTiers 在 Plugin 项目中不显式 override（依赖 App 项目类型会循环依赖）。
     // 默认值由 ConfigService.Settings.ProviderHeatMapTiers["minimax"] 填入的 6 档出厂默认色阶兑底。
 

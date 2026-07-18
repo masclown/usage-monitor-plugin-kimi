@@ -133,6 +133,20 @@ public class RingChartControl : FrameworkElement, IHoverTooltipProvider
         nameof(CenterText), typeof(string), typeof(RingChartControl),
         new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
 
+    /// <summary>req-026：当前 Provider 已启用的 metric key 集合（决定中心数字是否显浅灰）。
+    /// <para>解析由 <c>RingChartMetricResolver</c> 完成；主窗口装配时把结果绑到本属性。
+    /// 未设置或为空集合时按"全部启用"处理（不显灰，保留旧行为）。</para></summary>
+    public static readonly DependencyProperty EnabledMetricsProperty = DependencyProperty.Register(
+        nameof(EnabledMetrics), typeof(IReadOnlyList<string>), typeof(RingChartControl),
+        new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
+
+    /// <summary>req-026：当前 metric 被关闭时中心数字显示的画笔（浅灰）。
+    /// 默认 <c>#CCCCCC</c>；UI 端可整体覆盖（如深色主题用更亮的浅灰）。</summary>
+    public static readonly DependencyProperty DisabledBrushProperty = DependencyProperty.Register(
+        nameof(DisabledBrush), typeof(Brush), typeof(RingChartControl),
+        new FrameworkPropertyMetadata(new SolidColorBrush(Color.FromRgb(0xCC, 0xCC, 0xCC)),
+            FrameworkPropertyMetadataOptions.AffectsRender));
+
     /// <summary>Provider 短名称</summary>
     public string ProviderName
     {
@@ -257,6 +271,20 @@ public class RingChartControl : FrameworkElement, IHoverTooltipProvider
     {
         get => (string?)GetValue(CenterTextProperty);
         set => SetValue(CenterTextProperty, value);
+    }
+
+    /// <summary>req-026：当前 Provider 已启用的 metric key 集合。null 或空集合表示全部启用。</summary>
+    public IReadOnlyList<string>? EnabledMetrics
+    {
+        get => (IReadOnlyList<string>?)GetValue(EnabledMetricsProperty);
+        set => SetValue(EnabledMetricsProperty, value);
+    }
+
+    /// <summary>req-026：当前 metric 被关闭时中心数字显示的画笔。</summary>
+    public Brush DisabledBrush
+    {
+        get => (Brush)GetValue(DisabledBrushProperty);
+        set => SetValue(DisabledBrushProperty, value);
     }
 
     // =========================
@@ -587,7 +615,27 @@ public class RingChartControl : FrameworkElement, IHoverTooltipProvider
         }
 
         // 4. 中心 Logo + 数字（垂直堆叠）
-        DrawCenterContent(dc, size, progressBrush);
+        // req-026：当前 metric 被关闭时，中心数字画刷切换为 DisabledBrush（浅灰）
+        var centerBrush = IsCurrentMetricEnabled(EnabledMetrics, MetricKey)
+            ? progressBrush
+            : (DisabledBrush ?? progressBrush);
+        DrawCenterContent(dc, size, centerBrush);
+    }
+
+    /// <summary>判断当前 <see cref="MetricKey"/> 是否在已启用集合中。
+    /// <para>req-026：null / 空集合表示「全部启用」，返回 true（保留旧行为）。
+    /// key 匹配忽略大小写。</para></summary>
+    private static bool IsCurrentMetricEnabled(IReadOnlyList<string>? enabled, string? metricKey)
+    {
+        if (enabled == null || enabled.Count == 0) return true;
+        if (string.IsNullOrEmpty(metricKey)) return true;
+        foreach (var m in enabled)
+        {
+            if (!string.IsNullOrEmpty(m) &&
+                string.Equals(m, metricKey, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
     }
 
     /// <summary>在圆心绘制：Logo（上方） + 数字（下方）。动画时数字做"老虎机"上下滚动。</summary>

@@ -37,7 +37,7 @@
                 </Grid.RowDefinitions>
 
                 <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,10">
-                    <TextBlock Text="Provider" FontSize="13" FontWeight="SemiBold"
+                    <TextBlock Text="已启用 Provider" FontSize="13" FontWeight="SemiBold"
                                Foreground="{DynamicResource TextSecondaryBrush}"
                                VerticalAlignment="Center" Margin="0,0,12,0" />
                     <ItemsControl ItemsSource="{Binding Providers}">
@@ -127,17 +127,19 @@
                 </Grid>
             </Border>
 
-            <!-- 右侧摘要：单 Provider 圆环 / 热力图统计卡 -->
+            <!-- 右侧摘要：单 Provider 圆环 / 热力图统计卡（req-023：摘要卡整体垂直拉伸 + 内部 StackPanel 居中） -->
             <StackPanel Grid.Column="1" Width="188" Margin="14,0,0,0">
                 <Border Background="{DynamicResource SurfaceBrush}"
                         CornerRadius="{DynamicResource RadiusCard}" Padding="16"
+                        VerticalAlignment="Stretch"
                         Visibility="{Binding IsSingleProviderSelected, Converter={StaticResource BoolToVisibility}}">
-                    <StackPanel>
+                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
                         <TextBlock Text="当前 Provider 摘要" FontSize="12"
+                                   HorizontalAlignment="Center"
                                    Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,10" />
                         <controls:RingChartControl x:Name="RingChart"
                                                    Percent="{Binding RingLatestPercent, FallbackValue=0, TargetNullValue=0}"
-                                                   Size="128" StrokeThickness="10"
+                                                   Size="100" StrokeThickness="9"
                                                    HorizontalAlignment="Center"
                                                    TrackBrush="{DynamicResource TrackBrush}"
                                                    ProgressBrush="{DynamicResource AccentBrush}"
@@ -146,8 +148,9 @@
                                                    Visibility="{Binding HasRingSeries, Converter={StaticResource BoolToVisibility}}" />
                         <TextBlock Text="{Binding RingSeries.DisplayName}"
                                    FontSize="14" FontWeight="SemiBold"
+                                   HorizontalAlignment="Center"
                                    Foreground="{DynamicResource TextPrimaryBrush}"
-                                   HorizontalAlignment="Center" Margin="0,12,0,0" />
+                                   Margin="0,12,0,0" />
                         <TextBlock Text="{Binding RingSampleCount, StringFormat=共 {0} 个采样点}"
                                    FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
                                    HorizontalAlignment="Center" />
@@ -193,22 +196,57 @@
                    Foreground="{DynamicResource TextSecondaryBrush}"
                    Visibility="{Binding HasStatusMessage, Converter={StaticResource BoolToVisibility}}" />
 
-        <!-- 详情 DataGrid -->
+        <!-- 详情 DataGrid（req-013：上方切片器 + 8 列 + 列头点击排序） -->
         <Border Grid.Row="4" Background="{DynamicResource SurfaceBrush}"
                 CornerRadius="{DynamicResource RadiusCard}" Padding="6">
-            <DataGrid ItemsSource="{Binding DetailRows}"
-                      AutoGenerateColumns="False" CanUserAddRows="False"
-                      IsReadOnly="True">
-                <DataGrid.Columns>
-                    <DataGridTextColumn Header="Provider" Binding="{Binding ProviderName}" Width="*" />
-                    <DataGridTextColumn Header="日期" Binding="{Binding Day}" Width="110" />
-                    <DataGridTextColumn Header="最高%" Binding="{Binding MaxPercent}" Width="80" />
-                    <DataGridTextColumn Header="最低%" Binding="{Binding MinPercent}" Width="80" />
-                    <DataGridTextColumn Header="结束%" Binding="{Binding EndPercent}" Width="80" />
-                    <DataGridTextColumn Header="平均%" Binding="{Binding AvgPercent}" Width="80" />
-                    <DataGridTextColumn Header="采样数" Binding="{Binding Snapshots}" Width="80" />
-                </DataGrid.Columns>
-            </DataGrid>
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <!-- req-013：切片器区块（DataGrid 上方） -->
+                <Border Grid.Row="0"
+                        Background="{DynamicResource SurfaceBrush}"
+                        CornerRadius="{DynamicResource RadiusSmall}" Padding="10,6"
+                        Margin="6,4,6,6">
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock Text="切片" FontSize="12" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                   VerticalAlignment="Center" Margin="0,0,10,0" />
+                        <ItemsControl ItemsSource="{Binding Providers}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Orientation="Horizontal" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <CheckBox Content="{Binding DisplayName}"
+                                              IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                              FontSize="11" Margin="0,0,8,0"
+                                              VerticalAlignment="Center" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+
+                <DataGrid Grid.Row="1" ItemsSource="{Binding DetailRows}"
+                          AutoGenerateColumns="False" CanUserAddRows="False"
+                          IsReadOnly="True" CanUserSortColumns="True">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Provider" Binding="{Binding ProviderName}" Width="*" SortMemberPath="ProviderName" />
+                        <DataGridTextColumn Header="日期" Binding="{Binding Day}" Width="100" SortMemberPath="Day" />
+                        <DataGridTextColumn Header="刷新时间" Binding="{Binding RefreshedAtText}" Width="90" SortMemberPath="RefreshedAtText" />
+                        <DataGridTextColumn Header="最高%" Binding="{Binding MaxPercent}" Width="70" SortMemberPath="MaxPercent" />
+                        <DataGridTextColumn Header="最低%" Binding="{Binding MinPercent}" Width="70" SortMemberPath="MinPercent" />
+                        <DataGridTextColumn Header="结束%" Binding="{Binding EndPercent}" Width="70" SortMemberPath="EndPercent" />
+                        <DataGridTextColumn Header="平均%" Binding="{Binding AvgPercent}" Width="70" SortMemberPath="AvgPercent" />
+                        <DataGridTextColumn Header="采样数" Binding="{Binding Snapshots}" Width="70" SortMemberPath="Snapshots" />
+                    </DataGrid.Columns>
+                </DataGrid>
+            </Grid>
         </Border>
     </Grid>
 </Window>

@@ -8,6 +8,7 @@ using System.Windows;
 using System.Windows.Input;
 using CommunityToolkit.Mvvm.Input;
 using UsageMonitor.App.Controls;
+using UsageMonitor.App.Helpers;
 using UsageMonitor.Core.Models;
 using UsageMonitor.Core.Plugins;
 using UsageMonitor.Core.Services;
@@ -46,6 +47,10 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
     private double _weeklyBarPercent;
     private string _primaryResetText = "--";
     private string _weeklyResetText = "--";
+    // req-028：5h 重置的精确时刻（来自 mm_5hResetAt extras）。null 表示该 Provider 无 5h 字段（不应出现在 5h 倒计时语境）。
+    private DateTime? _next5hResetAt;
+    private string _fiveHourCountdownText = "00:00:00";
+    private bool _fiveHourAutoRefreshTriggered;
     private string _videoQuotaText = "--";
     private string _videoWeeklyText = "--";
     private double _remainingCredits;
@@ -72,6 +77,8 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
     // 完整数据按日期升序，最多 168 天（MiniMax usage_summary 接口上限）。
     private IReadOnlyList<long> _fullDailyValues = Array.Empty<long>();
     private IReadOnlyList<string> _fullDailyDates = Array.Empty<string>();
+    // req-026：当前 Provider 启用的环形图中心 metric key 列表，绑定到 RingChartControl.EnabledMetrics。
+    private IReadOnlyList<string> _enabledRingChartMetrics = Array.Empty<string>();
 
     /// <summary>
     /// 创建用量显示 VM。
@@ -253,6 +260,74 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
 
     /// <summary>5h 限额重置剩余文案（"2 小时 21 分钟后重置"）</summary>
     public string PrimaryResetText { get => _primaryResetText; set { _primaryResetText = value; OnPropertyChanged(); } }
+
+    /// <summary>
+    /// req-028：根据 <see cref="Next5hResetAt"/> 重新计算 <see cref="FiveHourCountdownText"/>。
+    /// <para>由 MainViewModel 的全局每秒 timer 调用；不需要 INPC 子订阅。
+    /// 返回当前倒计时 + 是否已超过 0（”到点了“），供 MainViewModel 决定是否调 <c>RefreshProviderAsync</c>。</para>
+    /// </summary>
+    /// <param name="now">外部传“当时”便于测试；不传则用 <see cref="DateTime.Now"/>。</param>
+    /// <returns>(剩余时长, 是否≤0) 剩余&gt;0时返回 remaining+false；小于等于0或 null 时返回 (Zero, true)。</returns>
+    public (TimeSpan remaining, bool isElapsed) RefreshFiveHourCountdownText(DateTime? now = null)
+    {
+        var current = now ?? DateTime.Now;
+        var target = _next5hResetAt;
+        if (target == null)
+        {
+            FiveHourCountdownText = "00:00:00";
+            return (TimeSpan.Zero, true);
+        }
+        var remaining = target.Value - current;
+        if (remaining <= TimeSpan.Zero)
+        {
+            FiveHourCountdownText = "00:00:00";
+            return (TimeSpan.Zero, true);
+        }
+        FiveHourCountdownText = UsageMonitor.App.Helpers.CountdownFormatter.Format(remaining);
+        return (remaining, false);
+    }
+
+    /// <summary>req-028：MainViewModel 检查到“到点了”时调用，标记本次窗口已经触发；到下个新 mm_5hResetAt 出现时被重置。</summary>
+    public void MarkFiveHourAutoRefreshTriggered() => _fiveHourAutoRefreshTriggered = true;
+
+    /// <summary>req-028：检查本 Provider 是否应该被自动刷新（倒计时≤0 且本窗口未触发过）。</summary>
+    public bool ShouldTriggerFiveHourAutoRefresh()
+        => _next5hResetAt.HasValue
+           && _next5hResetAt.Value <= DateTime.Now
+           && !_fiveHourAutoRefreshTriggered;
+
+    /// <summary>
+    /// req-028：5h 重置精确时刻（来自 mm_5hResetAt extras）。
+    /// <para>用于计算托盘/悬浮窗倒计时 <see cref="FiveHourCountdownText"/>，以及到时自动刷新的判定。
+    /// 由 <c>UpdateFromMiniMaxDom</c> 写入；为 null 时表示该 Provider 不参与 5h 倒计时。</para>
+    /// </summary>
+    public DateTime? Next5hResetAt
+    {
+        get => _next5hResetAt;
+        set
+        {
+            if (_next5hResetAt == value) return;
+            _next5hResetAt = value;
+            _fiveHourAutoRefreshTriggered = false; // 新值出现意味着倒计时重置，允许下次再次到达 0 时触发
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(FiveHourCountdownText));
+            OnPropertyChanged(nameof(HasFiveHourCountdown));
+        }
+    }
+
+    /// <summary>
+    /// req-028：5h 倒计时显示文本（HH:mm:ss 形式）。
+    /// <para>由 MainViewModel 装配的每 1 秒 <c>DispatcherTimer</c> 刷新（直接调用
+    /// <see cref="RefreshFiveHourCountdownText"/>）。托盘/悬浮窗均可绑此属性。</para>
+    /// </summary>
+    public string FiveHourCountdownText
+    {
+        get => _fiveHourCountdownText;
+        set { if (_fiveHourCountdownText == value) return; _fiveHourCountdownText = value; OnPropertyChanged(); }
+    }
+
+    /// <summary>req-028：是否存在有效 5h 重置时间（用于按需显隐倒计时 UI）。</summary>
+    public bool HasFiveHourCountdown => _next5hResetAt.HasValue;
 
     /// <summary>周限额重置剩余文案（"5 天 2 小时后重置"）</summary>
     public string WeeklyResetText { get => _weeklyResetText; set { _weeklyResetText = value; OnPropertyChanged(); } }
@@ -447,6 +522,35 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
             _isLoading = value;
             OnPropertyChanged();
         }
+    }
+
+    /// <summary>
+    /// req-026：当前 Provider 启用的环形图中心 metric key 集合。
+    /// <para>绑定到 RingChartControl.EnabledMetrics，由 <c>MainViewModel.BuildProviderRingChartMetricGroups</c>
+    /// 在用户勾选变更时通过 <c>SyncProviderEnabledMetricsToVm</c> 同步。null / 空集合表示“全部启用”，
+    /// 控件会沿用旧行为不显灰。</para>
+    /// </summary>
+    public IReadOnlyList<string> EnabledRingChartMetrics
+    {
+        get => _enabledRingChartMetrics;
+        set
+        {
+            if (ReferenceEquals(_enabledRingChartMetrics, value)) return;
+            if (value == null) value = Array.Empty<string>();
+            _enabledRingChartMetrics = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(EnabledRingChartMetricsOrNull));
+        }
+    }
+
+    /// <summary>
+    /// req-026：XAML 绑定辅助——把 null 转成"全部启用"占位的 null（让 RingChartControl 默认启灰判断）。
+    /// <para>vs <see cref="EnabledRingChartMetrics"/>：返回 null 时让控件认为"未配置"，保留旧行为。</para>
+    /// </summary>
+    public IReadOnlyList<string>? EnabledRingChartMetricsOrNull
+    {
+        get => _enabledRingChartMetrics.Count == 0 ? null : _enabledRingChartMetrics;
+        set { /* 仅供 XAML setter 调用，实际写入见 EnabledRingChartMetrics */ }
     }
 
     /// <summary>
@@ -659,6 +763,8 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         PrimaryBarPercent = p5 >= 0 ? Math.Min(100, p5) : 0;
         UsagePercentage = PrimaryBarPercent; // 遗留逻辑：保留卡片顶部主进度条的取值
         PrimaryResetText = BuildRemainText(extra, "mm_5hResetAt");
+        // req-028：同时保存 mm_5hResetAt 原始 DateTime，供托盘/悬浮窗倒计时 + 到时自动刷新。
+        Next5hResetAt = extra.TryGetValue("mm_5hResetAt", out var ra) && ra is DateTime radt ? radt : null;
 
         // 4. 周限额进度条。
         var pw = D("mm_weeklyUsedPercent");
@@ -844,8 +950,10 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
             Dates = Array.Empty<string>();
         }
 
-        // 热力图（req-009）：为每个 token 日期生成单元，背景色按 token 绝对值走 HeatMapTierScale 选档；
-        // token=0 仍生成 Cell（背景为 #f3f4f6），避免全部走 EmptyCellBrush 不可见。
+        // 热力图（req-009 + req-021）：为每个 token 日期生成单元，背景色按 token 绝对值走 HeatMapTierScale 选档；
+        // token<=0 显式归一为“无用量”色（#f3f4f6），避免热力图色阶表后续变更导致浅红误着色。
+        // 静态冻结 brush（跨线程安全）。
+        var zeroBrush = FreezeBrush(0xF3, 0xF4, 0xF6);
         HeatMapCells.Clear();
         if (values.Count > 0)
         {
@@ -870,12 +978,17 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
                 if (peak <= 0) peak = 1;
                 double percent = Math.Min(100.0, 100.0 * token / peak);
 
+                // req-021：token<=0 强制显 “无用量”色（与色阶表首档颜色一致，但与未来修改脱耦）。
+                var bgBrush = token > 0
+                    ? UsageMonitor.App.Helpers.HeatMapTierScale.ResolveBrush(token, "MiniMax")
+                    : zeroBrush;
+
                 HeatMapCells.Add(new YearHeatMapCell
                 {
                     Day = day,
                     Percent = percent,
                     Token = token, // req-009：供 RecolorHeatMapCells 重算背景色
-                    Background = UsageMonitor.App.Helpers.HeatMapTierScale.ResolveBrush(token, "MiniMax"),
+                    Background = bgBrush,
                     ValueText = token > 0 ? FormatTokens(token) : "--",
                     Unit = "tokens",
                     ComparisonText = cacheHitPercent >= 0
@@ -1245,6 +1358,11 @@ public class MainViewModel : INotifyPropertyChanged
     private readonly ConfigService _configService;
     private readonly RefreshService _refreshService;
     private readonly UsageHistoryStore _historyStore;
+    // req-028：每 1s 触发一次的全局 DispatcherTimer，用来刷新各 Provider 卡的 5h 倒计时 + 到时自动刷新。
+    // 单例复用；启动时由 MainViewModel 构造函数 Start，资沅销毁由 App.xaml.cs OnExit 调用 Stop。
+    private System.Windows.Threading.DispatcherTimer? _fiveHourCountdownTimer;
+    // req-028："上一次自动刷新触发"时间，防止系统时间回退 / 重复 tick 造成连续多次触发 RefreshProviderAsync。
+    private DateTime _lastAutoRefreshUtc = DateTime.MinValue;
 
     /// <summary>供主窗口和设置窗口复用的全局配置服务。</summary>
     public ConfigService ConfigService => _configService;
@@ -1257,6 +1375,19 @@ public class MainViewModel : INotifyPropertyChanged
 
     /// <summary>插件列表</summary>
     public ObservableCollection<PluginItemViewModel> PluginItems { get; } = new();
+
+    /// <summary>
+    /// req-016：当前主题对应的项目 Logo（用于 MainWindow.Icon 绑定）。
+    /// <para>
+    /// 订阅 <see cref="UsageMonitor.App.Helpers.ThemeManager.ThemeChanged"/> 事件实现实时刷新。
+    /// </para>
+    /// </summary>
+    public System.Windows.Media.ImageSource? CurrentLogoSource
+    {
+        get => _currentLogoSource;
+        private set { _currentLogoSource = value; OnPropertyChanged(); }
+    }
+    private System.Windows.Media.ImageSource? _currentLogoSource;
 
     /// <summary>
     /// 设置页“用量色阶” Tab 的编辑上下文（延迟初始化，首次访问时创建）。
@@ -1332,6 +1463,50 @@ public class MainViewModel : INotifyPropertyChanged
             OnPropertyChanged();
         }
     }
+
+    /// <summary>
+    /// req-022：任务栏显示的全局默认模式（当某 Provider 没有单独覆盖时使用）。
+    /// <para>
+    /// 设置修改后立即持久化到 config.json，并触发 ConfigChanged 让 TaskbarWindow 实时刷新。
+    /// </para>
+    /// </summary>
+    public TaskbarDisplayMode GlobalTaskbarMode
+    {
+        get => _configService.Settings.GlobalTaskbarMode;
+        set
+        {
+            if (_configService.Settings.GlobalTaskbarMode == value) return;
+            _configService.Settings.GlobalTaskbarMode = value;
+            _configService.Save();
+            OnPropertyChanged();
+            // req-022：通知 TaskbarWindow 重新计算每 Provider 的 effective mode
+            RaiseTaskbarModeChanged();
+        }
+    }
+
+    /// <summary>
+    /// req-022：任务栏显示模式变更事件。订阅方（如 TaskbarWindow）收到后重新计算尺寸并刷新显示。
+    /// </summary>
+    public event EventHandler? TaskbarModeChanged;
+
+    /// <summary>触发 <see cref="TaskbarModeChanged"/> 事件。</summary>
+    private void RaiseTaskbarModeChanged()
+    {
+        try { TaskbarModeChanged?.Invoke(this, EventArgs.Empty); }
+        catch (Exception ex)
+        {
+            UsageMonitor.Core.Services.FileLogger.Error("MainViewModel",
+                $"RaiseTaskbarModeChanged threw: {ex.Message}", ex);
+        }
+    }
+
+    /// <summary>全局任务栏模式下拉框的友好文本 + key 映射（用于 ComboBox 绑定）</summary>
+    public IReadOnlyList<KeyValuePair<TaskbarDisplayMode, string>> GlobalTaskbarModeOptions { get; } = new[]
+    {
+        new KeyValuePair<TaskbarDisplayMode, string>(TaskbarDisplayMode.Text, "文字"),
+        new KeyValuePair<TaskbarDisplayMode, string>(TaskbarDisplayMode.MiniLineChart, "折线图"),
+        new KeyValuePair<TaskbarDisplayMode, string>(TaskbarDisplayMode.RingChart, "圆环图"),
+    };
 
     /// <summary>托盘悬浮窗关闭延迟（毫秒）</summary>
     public int TrayTooltipHideDelayMs
@@ -1441,7 +1616,11 @@ public class MainViewModel : INotifyPropertyChanged
     }
 
     /// <summary>刷新命令</summary>
-    public IRelayCommand RefreshCommand { get; }
+    /// <summary>
+        /// 主窗口顶部"刷新"按钮绑定的命令（刷新所有已启用 Provider）。
+        /// 使用 AsyncRelayCommand：执行期间自动提供 <c>IsRunning</c> 属性，供 req-025 旋转动画触发。
+        /// </summary>
+        public IAsyncRelayCommand RefreshCommand { get; }
 
     /// <summary>保存设置命令</summary>
     public IRelayCommand SaveSettingsCommand { get; }
@@ -1489,6 +1668,15 @@ public class MainViewModel : INotifyPropertyChanged
 
     /// <summary>REQ-003：恢复默认 metric 顺序（覆盖设置 + 同步 ListBox + 落盘）。</summary>
     public IRelayCommand ResetRingMetricOrderCommand { get; private set; } = null!;
+
+    // =====================================================================
+    // req-026 环形图中心数字「按 Provider 独立启用」设置
+    // =====================================================================
+
+    /// <summary>req-026：环形图中心数字「每个 Provider × 支持的 metric」勾选状态集合。
+    /// <para>绑定到设置窗口 Tab "环形图中心"，每行一个 Provider，每行内多 CheckBox（每个支持的 metric 一个）。
+    /// 勾选状态写回 <c>AppSettings.ProviderEnabledRingChartMetrics[providerId]</c>。</para></summary>
+    public ObservableCollection<ProviderRingChartMetricGroup> ProviderRingChartMetricGroups { get; } = new();
 
     // =====================================================================
     // REQ-004 触发区域 RectInt
@@ -1603,12 +1791,18 @@ public class MainViewModel : INotifyPropertyChanged
         _historyStore = historyStore ?? new UsageHistoryStore();
         _historyStore.MaxPoints = Math.Max(1, _configService.Settings.HistoryPointCount);
 
-        RefreshCommand = new RelayCommand(async () => await refreshService.RefreshAllAsync());
+        RefreshCommand = new AsyncRelayCommand(async () => await refreshService.RefreshAllAsync());
         SaveSettingsCommand = new RelayCommand(() => _configService.Save());
+
+        // req-016：初始化主窗口 Logo + 订阅主题切换事件
+        CurrentLogoSource = UsageMonitor.App.Helpers.LogoProvider.LoadLogo(UsageMonitor.App.Helpers.ThemeManager.Current);
+        UsageMonitor.App.Helpers.ThemeManager.ThemeChanged += OnThemeChanged;
 
         // REQ-003：环形图 metric 顺序从设置同步到 ListBox 集合；提供上下移动 + 恢复默认三个命令
         // 使用 RelayCommand<int> 泛型版本（列表索引），CommunityToolkit.Mvvm 8.x 的非泛型 RelayCommand 仅接 Action。
         SyncRingChartMetricOrderFromConfig();
+        // req-026：环形图中心数字选择项集合从插件 Support + Config 计算
+        BuildProviderRingChartMetricGroups();
         MoveRingMetricUpCommand = new RelayCommand<int>(idx =>
         {
             if (idx <= 0 || idx >= RingChartMetricOrder.Count) return;
@@ -1648,12 +1842,16 @@ public class MainViewModel : INotifyPropertyChanged
         // 与 App.xaml.cs 中 _configService.ConfigChanged 订阅互不冲突（多订阅者并行接收）。
         _configService.ConfigChanged += OnConfigChangedRefreshSettings;
 
+        // req-028：启动全局每秒 DispatcherTimer，刷新托盘/悬浮窗/卡片的 5h 倒计时 + 到时自动刷新。
+        // 必须在 Usages / EnabledUsages / PluginItems 都装配后启动；后续调用连动。
+        StartFiveHourCountdownTimer();
+
         // 初始化插件列表与用量显示
         foreach (var plugin in pluginManager.Plugins)
         {
             // 读取已保存的显示模式
-            var savedMode = _configService.Settings.ProviderTaskbarModes
-                .GetValueOrDefault(plugin.Provider.ProviderId, TaskbarDisplayMode.Text);
+            var savedMode = UsageMonitor.App.Helpers.TaskbarModeResolver.Resolve(
+                _configService.Settings, plugin.Provider.ProviderId);
             var savedCardCharts = _configService.GetProviderCardChartKinds(plugin.Provider.ProviderId);
             
             var item = new PluginItemViewModel(plugin.Provider, _configService)
@@ -2039,7 +2237,223 @@ public class MainViewModel : INotifyPropertyChanged
         _configService.Save();
     }
 
+    /// <summary>
+    /// req-026：从 <c>_pluginManager.Plugins</c> + <c>AppSettings.ProviderEnabledRingChartMetrics</c>
+    /// 重建 <see cref="ProviderRingChartMetricGroups"/>。
+    /// <para>每个启用插件创建一个组（含 ProviderId / DisplayName / AvailableMetrics），组内每个支持的 metric
+    /// 一个 <see cref="RingChartMetricChoice"/>，IsEnabled 由 <c>RingChartMetricResolver</c> 解析。
+    /// 重建时先清空集合，保证绑定侧有最新状态。</para>
+    /// </summary>
+    private void BuildProviderRingChartMetricGroups()
+    {
+        ProviderRingChartMetricGroups.Clear();
+        var settings = _configService.Settings;
+        foreach (var plugin in _pluginManager.Plugins)
+        {
+            var supported = plugin.Provider.SupportedRingChartMetrics ?? Array.Empty<string>();
+            if (supported.Count == 0) continue;
+            var group = new ProviderRingChartMetricGroup
+            {
+                ProviderId = plugin.Provider.ProviderId,
+                ProviderDisplayName = plugin.Provider.DisplayName,
+            };
+            var enabledList = UsageMonitor.App.Helpers.RingChartMetricResolver
+                .GetEnabledMetrics(settings, plugin.Provider.ProviderId);
+            foreach (var key in supported)
+            {
+                group.Metrics.Add(new RingChartMetricChoice
+                {
+                    Key = key,
+                    DisplayName = ResolveRingMetricDisplayName(key),
+                    IsEnabled = UsageMonitor.App.Helpers.RingChartMetricResolver.IsMetricEnabled(enabledList, key)
+                });
+            }
+            // 同步订阅：勾选变化时写回 settings + 通知 ProviderUsageViewModel.EnabledRingChartMetrics
+            foreach (var m in group.Metrics)
+            {
+                m.PropertyChanged += (_, _) =>
+                {
+                    // 收集该 group 当前所有勾选的 key
+                    var keys = group.Metrics.Where(x => x.IsEnabled).Select(x => x.Key).ToList();
+                    settings.ProviderEnabledRingChartMetrics[group.ProviderId] = keys;
+                    _configService.Save();
+                    // 触发刷新卡片上的 EnabledMetrics
+                    OnPropertyChanged(nameof(ProviderRingChartMetricGroups));
+                    SyncProviderEnabledMetricsToVm(group.ProviderId, keys);
+                };
+            }
+            ProviderRingChartMetricGroups.Add(group);
+        }
+    }
+
+    /// <summary>req-026：把某个 Provider 当前勾选的 metric key 集合同步到对应 ProviderUsageViewModel，
+    /// 让卡片上的 RingChartControl 立即刷新。</summary>
+    private void SyncProviderEnabledMetricsToVm(string providerId, IReadOnlyList<string> enabledKeys)
+    {
+        foreach (var vm in Usages)
+        {
+            if (string.Equals(vm.ProviderId, providerId, StringComparison.OrdinalIgnoreCase))
+            {
+                vm.EnabledRingChartMetrics = enabledKeys;
+            }
+        }
+    }
+
+    /// <summary>req-026：根据 metric key 解析中文显示名（控件未配置时回退 RingChartMetricKeys 常量名）。</summary>
+    private static string ResolveRingMetricDisplayName(string key)
+    {
+        return key switch
+        {
+            "Percent" => "已用百分比",
+            "Credits" => "积分余额",
+            "WeeklyLimit" => "本周限额",
+            "RemainingQuota" => "剩余额度",
+            "ApiTokenUsed" => "已用 Token",
+            _ => key
+        };
+    }
+
+    /// <summary>
+    /// req-016：主题切换事件处理。重新加载对应主题的 Logo，让主窗口 Icon 实时刷新。
+    /// <para>
+    /// 在 UI 线程上同步触发（ThemeManager.Apply 本身就在 UI 线程被调用），无需额外 Dispatcher.Invoke。
+    /// </para>
+    /// </summary>
+    private void OnThemeChanged(object? sender, ThemeChangedEventArgs e)
+    {
+        try
+        {
+            CurrentLogoSource = UsageMonitor.App.Helpers.LogoProvider.LoadLogo(e.NewTheme);
+        }
+        catch (Exception ex)
+        {
+            UsageMonitor.Core.Services.FileLogger.Error("MainViewModel",
+                $"OnThemeChanged({e.NewTheme}) reload logo failed: {ex.Message}", ex);
+        }
+    }
+
+    // =====================================================================
+    // req-028：5h 刷新倒计时（托盘 + 悬浮窗 + 到时自动刷新）
+    // =====================================================================
+
+    /// <summary>
+    /// req-028：启动全局每秒 <c>DispatcherTimer</c>，刷新所有 Provider 卡片的 5h 倒计时文本 + 到时自动刷新。
+    /// <para>
+    /// 调用方：MainViewModel 构造函数末尾（确保所有 <see cref="Usages"/> 已装配后再启动）。
+    /// 期望与 <c>App.OnExit</c> 配对调 <see cref="StopFiveHourCountdownTimer"/> 避免泄漏。
+    /// </para>
+    /// </summary>
+    public void StartFiveHourCountdownTimer()
+    {
+        if (_fiveHourCountdownTimer != null) return; // 幂等
+        _fiveHourCountdownTimer = new System.Windows.Threading.DispatcherTimer
+        {
+            Interval = TimeSpan.FromSeconds(1)
+        };
+        _fiveHourCountdownTimer.Tick += OnFiveHourCountdownTick;
+        _fiveHourCountdownTimer.Start();
+    }
+
+    /// <summary>
+    /// req-028：停止全局每秒 timer，App.OnExit 入口调用以避免 <c>DispatcherTimer</c> 引用泄漏。
+    /// </summary>
+    public void StopFiveHourCountdownTimer()
+    {
+        if (_fiveHourCountdownTimer == null) return;
+        _fiveHourCountdownTimer.Stop();
+        _fiveHourCountdownTimer.Tick -= OnFiveHourCountdownTick;
+        _fiveHourCountdownTimer = null;
+    }
+
+    /// <summary>
+    /// req-028：每秒 tick：遍历所有用量 VM 刷新 <see cref="ProviderUsageViewModel.FiveHourCountdownText"/> + 检查是否需要到时自动刷新。
+    /// <para>每个 tick 都是 fire-and-forget；调用 <see cref="ProviderUsageViewModel.ShouldTriggerFiveHourAutoRefresh"/> 判断后调
+    /// <see cref="RefreshService.RefreshProviderAsync"/>。为防重复触发，已经在 VM 上标记过的不会再被本 tick 选中，
+    /// 直到新 <see cref="ProviderUsageViewModel.Next5hResetAt"/> 到来重置该标记。</para>
+    /// </summary>
+    private void OnFiveHourCountdownTick(object? sender, EventArgs e)
+    {
+        if (Usages == null) return;
+        foreach (var vm in Usages)
+        {
+            if (vm == null) continue;
+            vm.RefreshFiveHourCountdownText(DateTime.Now);
+            if (vm.ShouldTriggerFiveHourAutoRefresh())
+            {
+                vm.MarkFiveHourAutoRefreshTriggered();
+                var providerId = vm.ProviderId;
+                _ = TriggerProviderAutoRefreshAsync(providerId);
+            }
+        }
+    }
+
+    /// <summary>
+    /// req-028：异步触发指定 Provider 的自动刷新（不带用户交互）。
+    /// <para>用 <c>_ = </c> fire-and-forget 启动 <see cref="RefreshService.RefreshProviderAsync"/>，
+    /// 失败仅写日志（不会弹出错误窗口打扰用户）。</para>
+    /// </summary>
+    private async Task TriggerProviderAutoRefreshAsync(string providerId)
+    {
+        try
+        {
+            UsageMonitor.Core.Services.FileLogger.Info("MainViewModel",
+                $"5h 倒计时到 0，自动刷新 Provider={providerId}");
+            await _refreshService.RefreshProviderAsync(providerId);
+        }
+        catch (Exception ex)
+        {
+            UsageMonitor.Core.Services.FileLogger.Warn("MainViewModel",
+                $"5h 自动刷新 Provider={providerId} 抛出异常（容许）", ex);
+        }
+    }
+
     public event PropertyChangedEventHandler? PropertyChanged;
     protected void OnPropertyChanged([CallerMemberName] string? name = null)
         => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+}
+
+/// <summary>
+/// req-026：设置窗口"环形图中心" Tab 中单个 Provider 的 metric 勾选状态集合。
+/// <para>每行 Provider 对应一个本实例，<see cref="Metrics"/> 列出该 Provider 支持的全部 metric，
+/// 勾选态由 <c>AppSettings.ProviderEnabledRingChartMetrics[ProviderId]</c> + 全局默认合并解析。</para>
+/// </summary>
+public class ProviderRingChartMetricGroup
+{
+    /// <summary>Provider 唯一标识。</summary>
+    public string ProviderId { get; set; } = string.Empty;
+
+    /// <summary>Provider 中文显示名。</summary>
+    public string ProviderDisplayName { get; set; } = string.Empty;
+
+    /// <summary>该 Provider 支持的环形图中心 metric 勾选项集合。</summary>
+    public ObservableCollection<RingChartMetricChoice> Metrics { get; } = new();
+}
+
+/// <summary>
+/// req-026：单个环形图中心 metric 的勾选项，对应设置窗口一列 CheckBox。
+/// <para>Key 绑定 RingChartControl 的 <c>MetricKey</c>；<see cref="IsEnabled"/> 即是否纳入已启用集合。</para>
+/// </summary>
+public class RingChartMetricChoice : INotifyPropertyChanged
+{
+    private bool _isEnabled;
+
+    /// <summary>metric 键（如 <c>"Percent"</c> / <c>"Credits"</c>）。</summary>
+    public string Key { get; set; } = string.Empty;
+
+    /// <summary>中文显示名（设置窗口 CheckBox.Content）。</summary>
+    public string DisplayName { get; set; } = string.Empty;
+
+    /// <summary>勾选状态（写回 <c>AppSettings.ProviderEnabledRingChartMetrics</c>）。</summary>
+    public bool IsEnabled
+    {
+        get => _isEnabled;
+        set
+        {
+            if (_isEnabled == value) return;
+            _isEnabled = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsEnabled)));
+        }
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
 }
