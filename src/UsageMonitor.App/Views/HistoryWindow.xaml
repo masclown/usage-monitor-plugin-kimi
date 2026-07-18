@@ -63,6 +63,7 @@
                                VerticalAlignment="Center" Margin="0,0,8,0" />
                     <ComboBox ItemsSource="{Binding RangeOptions}"
                               DisplayMemberPath="Value" SelectedValuePath="Key"
+                              TextSearch.TextPath="Value"
                               SelectedValue="{Binding SelectedRange, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                               Width="130" />
 
@@ -71,6 +72,7 @@
                                VerticalAlignment="Center" Margin="18,0,8,0" />
                     <ComboBox ItemsSource="{Binding ChartKindOptions}"
                               DisplayMemberPath="Value" SelectedValuePath="Key"
+                              TextSearch.TextPath="Value"
                               SelectedValue="{Binding SelectedChartKind, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                               Width="120" />
 
@@ -141,19 +143,17 @@
                                                    Percent="{Binding RingLatestPercent, FallbackValue=0, TargetNullValue=0}"
                                                    Size="100" StrokeThickness="9"
                                                    HorizontalAlignment="Center"
+                                                   VerticalAlignment="Center"
                                                    TrackBrush="{DynamicResource TrackBrush}"
                                                    ProgressBrush="{DynamicResource AccentBrush}"
                                                    WarningBrush="{DynamicResource WarningBrush}"
                                                    DangerBrush="{DynamicResource DangerBrush}"
                                                    Visibility="{Binding HasRingSeries, Converter={StaticResource BoolToVisibility}}" />
-                        <TextBlock Text="{Binding RingSeries.DisplayName}"
-                                   FontSize="14" FontWeight="SemiBold"
-                                   HorizontalAlignment="Center"
-                                   Foreground="{DynamicResource TextPrimaryBrush}"
-                                   Margin="0,12,0,0" />
+                        <!-- req-038：去掉 Provider 名字，仅显示采样点数 -->
                         <TextBlock Text="{Binding RingSampleCount, StringFormat=共 {0} 个采样点}"
                                    FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
-                                   HorizontalAlignment="Center" />
+                                   HorizontalAlignment="Center"
+                                   Margin="0,8,0,0" />
                     </StackPanel>
                 </Border>
 

@@ -47,6 +47,16 @@ public partial class TrayTooltipWindow : Window
     /// <summary>拖拽起始点：按下时窗口的 Left/Top</summary>
     private Point _dragStartWindowLeftTop;
 
+    // req-036：右侧拖拽调整宽度字段
+    /// <summary>是否正处于宽度调整状态</summary>
+    private bool _isResizingWidth;
+    /// <summary>宽度调整起始点：按下时光标在屏幕坐标系的 X</summary>
+    private double _resizeStartCursorX;
+    /// <summary>宽度调整起始点：按下时窗口的 Width</summary>
+    private double _resizeStartWidth;
+    /// <summary>最小宽度限制（避免拖到 0）</summary>
+    private const double MinWindowWidth = 200;
+
     public TrayTooltipWindow(MainViewModel viewModel, ConfigService configService)
     {
         InitializeComponent();
@@ -67,6 +77,34 @@ public partial class TrayTooltipWindow : Window
         // 拖拽入口改为 override OnPreviewMouseXxx 虚方法（见类下方）—— 不使用 routed event 订阅，
         // 是因为在 WindowStyle=None + ShowActivated=False + AllowTransparency=True 这几个 flag 重叠下，
         // routed event 订阅者不一定能可靠收到输入；override 是 WPF 框架 100% 调用的入口。
+
+        // req-036：加载保存的悬浮窗宽度（若有）
+        var savedWidth = _configService.Settings.TrayTooltipWindowWidth;
+        if (savedWidth.HasValue && savedWidth.Value >= MinWindowWidth)
+        {
+            Width = savedWidth.Value;
+        }
+
+        // req-036：右侧拖拽条事件绑定
+        Loaded += (_, _) =>
+        {
+            if (RightResizeGrip != null)
+            {
+                RightResizeGrip.MouseLeftButtonDown += OnResizeGripMouseDown;
+                RightResizeGrip.MouseMove += OnResizeGripMouseMove;
+                RightResizeGrip.MouseLeftButtonUp += OnResizeGripMouseUp;
+            }
+        };
+        // 窗口关闭时移除事件订阅，避免内存泄漏
+        Closed += (_, _) =>
+        {
+            if (RightResizeGrip != null)
+            {
+                RightResizeGrip.MouseLeftButtonDown -= OnResizeGripMouseDown;
+                RightResizeGrip.MouseMove -= OnResizeGripMouseMove;
+                RightResizeGrip.MouseLeftButtonUp -= OnResizeGripMouseUp;
+            }
+        };
     }
 
     /// <summary>
@@ -321,5 +359,49 @@ public partial class TrayTooltipWindow : Window
         var visibleH = Math.Min(y + h, workArea.Bottom) - Math.Max(y, workArea.Top);
 
         return visibleW >= minVisibleW && visibleH >= minVisibleH;
+    }
+
+    // =====================================================================
+    // req-036：右侧拖拽调整宽度
+    // =====================================================================
+
+    /// <summary>右侧拖拽条鼠标按下：记录起始状态 + 捕获鼠标。</summary>
+    private void OnResizeGripMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        _resizeStartCursorX = PointToScreen(e.GetPosition(this)).X;
+        _resizeStartWidth = ActualWidth;
+        _isResizingWidth = true;
+        Mouse.Capture(RightResizeGrip);
+        e.Handled = true;
+    }
+
+    /// <summary>右侧拖拽条鼠标移动：更新窗口宽度。</summary>
+    private void OnResizeGripMouseMove(object sender, MouseEventArgs e)
+    {
+        if (!_isResizingWidth) return;
+        var currentX = PointToScreen(e.GetPosition(this)).X;
+        var dx = currentX - _resizeStartCursorX;
+        var newWidth = Math.Max(MinWindowWidth, _resizeStartWidth + dx);
+        Width = newWidth;
+        e.Handled = true;
+    }
+
+    /// <summary>右侧拖拽条鼠标松开：保存宽度到配置。</summary>
+    private void OnResizeGripMouseUp(object sender, MouseButtonEventArgs e)
+    {
+        _isResizingWidth = false;
+        Mouse.Capture(null);
+        // 保存宽度到配置
+        _configService.Settings.TrayTooltipWindowWidth = ActualWidth;
+        try
+        {
+            _configService.Save();
+            FileLogger.Info("TrayTooltipWindow", $"已保存悬浮窗宽度：{ActualWidth:0}px");
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Error("TrayTooltipWindow", $"保存悬浮窗宽度失败：{ex.Message}", ex);
+        }
+        e.Handled = true;
     }
 }

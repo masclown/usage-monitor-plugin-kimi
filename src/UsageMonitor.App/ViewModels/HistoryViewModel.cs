@@ -502,9 +502,12 @@ public class HistoryViewModel : INotifyPropertyChanged
                 RingSeries = new HistorySeries();
             }
 
-            // req-013：详情表格数据源切换为“刷新聚合”（usage_refresh_aggregates）。
+            // req-013：详情表格数据源切换为"刷新聚合"（usage_refresh_aggregates）。
             // 注意：热力图仍使用 usage_daily（与原逻辑保持一致），仅详情表格同步换为 refresh aggregates。
             var refreshList = await _repository.QueryRefreshAggregatesAsync(ids, from, to);
+            // req-039：诊断日志，确认查询返回的记录数
+            UsageMonitor.Core.Services.FileLogger.Info("HistoryViewModel",
+                $"LoadDataAsync: QueryRefreshAggregatesAsync returned {refreshList.Count} records for providers=[{string.Join(",", ids)}] from={from} to={to}");
             var dailyList = await _repository.QueryDailyAsync(ids, from, to);
             DetailRows.Clear();
             foreach (var agg in refreshList)

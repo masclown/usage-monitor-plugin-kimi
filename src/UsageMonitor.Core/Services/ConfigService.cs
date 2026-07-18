@@ -48,6 +48,9 @@ public class AppSettings
     /// <summary>托盘悬浮窗触发区域高度（像素，工作区底部向下延伸），默认 40</summary>
     public int TrayTriggerHeight { get; set; } = 40;
 
+    /// <summary>req-036：托盘悬浮窗宽度（像素）。null 表示使用默认 300px；非 null 表示用户调整后的持久化值。</summary>
+    public double? TrayTooltipWindowWidth { get; set; } = null;
+
     /// <summary>各 Provider 在任务栏的显示模式（key=ProviderId，缺省时为 Text）</summary>
     public Dictionary<string, TaskbarDisplayMode> ProviderTaskbarModes { get; set; } = new();
 

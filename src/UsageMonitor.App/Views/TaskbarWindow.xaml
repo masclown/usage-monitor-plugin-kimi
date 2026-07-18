@@ -73,26 +73,18 @@
             </Grid>
         </DataTemplate>
 
-        <!-- 圆环图模式模板：圆环 + Logo + 名称（Logo 由圆环中心垂直堆叠渲染，不再单独拉出来）
-             IconPath 绑定到 viewModel.IconPath，RingChartControl 内部 OnRender 用 BitmapImage 画 Logo。
-             MetricProviders / MetricOrder / StickySeconds / SwitchAnimationMs 由宿主页静态赋值。 -->
+        <!-- 圆环图模式模板：req-035 去掉 Provider 名字，仅显示圆环 -->
         <DataTemplate x:Key="TaskbarRingChartTemplate">
-            <StackPanel Orientation="Horizontal" VerticalAlignment="Center"
-                        Margin="0,0,12,0"
-                        ToolTip="{Binding StatusText, Mode=OneWay}">
-                <controls:RingChartControl Width="44" Height="44"
-                                            Percent="{Binding UsagePercentage, Mode=OneWay}"
-                                            Size="44" StrokeThickness="5"
-                                            IconPath="{Binding IconPath, Mode=OneWay}"
-                                            TrackBrush="{DynamicResource TrackBrush}"
-                                            ProgressBrush="{DynamicResource AccentBrush}"
-                                            WarningBrush="{DynamicResource WarningBrush}"
-                                            DangerBrush="{DynamicResource DangerBrush}" />
-                <TextBlock FontSize="11" FontWeight="SemiBold"
-                           Foreground="{DynamicResource TextPrimaryBrush}"
-                           VerticalAlignment="Center" Margin="6,0,0,0"
-                           Text="{Binding DisplayName, Mode=OneWay}" />
-            </StackPanel>
+            <controls:RingChartControl Width="44" Height="44"
+                                        Percent="{Binding UsagePercentage, Mode=OneWay}"
+                                        Size="44" StrokeThickness="5"
+                                        IconPath="{Binding IconPath, Mode=OneWay}"
+                                        TrackBrush="{DynamicResource TrackBrush}"
+                                        ProgressBrush="{DynamicResource AccentBrush}"
+                                        WarningBrush="{DynamicResource WarningBrush}"
+                                        DangerBrush="{DynamicResource DangerBrush}"
+                                        ToolTip="{Binding StatusText, Mode=OneWay}"
+                                        Margin="0,0,12,0" />
         </DataTemplate>
 
         <!-- 模板选择器，绑定到上面三种模板 -->
@@ -106,10 +98,10 @@
             BorderBrush="{DynamicResource OverlayBorderBrush}" BorderThickness="1"
             x:Name="RootBorder">
         <Grid>
-            <!-- req-029：鼠标悬停 taskbar window 时右上角浮现"刷新全部"按钮（覆盖在 ItemsControl 之上）。 -->
+            <!-- req-035：刷新按钮居中（覆盖圆环图中心） -->
             <Button x:Name="RefreshAllButton"
-                    HorizontalAlignment="Right" VerticalAlignment="Top"
-                    Width="22" Height="22" Margin="0,-8,0,0"
+                    HorizontalAlignment="Center" VerticalAlignment="Center"
+                    Width="22" Height="22"
                     Background="{DynamicResource SurfaceBrush}"
                     BorderBrush="{DynamicResource AccentBrush}"
                     BorderThickness="1"

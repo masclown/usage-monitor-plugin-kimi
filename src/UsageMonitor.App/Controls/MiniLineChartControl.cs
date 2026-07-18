@@ -639,9 +639,6 @@ public class MiniLineChartControl : FrameworkElement, IHoverTooltipProvider
     protected override void OnMouseMove(MouseEventArgs e)
     {
         base.OnMouseMove(e);
-        // req-034：诊断日志，确认 OnMouseMove 被调用
-        UsageMonitor.Core.Services.FileLogger.Info("MiniLineChart",
-            $"OnMouseMove: Values={Values?.Count ?? 0}, _plotWidth={_plotWidth:F1}");
         if (Values == null || Values.Count < 2 || _plotWidth <= 0)
         {
             HideTooltipIfShown();

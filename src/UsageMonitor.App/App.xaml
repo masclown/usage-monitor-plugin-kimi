@@ -13,6 +13,7 @@
             <helpers:ErrorColorConverter x:Key="ErrorColorConverter" />
             <helpers:PercentageWidthConverter x:Key="PercentageWidthConverter" />
             <helpers:PercentageToWidthConverter x:Key="PercentageToWidthConverter" />
+            <helpers:PercentAndWidthToProgressBarWidthConverter x:Key="PercentAndWidthToProgressBarWidth" />
             <helpers:StringToVisibilityConverter x:Key="StringToVisibility" />
             <helpers:RenderKindToVisibilityConverter x:Key="RenderKindToVisibility" />
             <helpers:SubscriptionTitleActiveConverter x:Key="SubscriptionTitleActive" />

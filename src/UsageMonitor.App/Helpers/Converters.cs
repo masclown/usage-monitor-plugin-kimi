@@ -89,6 +89,25 @@ public class PercentageToWidthConverter : IValueConverter
 }
 
 /// <summary>
+/// 百分比 + 容器实际宽度 → 进度条宽度。用于悬浮窗进度条跟随窗口宽度动态调整。
+/// </summary>
+public class PercentAndWidthToProgressBarWidthConverter : IMultiValueConverter
+{
+    public object Convert(object[] values, Type targetType, object parameter, CultureInfo culture)
+    {
+        if (values.Length < 2) return 0.0;
+        if (values[0] is not double percentage) return 0.0;
+        if (values[1] is not double containerWidth || containerWidth <= 0) return 0.0;
+        // 减去左右 padding（14*2=28）得到可用宽度
+        var availableWidth = Math.Max(0, containerWidth - 28);
+        return Math.Max(0, availableWidth * percentage / 100.0);
+    }
+
+    public object[] ConvertBack(object value, Type[] targetTypes, object parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
+/// <summary>
 /// 字符串转可见性转换器：非空且非 null 时显示，否则折叠。
 /// 用于可选附加信息的折叠面板（如余额详情）。
 /// </summary>

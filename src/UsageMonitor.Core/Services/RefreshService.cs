@@ -194,9 +194,17 @@ public class RefreshService : IDisposable
     /// <param name="triggerKind">触发类型（"manual" / "auto"）</param>
     private void RecordRefreshAggregateAsync(string providerId, string triggerKind)
     {
-        if (_historyRepository == null) return;
+        if (_historyRepository == null)
+        {
+            FileLogger.Warn("RefreshService", $"RecordRefreshAggregateAsync({providerId}): _historyRepository is null");
+            return;
+        }
         var points = _historyStore.GetHistory(providerId);
-        if (points == null || points.Count == 0) return;
+        if (points == null || points.Count == 0)
+        {
+            FileLogger.Warn("RefreshService", $"RecordRefreshAggregateAsync({providerId}): no history points");
+            return;
+        }
 
         // 过滤错误点（IsError=true）；错误点不参与"用量"的聚合统计。
         var valid = new List<HistoryPoint>(points.Count);
@@ -204,7 +212,11 @@ public class RefreshService : IDisposable
         {
             if (!p.IsError) valid.Add(p);
         }
-        if (valid.Count == 0) return;
+        if (valid.Count == 0)
+        {
+            FileLogger.Warn("RefreshService", $"RecordRefreshAggregateAsync({providerId}): all points are errors");
+            return;
+        }
 
         var now = DateTime.Now;
         var agg = new RefreshAggregate(
@@ -220,6 +232,7 @@ public class RefreshService : IDisposable
             TriggerKind: triggerKind);
 
         _ = _historyRepository.InsertRefreshAggregateAsync(agg);
+        FileLogger.Info("RefreshService", $"RecordRefreshAggregateAsync({providerId}): inserted aggregate with {valid.Count} points");
     }
 
     public void Dispose()

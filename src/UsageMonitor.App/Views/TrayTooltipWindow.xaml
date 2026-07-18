@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="UsageMonitor Tray Tooltip"
-        Width="330" Height="Auto"
+        Width="300" Height="Auto"
         WindowStyle="None"
         AllowsTransparency="True"
         Background="Transparent"
@@ -15,9 +15,13 @@
         IsHitTestVisible="True"
         TextElement.FontFamily="{DynamicResource AppFontFamily}"
         Cursor="SizeAll">
-    <Border Background="{DynamicResource OverlayBackgroundBrush}" CornerRadius="10" Padding="0,4"
-            BorderBrush="{DynamicResource OverlayBorderBrush}" BorderThickness="1"
-            Cursor="SizeAll">
+    <Grid>
+        <!-- req-036：右侧透明拖拽条，用于鼠标调整窗口宽度 -->
+        <Rectangle x:Name="RightResizeGrip" Width="6" HorizontalAlignment="Right"
+                   Fill="Transparent" Cursor="SizeWE" />
+        <Border Background="{DynamicResource OverlayBackgroundBrush}" CornerRadius="10" Padding="0,4"
+                BorderBrush="{DynamicResource OverlayBorderBrush}" BorderThickness="1"
+                Cursor="SizeAll">
         <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="500" Padding="0">
             <ItemsControl ItemsSource="{Binding EnabledUsages, Mode=OneWay}">
                 <ItemsControl.ItemTemplate>
@@ -41,15 +45,16 @@
                                 </DockPanel>
 
                                 <!-- 进度条（按用量阈值换色） -->
-                                <Grid Height="7" Margin="0,0,0,10">
+                                <Grid x:Name="ProgressBarContainer" Height="7" Margin="0,0,0,10">
                                     <Border CornerRadius="4" Background="{DynamicResource TrackBrush}" />
                                     <Border CornerRadius="4"
                                             Background="{Binding UsagePercentage, Converter={StaticResource PercentToBrush}}"
                                             HorizontalAlignment="Left">
                                         <Border.Width>
-                                            <Binding Path="UsagePercentage" Mode="OneWay"
-                                                     Converter="{StaticResource PercentageToWidthConverter}"
-                                                     ConverterParameter="290" />
+                                            <MultiBinding Converter="{StaticResource PercentAndWidthToProgressBarWidth}">
+                                                <Binding Path="UsagePercentage" Mode="OneWay" />
+                                                <Binding Path="ActualWidth" ElementName="ProgressBarContainer" Mode="OneWay" />
+                                            </MultiBinding>
                                         </Border.Width>
                                     </Border>
                                 </Grid>
@@ -96,5 +101,6 @@
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
         </ScrollViewer>
-    </Border>
+        </Border>
+    </Grid>
 </Window>

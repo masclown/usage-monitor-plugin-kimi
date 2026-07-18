@@ -265,11 +265,6 @@ public class YearHeatMapControl : FrameworkElement, IHoverTooltipProvider
     protected override void OnMouseMove(System.Windows.Input.MouseEventArgs e)
     {
         base.OnMouseMove(e);
-        // req-034：诊断日志，确认 OnMouseMove 被调用
-        var cellCount = 0;
-        if (Cells != null) { foreach (var _ in Cells) cellCount++; }
-        UsageMonitor.Core.Services.FileLogger.Info("YearHeatMap",
-            $"OnMouseMove: Cells={cellCount}, _hitCells={_hitCells.Count}");
         if (TryGetTooltip(e.GetPosition(this), out var data))
         {
             HoverTooltipPresenter.Show(this, data);
