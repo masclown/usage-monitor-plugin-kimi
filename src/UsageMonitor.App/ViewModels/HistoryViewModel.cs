@@ -476,14 +476,17 @@ public class HistoryViewModel : INotifyPropertyChanged
                 Brushes.MediumPurple, Brushes.Crimson, Brushes.Teal
             };
             int bIdx = 0;
+            int maxCount = 0;
+            List<string>? longestDates = null;
             foreach (var p in selected)
             {
                 var records = await _repository.QueryPointsAsync(p.ProviderId, from, to);
                 var values = records.Select(r => (double)r.UsedPercent).ToList();
-                // req-040：第一个 Provider 的日期作为横坐标标签
-                if (bIdx == 0)
+                // req-040：取数据点最多的 Provider 的日期作为横坐标标签
+                if (values.Count > maxCount)
                 {
-                    LineDates = records.Select(r => r.RecordedAt.ToString("M/d", CultureInfo.InvariantCulture)).ToList();
+                    maxCount = values.Count;
+                    longestDates = records.Select(r => r.RecordedAt.ToString("M/d", CultureInfo.InvariantCulture)).ToList();
                 }
                 lineList.Add(new HistorySeries
                 {
@@ -493,6 +496,7 @@ public class HistoryViewModel : INotifyPropertyChanged
                     Values = values
                 });
             }
+            LineDates = longestDates ?? (IReadOnlyList<string>)Array.Empty<string>();
 
             LineSeries.Clear();
             foreach (var ls in lineList)
