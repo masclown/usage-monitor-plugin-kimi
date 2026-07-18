@@ -21,10 +21,12 @@
 
         <!-- 标题栏：品牌标识 + 标题/副标题 + 操作按钮 -->
         <DockPanel Grid.Row="0" Margin="0,0,0,18">
+            <!-- req-048：将闪电图标替换为项目 Logo -->
             <Border DockPanel.Dock="Left" Width="40" Height="40" CornerRadius="{DynamicResource RadiusButton}"
                     Background="{DynamicResource AccentGradientBrush}" VerticalAlignment="Center">
-                <TextBlock Text="⚡" FontSize="20" Foreground="{DynamicResource OnAccentBrush}"
-                           HorizontalAlignment="Center" VerticalAlignment="Center" />
+                <Image Source="{Binding CurrentLogoSource}" Width="28" Height="28"
+                       HorizontalAlignment="Center" VerticalAlignment="Center"
+                       RenderOptions.BitmapScalingMode="HighQuality" />
             </Border>
             <StackPanel DockPanel.Dock="Left" Margin="12,0,0,0" VerticalAlignment="Center">
                 <TextBlock Text="AI 用量监控" FontSize="21" FontWeight="Bold"
@@ -300,9 +302,7 @@
                                         CornerRadius="{DynamicResource RadiusSmall}" Padding="12,8"
                                         Margin="0,8,0,0">
                                     <StackPanel>
-                                        <TextBlock Text="💰 余额快照" FontSize="11"
-                                                   Foreground="{DynamicResource TextSecondaryBrush}"
-                                                   Margin="0,0,0,8" />
+                                        <!-- req-045：移除"💰 余额快照"标题文字，保留数据区域 -->
                                         <ItemsControl ItemsSource="{Binding BalanceItems}">
                                             <!-- req-019：余额快照等宽分布 → ItemsPanel 由 StackPanel 换为 UniformGrid（Rows=1，动态列数） -->
                                             <ItemsControl.ItemsPanel>

@@ -52,6 +52,9 @@ public partial class TaskbarWindow : Window
     // 位置保存节流
     private DispatcherTimer? _savePositionTimer;
 
+    // req-052：可见性检查定时器，周期性确保窗口在任务栏内可见
+    private DispatcherTimer? _visibilityCheckTimer;
+
     public TaskbarWindow(MainViewModel viewModel, ConfigService configService, TaskbarHelper taskbarHelper, RefreshService refreshService)
     {
         _viewModel = viewModel;
@@ -73,6 +76,9 @@ public partial class TaskbarWindow : Window
         Loaded += OnLoadedOverride;
         Activated += OnActivatedOverride;
 
+        // req-052：启动可见性检查定时器，每 5 秒检查一次窗口是否在任务栏内可见
+        StartVisibilityCheckTimer();
+
         // req-016：TaskbarWindow.Icon 绑定 MainViewModel.CurrentLogoSource，
         // 主题切换由 MainViewModel.OnThemeChanged 统一推送，本窗口无需再独立订阅。
 
@@ -93,6 +99,13 @@ public partial class TaskbarWindow : Window
                 RootBorder.MouseEnter -= OnRootBorderMouseEnter;
                 RootBorder.MouseLeave -= OnRootBorderMouseLeave;
             }
+        };
+
+        // req-052：窗口关闭时停止可见性检查定时器，避免内存泄漏
+        Closed += (_, _) =>
+        {
+            _visibilityCheckTimer?.Stop();
+            _visibilityCheckTimer = null;
         };
     }
 
@@ -198,6 +211,90 @@ public partial class TaskbarWindow : Window
         TaskbarNativeMethods.SetWindowPos(_hwnd, TaskbarNativeMethods.HWND_TOPMOST,
             x, y, width, height,
             TaskbarNativeMethods.SWP_SHOWWINDOW | TaskbarNativeMethods.SWP_NOACTIVATE);
+    }
+
+    /// <summary>
+    /// req-052：启动可见性检查定时器。每 5 秒检查一次窗口是否在任务栏内可见，
+    /// 如果窗口不可见或位置异常，强制重新应用位置。这可以解决任务栏刷新或
+    /// explorer.exe 重启导致窗口消失的问题。
+    /// </summary>
+    private void StartVisibilityCheckTimer()
+    {
+        _visibilityCheckTimer?.Stop();
+        _visibilityCheckTimer = new DispatcherTimer(DispatcherPriority.Background)
+        {
+            Interval = TimeSpan.FromSeconds(5)
+        };
+        _visibilityCheckTimer.Tick += OnVisibilityCheckTimerTick;
+        _visibilityCheckTimer.Start();
+    }
+
+    /// <summary>
+    /// req-052：可见性检查定时器回调。检查窗口是否可见且在任务栏区域内，
+    /// 如果不可见或位置异常，强制重新应用 Win32 位置。
+    /// </summary>
+    private void OnVisibilityCheckTimerTick(object? sender, EventArgs e)
+    {
+        if (_hwnd == IntPtr.Zero || _isDragging) return;
+
+        // 检查窗口是否可见
+        if (!IsVisible)
+        {
+            // 窗口不可见，尝试重新显示
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                try
+                {
+                    if (!IsVisible) Show();
+                    ApplyWin32Position();
+                    UsageMonitor.Core.Services.FileLogger.Info("TaskbarWindow",
+                        "req-052: 可见性检查发现窗口不可见，已重新显示");
+                }
+                catch (Exception ex)
+                {
+                    UsageMonitor.Core.Services.FileLogger.Warn("TaskbarWindow",
+                        $"req-052: 重新显示窗口失败: {ex.Message}");
+                }
+            }), DispatcherPriority.Normal);
+            return;
+        }
+
+        // 检查窗口是否在任务栏区域内
+        var taskbarHandle = _taskbarHelper.GetHandle();
+        if (taskbarHandle == IntPtr.Zero) return;
+
+        TaskbarNativeMethods.RECT taskbarRect;
+        if (!TaskbarNativeMethods.GetWindowRect(taskbarHandle, out taskbarRect)) return;
+
+        TaskbarNativeMethods.RECT windowRect;
+        if (!TaskbarNativeMethods.GetWindowRect(_hwnd, out windowRect)) return;
+
+        // 检查窗口中心是否在任务栏内（允许一定容差）
+        var windowCenterX = (windowRect.Left + windowRect.Right) / 2;
+        var windowCenterY = (windowRect.Top + windowRect.Bottom) / 2;
+        var tolerance = 50; // 像素容差
+
+        if (windowCenterX < taskbarRect.Left - tolerance ||
+            windowCenterX > taskbarRect.Right + tolerance ||
+            windowCenterY < taskbarRect.Top - tolerance ||
+            windowCenterY > taskbarRect.Bottom + tolerance)
+        {
+            // 窗口位置异常，强制重新应用位置
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                try
+                {
+                    ApplyWin32Position();
+                    UsageMonitor.Core.Services.FileLogger.Info("TaskbarWindow",
+                        $"req-052: 窗口位置异常 (center={windowCenterX},{windowCenterY})，已重新定位");
+                }
+                catch (Exception ex)
+                {
+                    UsageMonitor.Core.Services.FileLogger.Warn("TaskbarWindow",
+                        $"req-052: 重新定位窗口失败: {ex.Message}");
+                }
+            }), DispatcherPriority.Normal);
+        }
     }
 
     /// <summary>

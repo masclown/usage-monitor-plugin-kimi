@@ -265,10 +265,24 @@ public class YearHeatMapControl : FrameworkElement, IHoverTooltipProvider
     protected override void OnMouseMove(System.Windows.Input.MouseEventArgs e)
     {
         base.OnMouseMove(e);
+        // req-046：记录之前的 hover 索引，只在索引变化时才显示 tooltip
+        var prevHoverIndex = _hoverIndex;
         if (TryGetTooltip(e.GetPosition(this), out var data))
         {
-            HoverTooltipPresenter.Show(this, data);
+            // 只在索引变化时才调用 Show，避免鼠标移动时反复创建销毁导致闪烁
+            if (_hoverIndex != prevHoverIndex)
+            {
+                HoverTooltipPresenter.Show(this, data);
+            }
             InvalidateVisual();
+        }
+        else
+        {
+            // 鼠标不在任何日期方格上，关闭 tooltip
+            if (prevHoverIndex >= 0)
+            {
+                HoverTooltipPresenter.Hide(this);
+            }
         }
         // req-018：鼠标在空格网底 / 控件外时不弹 tooltip 是符合预期的，不打错误日志。
     }

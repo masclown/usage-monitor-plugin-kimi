@@ -114,11 +114,13 @@ public partial class TrayTooltipWindow : Window
     /// </summary>
     public void ShowNearCursor(Point screenPos)
     {
-        // 让窗口先 Measure 一次以获得 ActualWidth/Height
-        Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-        Arrange(new Rect(DesiredSize));
+        // req-050：使用设置的 Width 进行布局，避免 SizeToContent 导致宽度被内容决定
+        // 先 Measure 以获得内容高度，但宽度使用 Width 属性（如果已设置）
+        var targetWidth = double.IsNaN(Width) ? 300 : Width;  // Width 可能是 NaN（未设置）
+        Measure(new Size(targetWidth, double.PositiveInfinity));
+        Arrange(new Rect(0, 0, targetWidth, DesiredSize.Height));
 
-        var width = ActualWidth > 0 ? ActualWidth : 320;
+        var width = ActualWidth > 0 ? ActualWidth : targetWidth;
         var height = ActualHeight > 0 ? ActualHeight : 200;
         var workArea = SystemParameters.WorkArea;
 
@@ -180,13 +182,35 @@ public partial class TrayTooltipWindow : Window
     }
 
     /// <summary>
-    /// 立即强制隐藏
+    /// 立即强制隐藏。req-050：隐藏前保存当前宽度，确保下次打开时宽度一致。
     /// </summary>
     public void ForceHide()
     {
         _hideTimer?.Stop();
         _hideTimer = null;
-        if (IsVisible) Hide();
+        if (IsVisible)
+        {
+            // req-050：隐藏前保存当前宽度，避免下次打开时宽度变化
+            SaveWidthToConfig();
+            Hide();
+        }
+    }
+
+    /// <summary>req-050：保存当前宽度到配置（仅在宽度有效时保存）。</summary>
+    private void SaveWidthToConfig()
+    {
+        if (ActualWidth >= MinWindowWidth && !double.IsNaN(ActualWidth))
+        {
+            _configService.Settings.TrayTooltipWindowWidth = ActualWidth;
+            try
+            {
+                _configService.Save();
+            }
+            catch (Exception ex)
+            {
+                FileLogger.Warn("TrayTooltipWindow", $"保存宽度失败：{ex.Message}");
+            }
+        }
     }
 
     /// <summary>
@@ -391,17 +415,9 @@ public partial class TrayTooltipWindow : Window
     {
         _isResizingWidth = false;
         Mouse.Capture(null);
-        // 保存宽度到配置
-        _configService.Settings.TrayTooltipWindowWidth = ActualWidth;
-        try
-        {
-            _configService.Save();
-            FileLogger.Info("TrayTooltipWindow", $"已保存悬浮窗宽度：{ActualWidth:0}px");
-        }
-        catch (Exception ex)
-        {
-            FileLogger.Error("TrayTooltipWindow", $"保存悬浮窗宽度失败：{ex.Message}", ex);
-        }
+        // req-050：使用统一的保存方法
+        SaveWidthToConfig();
+        FileLogger.Info("TrayTooltipWindow", $"拖拽结束，已保存悬浮窗宽度：{ActualWidth:0}px");
         e.Handled = true;
     }
 }

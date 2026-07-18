@@ -664,13 +664,16 @@ public class MiniLineChartControl : FrameworkElement, IHoverTooltipProvider
 
         if (nearestIndex >= 0)
         {
+            // req-046：只在 hover 索引变化时才显示/更新 tooltip，避免鼠标移动时反复创建销毁导致闪烁
             if (nearestIndex != _hoverIndex)
             {
                 _hoverIndex = nearestIndex;
                 InvalidateVisual();
+                // 仅在索引变化时调用 Show，避免每次 MouseMove 都重建 tooltip
+                if (TryGetTooltip(new Point(_plotLeft + nearestIndex * stepX, 0), out var data))
+                    HoverTooltipPresenter.Show(this, data);
             }
-            if (TryGetTooltip(new Point(_plotLeft + nearestIndex * stepX, 0), out var data))
-                HoverTooltipPresenter.Show(this, data);
+            // 如果索引相同，不重复调用 Show，保持当前 tooltip 稳定显示
         }
         else
         {
@@ -947,7 +950,12 @@ public sealed class PeriodChangedEventArgs : RoutedEventArgs
 
     /// <summary>构造周期切换事件参数。</summary>
     /// <param name="period">新周期（"7d" / "30d"）。</param>
+    /// <remarks>
+    /// req-049 修复：必须调用基类构造函数传入 RoutedEvent，否则 RaiseEvent 时会抛出
+    /// InvalidOperationException: "每个 RoutedEventArgs 必须有一个非空 RoutedEvent"。
+    /// </remarks>
     public PeriodChangedEventArgs(string period)
+        : base(MiniLineChartControl.PeriodChangedEvent)
     {
         Period = period;
     }

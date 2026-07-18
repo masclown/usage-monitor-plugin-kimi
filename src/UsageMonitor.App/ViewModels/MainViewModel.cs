@@ -807,12 +807,16 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         var activeDays = L("mm_activeDays");
         var totalDays = L("mm_totalDays");
         var mostActive = S("mm_mostActiveDay"); // 格式 "2026-07-01 (552.49M)"
+        // req-047：提取排名百分比（mm_rankingPercent），用于显示"前X%"
+        double? rankingPercent = null;
+        if (extra.TryGetValue("mm_rankingPercent", out var rp) && rp is double rpVal && rpVal > 0)
+            rankingPercent = rpVal;
         // 订阅到期时间（仅在已订阅时拼接）
         DateTime? subscriptionEnd = null;
         if (IsSubscriptionActive && extra.TryGetValue("mm_subscriptionEndTime", out var se) && se is DateTime sed)
             subscriptionEnd = sed;
 
-        RebuildBalanceItems(totalTokens, mostActive, activeDays, totalDays, credits, subscriptionEnd);
+        RebuildBalanceItems(totalTokens, mostActive, activeDays, totalDays, credits, subscriptionEnd, rankingPercent);
 
         // 9. 折线图 / 热力图：用「每日 Token 用量」填充卡片图表数据。
         UpdateMiniMaxCharts(extra);
@@ -823,14 +827,20 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
     /// 再按 <c>Label</c> 与插件 <see cref="IUsageProvider.BalanceItems"/> 合并：同名项插件胜出，
     /// 未匹配项追加在默认项之后。插件项 <c>IsVisible=false</c> 可隐藏默认项。
     /// </summary>
+    /// <param name="rankingPercent">req-047：用量排名百分比，非空时显示"前X%"作为累计的 Detail。</param>
     private void RebuildBalanceItems(
         string totalTokens, string mostActive, long activeDays, long totalDays,
-        double credits, DateTime? subscriptionEnd)
+        double credits, DateTime? subscriptionEnd, double? rankingPercent)
     {
         // 默认 4 项
         var defaults = new List<UsageMonitor.Core.Models.BalanceItem>
         {
-            new() { Label = "累计", Value = string.IsNullOrEmpty(totalTokens) ? "--" : totalTokens },
+            // req-047：累计项的 Detail 显示排名（"前X%"），无排名时不显示
+            new() {
+                Label = "累计",
+                Value = string.IsNullOrEmpty(totalTokens) ? "--" : totalTokens,
+                Detail = rankingPercent.HasValue ? $"前{rankingPercent.Value:0}%" : null
+            },
             new() { Label = "峰值", Value = ExtractMostActiveToken(mostActive), Detail = ExtractMostActiveDate(mostActive) },
             new() { Label = "活跃", Value = totalDays > 0 ? $"{activeDays}/{totalDays}天" : "--" },
             new()
