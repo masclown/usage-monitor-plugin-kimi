@@ -45,7 +45,7 @@ public static class HeatMapTierScale
     public static readonly IReadOnlyList<HeatMapTier> MiniMaxDefaults = new[]
     {
         new HeatMapTier(0,             Color.FromRgb(0xF3, 0xF4, 0xF6)),  // 无用量 #f3f4f6
-        new HeatMapTier(0,             Color.FromRgb(0xFF, 0xE7, 0xE2)),  // ≥0 #ffe7e2
+        new HeatMapTier(1,             Color.FromRgb(0xFF, 0xE7, 0xE2)),  // ≥1 (有用量) #ffe7e2
         new HeatMapTier(20_000_000L,   Color.FromRgb(0xFF, 0xC6, 0xBB)),  // ≥20M #ffc6bb
         new HeatMapTier(100_000_000L,  Color.FromRgb(0xFF, 0xA5, 0x95)),  // ≥100M #ffa595
         new HeatMapTier(200_000_000L,  Color.FromRgb(0xFF, 0x7B, 0x64)),  // ≥200M #ff7b64

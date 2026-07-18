@@ -149,7 +149,7 @@ public class AppSettings
         ["minimax"] = new List<UsageMonitor.Core.Models.HeatMapTierConfig>
         {
             new() { MinTokens = 0,            ColorHex = "#f3f4f6" },
-            new() { MinTokens = 0,            ColorHex = "#ffe7e2" },
+            new() { MinTokens = 1,            ColorHex = "#ffe7e2" },
             new() { MinTokens = 20_000_000,   ColorHex = "#ffc6bb" },
             new() { MinTokens = 100_000_000,  ColorHex = "#ffa595" },
             new() { MinTokens = 200_000_000,  ColorHex = "#ff7b64" },
