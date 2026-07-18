@@ -584,6 +584,12 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
             // 按周期切片缓存的完整数据到折线图
             SliceCardLineByPeriod(period);
         }
+        catch (Exception ex)
+        {
+            // req-031：捕获切片/插件异常，避免冒泡到 UI 线程导致闪退
+            UsageMonitor.Core.Services.FileLogger.Warn("ProviderUsageViewModel",
+                $"HandlePeriodChanged({period}) failed for {ProviderId}: {ex.Message}", ex);
+        }
         finally
         {
             IsLoading = false;
@@ -1795,8 +1801,8 @@ public class MainViewModel : INotifyPropertyChanged
         SaveSettingsCommand = new RelayCommand(() => _configService.Save());
 
         // req-016：初始化主窗口 Logo + 订阅主题切换事件
-        CurrentLogoSource = UsageMonitor.App.Helpers.LogoProvider.LoadLogo(UsageMonitor.App.Helpers.ThemeManager.Current);
-        UsageMonitor.App.Helpers.ThemeManager.ThemeChanged += OnThemeChanged;
+        // req-032：单 logo 模式，加载一次即可（不再订阅 ThemeChanged 切换 logo）
+        CurrentLogoSource = UsageMonitor.App.Helpers.LogoProvider.LoadLogo();
 
         // REQ-003：环形图 metric 顺序从设置同步到 ListBox 集合；提供上下移动 + 恢复默认三个命令
         // 使用 RelayCommand<int> 泛型版本（列表索引），CommunityToolkit.Mvvm 8.x 的非泛型 RelayCommand 仅接 Action。
@@ -2314,22 +2320,14 @@ public class MainViewModel : INotifyPropertyChanged
     }
 
     /// <summary>
-    /// req-016：主题切换事件处理。重新加载对应主题的 Logo，让主窗口 Icon 实时刷新。
+    /// req-016：主题切换事件处理。
     /// <para>
-    /// 在 UI 线程上同步触发（ThemeManager.Apply 本身就在 UI 线程被调用），无需额外 Dispatcher.Invoke。
+    /// req-032：单 logo 模式后不再需要切换 logo，但保留方法以便未来扩展其他主题切换逻辑。
     /// </para>
     /// </summary>
     private void OnThemeChanged(object? sender, ThemeChangedEventArgs e)
     {
-        try
-        {
-            CurrentLogoSource = UsageMonitor.App.Helpers.LogoProvider.LoadLogo(e.NewTheme);
-        }
-        catch (Exception ex)
-        {
-            UsageMonitor.Core.Services.FileLogger.Error("MainViewModel",
-                $"OnThemeChanged({e.NewTheme}) reload logo failed: {ex.Message}", ex);
-        }
+        // req-032：单 logo 不需要按主题重新加载，保持空实现
     }
 
     // =====================================================================

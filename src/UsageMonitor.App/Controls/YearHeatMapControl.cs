@@ -210,26 +210,19 @@ public class YearHeatMapControl : FrameworkElement, IHoverTooltipProvider
 
         var colsCountMax = Math.Max(1, (int)Math.Floor((gridWidth + gap) / step));
 
-        // 计算网格起始周一 + 需要的列数（列数超出可视宽度时保留最近若干周）
-        // req-021：网格起点改为以最后数据日期为终点、向左铺列（最新日期在右、左边无数据显空格）。
+        // req-033：始终用满可视列数，最新日期在最右列，无数据日显空格。
+        // 网格起点 = 最新日期所在周一 - (colsCountMax - 1) × 7 天。
         DateTime gridStartMonday;
         int cols;
         if (parsed.Count > 0)
         {
-            var first = parsed[0].date;
             var last = parsed[^1].date;
-            int dowFirst = ((int)first.DayOfWeek + 6) % 7; // 周一=0
             int dowLast = ((int)last.DayOfWeek + 6) % 7; // 周一=0
-            gridStartMonday = last.AddDays(-dowLast);
-            // 计算首末跨度的总列数（含首尾之间缺的周）
-            int totalCols = (int)((last - first).TotalDays / 7) + 1 + dowFirst;
-            // req-021：右对齐——若实际列数 > 可视列数，从右侧截取（保留最新日期）
-            cols = Math.Min(totalCols, colsCountMax);
-            if (totalCols > cols)
-            {
-                // 起点 = 终点 - (cols - 1) 周
-                gridStartMonday = gridStartMonday.AddDays(-(cols - 1) * 7);
-            }
+            // 终点周一 = 最新日期所在周的周一
+            var endMonday = last.AddDays(-dowLast);
+            // 起点周一 = 终点周一 - (可视列数 - 1) 周
+            cols = colsCountMax;
+            gridStartMonday = endMonday.AddDays(-(cols - 1) * 7);
         }
         else
         {
@@ -272,6 +265,11 @@ public class YearHeatMapControl : FrameworkElement, IHoverTooltipProvider
     protected override void OnMouseMove(System.Windows.Input.MouseEventArgs e)
     {
         base.OnMouseMove(e);
+        // req-034：诊断日志，确认 OnMouseMove 被调用
+        var cellCount = 0;
+        if (Cells != null) { foreach (var _ in Cells) cellCount++; }
+        UsageMonitor.Core.Services.FileLogger.Info("YearHeatMap",
+            $"OnMouseMove: Cells={cellCount}, _hitCells={_hitCells.Count}");
         if (TryGetTooltip(e.GetPosition(this), out var data))
         {
             HoverTooltipPresenter.Show(this, data);

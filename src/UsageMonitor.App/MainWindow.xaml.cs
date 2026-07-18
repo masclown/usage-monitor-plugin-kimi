@@ -50,9 +50,18 @@ public partial class MainWindow : Window
     /// </summary>
     private void OnLineChartPeriodChanged(object sender, PeriodChangedEventArgs e)
     {
-        if (sender is FrameworkElement fe && fe.DataContext is ProviderUsageViewModel vm)
+        try
         {
-            vm.HandlePeriodChanged(e.Period);
+            if (sender is FrameworkElement fe && fe.DataContext is ProviderUsageViewModel vm)
+            {
+                vm.HandlePeriodChanged(e.Period);
+            }
+        }
+        catch (Exception ex)
+        {
+            // req-031：顶层保护，任何未预期异常都不允许冒泡到 WPF Dispatcher 导致闪退
+            UsageMonitor.Core.Services.FileLogger.Error("MainWindow",
+                $"OnLineChartPeriodChanged({e.Period}) unhandled: {ex.Message}", ex);
         }
     }
 

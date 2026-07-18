@@ -270,7 +270,7 @@ public partial class App : Application
         _notifyIcon = new NotifyIcon
         {
             Text = "UsageMonitor - AI用量监控",
-            Icon = LoadTrayIconFromLogo(Helpers.ThemeManager.Current), // req-016：项目 logo
+            Icon = LoadTrayIconFromLogo(), // req-032：单 logo 统一
             Visible = true
         };
 
@@ -306,7 +306,7 @@ public partial class App : Application
         {
             if (_notifyIcon != null)
             {
-                try { _notifyIcon.Icon = LoadTrayIconFromLogo(Helpers.ThemeManager.Current); }
+                try { _notifyIcon.Icon = LoadTrayIconFromLogo(); }
                 catch (Exception ex) { FileLogger.Error("App", $"Refresh tray icon failed: {ex.Message}", ex); }
             }
         };
@@ -333,20 +333,20 @@ public partial class App : Application
     /// 该 Icon 仅作过渡使用；高分屏可能略糊。后续如需清晰图标，准备多尺寸 .ico 后替换本方法。
     /// </para>
     /// </summary>
-    private static System.Drawing.Icon LoadTrayIconFromLogo(UsageMonitor.Core.Models.ThemeMode theme)
+    private static System.Drawing.Icon LoadTrayIconFromLogo()
     {
         try
         {
-            var path = Helpers.LogoProvider.GetLogoPath(theme);
+            var path = Helpers.LogoProvider.GetLogoPath();
             using var bmp = new System.Drawing.Bitmap(path);
             var hIcon = bmp.GetHicon();
-            // Icon.FromHandle 不接管 hIcon 释放 → 必须 Clone 出独立 Icon，否则旧 hIcon 被释放后托盘图标失效
+            // Icon.FromHandle 不接管 hicon 释放 → 必须 Clone 出独立 Icon，否则旧 hIcon 被释放后托盘图标失效
             var icon = (System.Drawing.Icon)System.Drawing.Icon.FromHandle(hIcon).Clone();
             return icon;
         }
         catch (Exception ex)
         {
-            FileLogger.Error("App", $"LoadTrayIconFromLogo({theme}) failed: {ex.Message}", ex);
+            FileLogger.Error("App", $"LoadTrayIconFromLogo() failed: {ex.Message}", ex);
             return SystemIcons.Application;
         }
     }

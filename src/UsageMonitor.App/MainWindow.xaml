@@ -312,30 +312,33 @@
                                             </ItemsControl.ItemsPanel>
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate>
-                                                    <!-- req-019：取消 MinWidth=72 与外边距；每列由 UniformGrid 等宽分布 -->
+                                                    <!-- req-030：三行固定高度 Grid（Label/Value/Detail 全部占位），解决 Detail 为空时列高不一致 -->
                                                     <Grid Margin="0"
                                                           Visibility="{Binding IsVisible, Converter={StaticResource BoolToVisibility}}">
                                                         <Grid.ColumnDefinitions>
                                                             <ColumnDefinition Width="*" />
                                                             <ColumnDefinition Width="Auto" />
                                                         </Grid.ColumnDefinitions>
-                                                        <!-- req-019：数据项全居中 + Value 字号 22 → 26 -->
-                                                        <StackPanel Grid.Column="0"
-                                                                    HorizontalAlignment="Center"
-                                                                    VerticalAlignment="Center">
-                                                            <TextBlock Text="{Binding Label}" FontSize="12"
-                                                                       HorizontalAlignment="Center"
+                                                        <!-- req-030：3 行固定高度，所有列 Label/Value/Detail 自然对齐到同一水平线 -->
+                                                        <Grid Grid.Column="0" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                            <Grid.RowDefinitions>
+                                                                <RowDefinition Height="Auto" />   <!-- Label -->
+                                                                <RowDefinition Height="36" />     <!-- Value 固定 -->
+                                                                <RowDefinition Height="Auto" />   <!-- Detail -->
+                                                            </Grid.RowDefinitions>
+                                                            <TextBlock Grid.Row="0" Text="{Binding Label}" FontSize="12"
+                                                                       HorizontalAlignment="Center" VerticalAlignment="Center"
                                                                        Foreground="{DynamicResource TextSecondaryBrush}" />
-                                                            <TextBlock Text="{Binding Value}" FontSize="26" FontWeight="Bold"
-                                                                       HorizontalAlignment="Center"
+                                                            <TextBlock Grid.Row="1" Text="{Binding Value}" FontSize="26" FontWeight="Bold"
+                                                                       HorizontalAlignment="Center" VerticalAlignment="Center"
                                                                        Foreground="{DynamicResource AccentBrush}"
                                                                        TextTrimming="CharacterEllipsis" />
-                                                            <TextBlock Text="{Binding Detail}" FontSize="10"
-                                                                       HorizontalAlignment="Center"
+                                                            <!-- req-030：Detail 始终存在（不隐藏），空时显示空字符串，保持行高一致 -->
+                                                            <TextBlock Grid.Row="2" Text="{Binding Detail, FallbackValue='', TargetNullValue=''}" FontSize="10"
+                                                                       HorizontalAlignment="Center" VerticalAlignment="Center"
                                                                        Foreground="{DynamicResource TextTertiaryBrush}"
-                                                                       TextWrapping="Wrap"
-                                                                       Visibility="{Binding Detail, Converter={StaticResource StringToVisibility}}" />
-                                                        </StackPanel>
+                                                                       TextWrapping="Wrap" />
+                                                        </Grid>
                                                         <!-- req-019：竖向分隔线居中，末项由 IsLast 控制可见性（沿用 req-008 的 BoolToVisibility + Invert） -->
                                                         <Rectangle Grid.Column="1" Width="1" Height="32"
                                                                    Margin="8,0,0,0" VerticalAlignment="Center"
