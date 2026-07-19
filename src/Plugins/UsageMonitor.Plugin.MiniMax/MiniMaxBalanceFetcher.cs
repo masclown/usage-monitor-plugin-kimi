@@ -177,7 +177,7 @@ internal static class MiniMaxBalanceFetcher
         var safeCookie = UsageMonitor.Core.Services.CookieHeaderSanitizer.Sanitize(cookie);
         if (!req.Headers.TryAddWithoutValidation("Cookie", safeCookie))
         {
-            UsageMonitor.Core.Services.FileLogger.Warn("MiniMaxBalanceFetcher", "Cookie header rejected after sanitization in FetchCodingPlanRemainsAsync");
+            FileLogger.Warn("MiniMaxBalanceFetcher", "Cookie header rejected after sanitization in FetchCodingPlanRemainsAsync");
         }
         req.Headers.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
         req.Headers.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) UsageMonitor/1.4.0");
@@ -227,7 +227,7 @@ internal static class MiniMaxBalanceFetcher
         var safeCookie = UsageMonitor.Core.Services.CookieHeaderSanitizer.Sanitize(cookie);
         if (!req.Headers.TryAddWithoutValidation("Cookie", safeCookie))
         {
-            UsageMonitor.Core.Services.FileLogger.Warn("MiniMaxBalanceFetcher", "Cookie header rejected after sanitization in SaveUsagePageHtmlAsync");
+            FileLogger.Warn("MiniMaxBalanceFetcher", "Cookie header rejected after sanitization in SaveUsagePageHtmlAsync");
         }
         req.Headers.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) UsageMonitor/1.4.0");
 
@@ -251,7 +251,7 @@ internal static class MiniMaxBalanceFetcher
         var safeCookie = UsageMonitor.Core.Services.CookieHeaderSanitizer.Sanitize(cookie);
         if (!req.Headers.TryAddWithoutValidation("Cookie", safeCookie))
         {
-            UsageMonitor.Core.Services.FileLogger.Warn("MiniMaxBalanceFetcher", "Cookie header rejected after sanitization in FetchUserInfoAsync");
+            FileLogger.Warn("MiniMaxBalanceFetcher", "Cookie header rejected after sanitization in FetchUserInfoAsync");
         }
         req.Headers.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
         req.Headers.UserAgent.ParseAdd("Mozilla/5.0 UsageMonitor");

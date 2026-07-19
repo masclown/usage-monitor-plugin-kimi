@@ -420,9 +420,11 @@
                     <Button.Style>
                         <Style TargetType="Button" BasedOn="{StaticResource GhostButtonStyle}">
                             <Style.Triggers>
-                                <!-- req-025：顶部"刷新"按钮旋转动画（IsRunning=True 触发 Storyboard） -->
+                                <!-- req-025：顶部“刷新”按钮旋转动画（IsRunning=True 触发 Storyboard） -->
+                                <!-- req-072 U-16：刷新运行中切换为强调色视觉（不能设置Style属性本身，改为设置具体属性） -->
                                 <DataTrigger Binding="{Binding RefreshCommand.IsRunning}" Value="True">
-                                    <Setter Property="Style" Value="{StaticResource AccentSoftButtonStyle}" />
+                                    <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+                                    <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
                                     <DataTrigger.EnterActions>
                                         <BeginStoryboard x:Name="TopRefreshSpinStoryboard">
                                             <Storyboard>
