@@ -458,23 +458,22 @@ public class MiniLineChartControl : FrameworkElement, IHoverTooltipProvider
         // 左半：近 7 天
         var leftIsActive = string.Equals(CurrentPeriod, ChartPeriods.Week, StringComparison.OrdinalIgnoreCase);
         DrawPeriodSegment(dc, new Rect(rowLeft, rowTop, halfW, PeriodButtonHeight),
-            "近 7 天", leftIsActive, accent, activeText, inactiveText);
+            "近 7 天", leftIsActive, accent, activeText, inactiveText, isLeftSegment: true);
 
         // 右半：近 30 天
         var rightIsActive = string.Equals(CurrentPeriod, ChartPeriods.Month, StringComparison.OrdinalIgnoreCase);
         DrawPeriodSegment(dc, new Rect(rowLeft + halfW, rowTop, halfW, PeriodButtonHeight),
-            "近 30 天", rightIsActive, accent, activeText, inactiveText);
+            "近 30 天", rightIsActive, accent, activeText, inactiveText, isLeftSegment: false);
     }
 
     /// <summary>绘制单个分段按钮（半边）；激活时填充实心 + 反色文字，未激活时透明底 + 次级文字色。</summary>
+    /// <param name="isLeftSegment">true=左半按钮（左上/左下圆角），false=右半按钮（右上/右下圆角）</param>
     private void DrawPeriodSegment(DrawingContext dc, Rect rect, string text,
-        bool isActive, Brush accent, Brush activeText, Brush inactiveText)
+        bool isActive, Brush accent, Brush activeText, Brush inactiveText, bool isLeftSegment)
     {
         if (isActive)
         {
-            // 左半圆角 = 4，左下圆角 = 0；右半反之
-            var isLeft = rect.Width > 0 && rect.X > 0; // 简化判断：实际根据 rect 决定（调用方保证）
-            var path = BuildRoundedPath(rect, 4, isLeft ? RoundedSide.Left : RoundedSide.Right);
+            var path = BuildRoundedPath(rect, 4, isLeftSegment ? RoundedSide.Left : RoundedSide.Right);
             dc.DrawGeometry(accent, null, path);
             DrawCenteredText(dc, text, rect, activeText, 11);
         }
@@ -628,14 +627,14 @@ public class MiniLineChartControl : FrameworkElement, IHoverTooltipProvider
             }
             else if (side == RoundedSide.Left)
             {
-                // 左半圆角（4 角只有左上是圆角，左下也是圆角；右上右下直角）
+                // 左半圆角（左上/左下圆角，右上/右下直角）
                 ctx.BeginFigure(new Point(rect.X + r, rect.Y), true, true);
                 ctx.LineTo(new Point(rect.Right, rect.Y), true, false);
                 ctx.LineTo(new Point(rect.Right, rect.Bottom), true, false);
                 ctx.LineTo(new Point(rect.X + r, rect.Bottom), true, false);
-                ctx.ArcTo(new Point(rect.X, rect.Bottom - r), new Size(r, r), 0, false, SweepDirection.Counterclockwise, true, false);
+                ctx.ArcTo(new Point(rect.X, rect.Bottom - r), new Size(r, r), 0, false, SweepDirection.Clockwise, true, false);
                 ctx.LineTo(new Point(rect.X, rect.Y + r), true, false);
-                ctx.ArcTo(new Point(rect.X + r, rect.Y), new Size(r, r), 0, false, SweepDirection.Counterclockwise, true, false);
+                ctx.ArcTo(new Point(rect.X + r, rect.Y), new Size(r, r), 0, false, SweepDirection.Clockwise, true, false);
             }
             else // Right
             {

@@ -1905,15 +1905,19 @@ public class MainViewModel : INotifyPropertyChanged
         SyncRingChartMetricOrderFromConfig();
         // req-026：环形图中心数字选择项集合从插件 Support + Config 计算
         BuildProviderRingChartMetricGroups();
-        MoveRingMetricUpCommand = new RelayCommand<int>(idx =>
+        MoveRingMetricUpCommand = new RelayCommand<string>(key =>
         {
+            if (string.IsNullOrEmpty(key)) return;
+            var idx = RingChartMetricOrder.IndexOf(key);
             if (idx <= 0 || idx >= RingChartMetricOrder.Count) return;
             (RingChartMetricOrder[idx - 1], RingChartMetricOrder[idx]) =
                 (RingChartMetricOrder[idx], RingChartMetricOrder[idx - 1]);
             PersistRingChartMetricOrder();
         });
-        MoveRingMetricDownCommand = new RelayCommand<int>(idx =>
+        MoveRingMetricDownCommand = new RelayCommand<string>(key =>
         {
+            if (string.IsNullOrEmpty(key)) return;
+            var idx = RingChartMetricOrder.IndexOf(key);
             if (idx < 0 || idx >= RingChartMetricOrder.Count - 1) return;
             (RingChartMetricOrder[idx + 1], RingChartMetricOrder[idx]) =
                 (RingChartMetricOrder[idx], RingChartMetricOrder[idx + 1]);
@@ -2015,6 +2019,10 @@ public class MainViewModel : INotifyPropertyChanged
 
         // 启动时构建一次"已启用"过滤集合
         RebuildEnabledUsages();
+
+        // req-053：启动时同步全局已启用 metric 到所有 Provider，避免重启后显示所有 metric
+        // 必须在 Usages 集合构建完成后调用
+        SyncGlobalEnabledMetricsToAllProviders();
 
         // 监听历史数据变化
         _historyStore.ProviderHistoryChanged += OnProviderHistoryChanged;
@@ -2398,6 +2406,16 @@ public class MainViewModel : INotifyPropertyChanged
             {
                 vm.EnabledRingChartMetrics = enabledKeys;
             }
+        }
+    }
+
+    /// <summary>req-053：把全局已启用 metric 集合同步到所有 ProviderUsageViewModel。</summary>
+    public void SyncGlobalEnabledMetricsToAllProviders()
+    {
+        var globalEnabled = _configService.Settings.GlobalEnabledRingChartMetrics;
+        foreach (var vm in Usages)
+        {
+            vm.EnabledRingChartMetrics = globalEnabled;
         }
     }
 

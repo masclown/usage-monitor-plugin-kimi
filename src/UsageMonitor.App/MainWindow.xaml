@@ -22,9 +22,8 @@
         <!-- 标题栏：品牌标识 + 标题/副标题 + 操作按钮 -->
         <DockPanel Grid.Row="0" Margin="0,0,0,18">
             <!-- req-048：将闪电图标替换为项目 Logo -->
-            <Border DockPanel.Dock="Left" Width="40" Height="40" CornerRadius="{DynamicResource RadiusButton}"
-                    Background="{DynamicResource AccentGradientBrush}" VerticalAlignment="Center">
-                <Image Source="{Binding CurrentLogoSource}" Width="28" Height="28"
+            <Border DockPanel.Dock="Left" Width="40" Height="40" VerticalAlignment="Center">
+                <Image Source="{Binding CurrentLogoSource}" Width="40" Height="40"
                        HorizontalAlignment="Center" VerticalAlignment="Center"
                        RenderOptions.BitmapScalingMode="HighQuality" />
             </Border>

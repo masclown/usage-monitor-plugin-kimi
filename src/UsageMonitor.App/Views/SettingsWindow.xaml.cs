@@ -3,6 +3,9 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Media;
 using UsageMonitor.App.ViewModels;
 using UsageMonitor.Core.Services;
 
@@ -28,6 +31,55 @@ public partial class SettingsWindow : Window
         // Display the live log file path so users can copy it for diagnostics.
         if (LogPathTextBox != null)
             LogPathTextBox.Text = FileLogger.GetCurrentLogPath();
+
+        // req-053：初始化环形图中心数字项的颜色（启用=白色，禁用=灰色）
+        UpdateRingMetricItemColors();
+    }
+
+    /// <summary>
+    /// req-053：根据 GlobalEnabledRingChartMetrics 更新环形图中心数字项的颜色。
+    /// </summary>
+    private void UpdateRingMetricItemColors()
+    {
+        // 找到 ItemsControl 中的 TextBlock 元素
+        if (RingMetricOrderList == null) return;
+        var enabled = _configService.Settings.GlobalEnabledRingChartMetrics;
+
+        // 获取主题感知的画刷
+        var enabledBrush = TryFindResource("TextPrimaryBrush") as System.Windows.Media.Brush
+                          ?? System.Windows.Media.Brushes.Black;
+        var disabledBrush = TryFindResource("TextTertiaryBrush") as System.Windows.Media.Brush
+                           ?? System.Windows.Media.Brushes.Gray;
+
+        foreach (var item in RingMetricOrderList.Items)
+        {
+            var container = RingMetricOrderList.ItemContainerGenerator.ContainerFromItem(item) as ContentPresenter;
+            if (container?.ContentTemplate == null) continue;
+            var tb = FindVisualChild<TextBlock>(container);
+            if (tb == null) continue;
+
+            var key = item as string;
+            if (string.IsNullOrEmpty(key)) continue;
+
+            var isEnabled = enabled.Exists(m => string.Equals(m, key, StringComparison.OrdinalIgnoreCase));
+            tb.Foreground = isEnabled ? enabledBrush : disabledBrush;
+            tb.FontWeight = isEnabled ? FontWeights.Bold : FontWeights.Normal;
+        }
+    }
+
+    /// <summary>
+    /// 查找可视化树中的子元素。
+    /// </summary>
+    private static T? FindVisualChild<T>(DependencyObject parent) where T : DependencyObject
+    {
+        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, i);
+            if (child is T result) return result;
+            var found = FindVisualChild<T>(child);
+            if (found != null) return found;
+        }
+        return null;
     }
 
     /// <summary>
@@ -153,6 +205,56 @@ public partial class SettingsWindow : Window
                 "保存失败",
                 System.Windows.MessageBoxButton.OK,
                 System.Windows.MessageBoxImage.Error);
+        }
+    }
+
+    /// <summary>
+    /// req-053：单击环形图中心数字项，切换启用/禁用状态。禁用后文字变灰色。
+    /// </summary>
+    private void OnRingMetricToggleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is not TextBlock tb) return;
+        var key = tb.DataContext as string;
+        if (string.IsNullOrEmpty(key)) return;
+
+        var settings = _configService.Settings;
+        var enabled = settings.GlobalEnabledRingChartMetrics;
+
+        // 获取主题感知的画刷
+        var enabledBrush = TryFindResource("TextPrimaryBrush") as System.Windows.Media.Brush
+                          ?? System.Windows.Media.Brushes.Black;
+        var disabledBrush = TryFindResource("TextTertiaryBrush") as System.Windows.Media.Brush
+                           ?? System.Windows.Media.Brushes.Gray;
+
+        // 切换启用状态
+        var exists = enabled.Exists(m => string.Equals(m, key, StringComparison.OrdinalIgnoreCase));
+        if (exists)
+        {
+            enabled.RemoveAll(m => string.Equals(m, key, StringComparison.OrdinalIgnoreCase));
+            tb.Foreground = disabledBrush;
+            tb.FontWeight = FontWeights.Normal;
+        }
+        else
+        {
+            enabled.Add(key);
+            tb.Foreground = enabledBrush;
+            tb.FontWeight = FontWeights.Bold;
+        }
+
+        // req-053：同步到所有 ProviderUsageViewModel，让半圆环图立即反映变化
+        if (DataContext is MainViewModel vm)
+        {
+            vm.SyncGlobalEnabledMetricsToAllProviders();
+        }
+
+        // req-053：立即持久化到配置文件，避免重启后丢失
+        try
+        {
+            _configService.Save();
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Warn("SettingsWindow", $"OnRingMetricToggleClick Save failed: {ex.Message}", ex);
         }
     }
 }

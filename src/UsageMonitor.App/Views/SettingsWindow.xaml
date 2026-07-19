@@ -76,37 +76,46 @@
 
                     <Separator Margin="0,4,0,16" />
 
-                    <!-- REQ-003 环形图增强设置：metric 切换顺序 + sticky + 动画 -->
-                    <TextBlock Text="环形图中心数字（鼠标滚轮切换顺序）" FontSize="15" FontWeight="SemiBold"
+                    <!-- REQ-003 环形图增强设置：metric 启用/禁用 + 切换顺序 + sticky + 动画 -->
+                    <TextBlock Text="环形图中心数字（单击启用/禁用，滚轮切换顺序）" FontSize="15" FontWeight="SemiBold"
                                Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,12" />
                     <TextBlock TextWrapping="Wrap" FontSize="12"
                                Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,8">
-                        <Run Text="使用上下按钮调整顺序（拖拽排序留二期）。修改后点击保存设置。离开鼠标后 sticky 秒数后回默认。" />
+                        <Run Text="单击可开启或关闭，关闭后字颜色变为灰色。修改后点击保存设置。离开鼠标后 sticky 秒数后回默认。" />
                     </TextBlock>
-                    <ListBox x:Name="RingMetricOrderList" Height="120" Margin="0,0,0,8"
-                             ItemsSource="{Binding RingChartMetricOrder}"
-                             Background="{DynamicResource SurfaceBrush}"
-                             Foreground="{DynamicResource TextPrimaryBrush}"
-                             BorderBrush="{DynamicResource TrackBrush}">
-                        <ListBox.ItemTemplate>
+                    <ItemsControl x:Name="RingMetricOrderList" ItemsSource="{Binding RingChartMetricOrder}" Margin="0,0,0,8">
+                        <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <TextBlock Text="{Binding Converter={StaticResource RingMetricKeyToDisplay}}" FontSize="13" />
+                                <Grid Margin="0,2,0,2">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="{Binding Converter={StaticResource RingMetricKeyToDisplay}}" FontSize="13"
+                                               Margin="0,4,8,4" Cursor="Hand"
+                                               MouseLeftButtonDown="OnRingMetricToggleClick" />
+                                    <StackPanel x:Name="MetricButtons" Grid.Column="1" Orientation="Horizontal" Visibility="Hidden">
+                                        <Button Content="↑" Padding="6,2" Margin="0,0,4,0"
+                                                Command="{Binding DataContext.MoveRingMetricUpCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                CommandParameter="{Binding}"
+                                                Style="{StaticResource AccentSoftButtonStyle}" />
+                                        <Button Content="↓" Padding="6,2"
+                                                Command="{Binding DataContext.MoveRingMetricDownCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                CommandParameter="{Binding}"
+                                                Style="{StaticResource AccentSoftButtonStyle}" />
+                                    </StackPanel>
+                                </Grid>
+                                <DataTemplate.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter TargetName="MetricButtons" Property="Visibility" Value="Visible" />
+                                    </Trigger>
+                                </DataTemplate.Triggers>
                             </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
-                        <Button Content="↑ 上移" Margin="0,0,8,0" Padding="12,4"
-                                Command="{Binding MoveRingMetricUpCommand}"
-                                CommandParameter="{Binding ElementName=RingMetricOrderList, Path=SelectedIndex}"
-                                Style="{StaticResource AccentSoftButtonStyle}" />
-                        <Button Content="↓ 下移" Margin="0,0,8,0" Padding="12,4"
-                                Command="{Binding MoveRingMetricDownCommand}"
-                                CommandParameter="{Binding ElementName=RingMetricOrderList, Path=SelectedIndex}"
-                                Style="{StaticResource AccentSoftButtonStyle}" />
-                        <Button Content="恢复默认顺序" Padding="12,4"
-                                Command="{Binding ResetRingMetricOrderCommand}"
-                                Style="{StaticResource GhostButtonStyle}" />
-                    </StackPanel>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <Button Content="恢复默认顺序" Padding="12,4" Margin="0,0,0,12"
+                            Command="{Binding ResetRingMetricOrderCommand}"
+                            Style="{StaticResource GhostButtonStyle}" />
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
                         <StackPanel Margin="0,0,16,0">
                             <TextBlock Text="sticky 秒数（鼠标离开后回默认，默认 5；0 = 永不回）" FontSize="13"
@@ -280,7 +289,7 @@
                                Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,8" />
                     <TextBlock TextWrapping="Wrap" FontSize="12"
                                Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,12">
-                        <Run Text="以下勾选只控制“关闭后中心数字显浅灰”。插件提供哪些数字类型在此处分项展示。" />
+                        <Run Text="取消勾选后，该数字类型将从滚轮切换循环中移除，不再显示。" />
                     </TextBlock>
                     <ItemsControl ItemsSource="{Binding ProviderRingChartMetricGroups}">
                         <ItemsControl.ItemTemplate>

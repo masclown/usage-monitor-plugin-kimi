@@ -36,6 +36,8 @@ public partial class App : Application
     private Views.HistoryWindow? _historyWindow;
     private DispatcherTimer? _trayHoverCheckTimer;
     private bool _isCursorOverTrayArea;
+    // req-053：托盘 tooltip 节流——Windows NotifyIcon.Text 频繁更新会被系统忽略，限制每秒最多更新一次
+    private DateTime _lastTrayTooltipUpdateUtc = DateTime.MinValue;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -287,13 +289,11 @@ public partial class App : Application
                 var cursorPos = System.Windows.Forms.Cursor.Position;
                 if (!IsCursorInTrayArea(cursorPos)) return;
                 var counterVm = _viewModel.Usages?.FirstOrDefault(vm => vm.HasFiveHourCountdown);
-                // req-051：先刷新倒计时值，确保托盘 tooltip 显示最新倒计时
-                counterVm?.RefreshFiveHourCountdownText(DateTime.Now);
+                // req-053：直接读取已计算的 FiveHourCountdownText，不再重新调用 RefreshFiveHourCountdownText
                 var countdown = counterVm?.FiveHourCountdownText ?? "00:00:00";
-                var firstLine = _viewModel.Usages?.FirstOrDefault()?.ProviderId;
                 // 托盘 tooltip Text 最大约 63 char（Windows 限制），拼接 "用量/倒计时" 形式。
                 if (counterVm != null)
-                    _notifyIcon.Text = $"用量 {counterVm.UsagePercentage:0}% · 5h 倒计时 {countdown}";
+                    _notifyIcon.Text = $"用量 {counterVm.UsagePercentage:0}% · 5h:{countdown}";
                 else
                     _notifyIcon.Text = "UsageMonitor";
             }
@@ -357,6 +357,35 @@ public partial class App : Application
     /// 初始化托盘悬浮窗 + 鼠标悬停检测定时器。
     /// 幂等：已存在则跳过；开关关闭时不创建。
     /// </summary>
+    /// <summary>
+    /// req-053：刷新托盘 tooltip 文本，确保倒计时实时更新。
+    /// <para>直接读取 VM 已计算好的 FiveHourCountdownText（由全局 timer 每秒更新），
+    /// 不再重新调用 RefreshFiveHourCountdownText 避免 _next5hResetAt 为 null 时覆盖为 "00:00:00"。</para>
+    /// </summary>
+    private void RefreshTrayTooltipText()
+    {
+        if (_notifyIcon == null) return;
+        // 节流：每秒最多更新一次
+        var now = DateTime.UtcNow;
+        if ((now - _lastTrayTooltipUpdateUtc).TotalMilliseconds < 1000) return;
+        _lastTrayTooltipUpdateUtc = now;
+
+        try
+        {
+            var counterVm = _viewModel.Usages?.FirstOrDefault(vm => vm.HasFiveHourCountdown);
+            // req-053：直接读取已计算的 FiveHourCountdownText（由 OnFiveHourCountdownTick 每秒更新）
+            var countdown = counterVm?.FiveHourCountdownText ?? "00:00:00";
+            if (counterVm != null)
+                _notifyIcon.Text = $"{counterVm.DisplayName} {counterVm.UsagePercentage:0}% 5h:{countdown}";
+            else
+                _notifyIcon.Text = "UsageMonitor";
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Error("App", $"RefreshTrayTooltipText failed: {ex.Message}", ex);
+        }
+    }
+
     private void InitializeTrayTooltip()
     {
         if (_trayTooltipWindow != null) return;
@@ -422,6 +451,8 @@ public partial class App : Application
                     _trayTooltipWindow.ShowNearCursor(wpfPos);
                 }
             }
+            // req-053：鼠标在托盘区域时，每秒刷新托盘 tooltip 的倒计时文本
+            RefreshTrayTooltipText();
         }
         else
         {

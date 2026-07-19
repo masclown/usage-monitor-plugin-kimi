@@ -320,9 +320,9 @@ public class RingMetricKeyToDisplayConverter : IValueConverter
     /// <summary>内嵌映射表：与 <see cref="UsageMonitor.Core.Models.RingChartMetricKeys"/> 字符串常量一一对应。未知键原样返回。</summary>
     private static readonly System.Collections.Generic.Dictionary<string, string> Map = new(System.StringComparer.OrdinalIgnoreCase)
     {
-        ["Percent"] = "已用百分比（默认）",
+        ["Percent"] = "5h 用量",
         ["Credits"] = "积分余额",
-        ["WeeklyLimit"] = "周限额剩余",
+        ["WeeklyLimit"] = "周 限额剩余",
         ["RemainingQuota"] = "剩余用量（金额 / Token）",
         ["ApiTokenUsed"] = "已用 Token 数",
     };

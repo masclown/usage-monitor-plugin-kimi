@@ -461,20 +461,21 @@ public class RingChartControl : FrameworkElement, IHoverTooltipProvider
     /// <param name="direction">+1 向后 / -1 向前。</param>
     public void CycleMetric(int direction)
     {
-        var order = EffectiveMetricOrder();
-        if (order.Count == 0) return;
+        // req-053：只在与已启用 metric 集合中循环，已禁用的跳过
+        var enabledOrder = GetEnabledMetricOrder();
+        if (enabledOrder.Count == 0) return;
         var currentIdx = -1;
-        for (var i = 0; i < order.Count; i++)
+        for (var i = 0; i < enabledOrder.Count; i++)
         {
-            if (string.Equals(order[i], MetricKey, StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(enabledOrder[i], MetricKey, StringComparison.OrdinalIgnoreCase))
             {
                 currentIdx = i;
                 break;
             }
         }
         if (currentIdx < 0) currentIdx = 0;
-        var newIdx = ((currentIdx + direction) % order.Count + order.Count) % order.Count;
-        SetMetric(order[newIdx], animate: SwitchAnimationMs > 0);
+        var newIdx = ((currentIdx + direction) % enabledOrder.Count + enabledOrder.Count) % enabledOrder.Count;
+        SetMetric(enabledOrder[newIdx], animate: SwitchAnimationMs > 0);
     }
 
     /// <summary>REQ-003：设置当前 metric 键。可选是否触发老虎机动画。</summary>
@@ -509,6 +510,21 @@ public class RingChartControl : FrameworkElement, IHoverTooltipProvider
     {
         if (MetricOrder != null && MetricOrder.Count > 0) return MetricOrder;
         return RingChartMetricKeys.DefaultOrder;
+    }
+
+    /// <summary>req-053：从 EffectiveMetricOrder 中过滤出已启用的 metric，保持原顺序。</summary>
+    private IReadOnlyList<string> GetEnabledMetricOrder()
+    {
+        var order = EffectiveMetricOrder();
+        // null / 空集合表示全部启用，直接返回完整顺序
+        if (EnabledMetrics == null || EnabledMetrics.Count == 0) return order;
+        var result = new List<string>(order.Count);
+        foreach (var key in order)
+        {
+            if (IsCurrentMetricEnabled(EnabledMetrics, key))
+                result.Add(key);
+        }
+        return result;
     }
 
     /// <summary>REQ-003：sticky 计时器到时回退默认 metric（仅当用户切换过）。</summary>

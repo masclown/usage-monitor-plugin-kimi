@@ -705,8 +705,8 @@ public partial class TaskbarWindow : Window
             {
                 "Percent" => "5h 用量",
                 "Credits" => "积分余额",
-                "WeeklyLimit" => "周剩余用量",
-                "RemainingQuota" => "剩余配额",
+                "WeeklyLimit" => "周 限额剩余",
+                "RemainingQuota" => "剩余用量",
                 "ApiTokenUsed" => "API Token 已用",
                 _ => "当前用量"
             };

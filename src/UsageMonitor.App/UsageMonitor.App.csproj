@@ -9,13 +9,13 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
 
-    <!-- 项目版本号（0.12.0）：req-034 缓存命中率tooltip / req-046 HoverTooltip重构 / req-051 任务栏圆环图重构(半圆环+中心点击刷新+滚轮切换metric)；用于程序集元数据 + 文件属性。 -->
+    <!-- 项目版本号（0.13.0）：req-053 环形图中心数字单击启用禁用 / 设置界面重构 / 托盘tooltip节流刷新 / 折线图按钮圆角修复 / Logo放大；用于程序集元数据 + 文件属性。 -->
     <!-- 显式设置 5 个属性，避免被 SDK 衍生规则变动影响。 -->
-    <Version>0.12.0</Version>
-    <AssemblyVersion>0.12.0.0</AssemblyVersion>
-    <FileVersion>0.12.0.0</FileVersion>
-    <InformationalVersion>0.12.0</InformationalVersion>
-    <ProductVersion>0.12.0</ProductVersion>
+    <Version>0.13.0</Version>
+    <AssemblyVersion>0.13.0.0</AssemblyVersion>
+    <FileVersion>0.13.0.0</FileVersion>
+    <InformationalVersion>0.13.0</InformationalVersion>
+    <ProductVersion>0.13.0</ProductVersion>
     <AssemblyTitle>UsageMonitor</AssemblyTitle>
     <Product>UsageMonitor</Product>
     <Company>UsageMonitor</Company>
