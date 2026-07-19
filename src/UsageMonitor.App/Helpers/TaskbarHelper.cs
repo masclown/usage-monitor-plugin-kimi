@@ -59,6 +59,12 @@ public static class TaskbarNativeMethods
     public static extern int GetSystemMetrics(int nIndex);
 
     [DllImport("user32.dll")]
+    public static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
+
+    [DllImport("user32.dll")]
+    public static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO lpmi);
+
+    [DllImport("user32.dll")]
     public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter,
         int X, int Y, int cx, int cy, uint uFlags);
 
@@ -97,6 +103,19 @@ public static class TaskbarNativeMethods
         public int Width => Right - Left;
         public int Height => Bottom - Top;
     }
+
+    /// <summary>显示器信息结构体（用于多显示器适配）</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MONITORINFO
+    {
+        public int cbSize;
+        public RECT rcMonitor;      // 显示器全区域
+        public RECT rcWork;         // 工作区域（不含任务栏）
+        public uint dwFlags;        // MONITORINFOF_PRIMARY = 1 表示主屏
+    }
+
+    public const uint MONITOR_DEFAULTTONEAREST = 0x00000002;
+    public const uint MONITORINFOF_PRIMARY = 0x00000001;
 }
 
 /// <summary>
@@ -192,8 +211,16 @@ public class TaskbarHelper : IDisposable
         //   任务栏在顶部（y 在屏幕中点之前）：y = taskbarRect.Top (=0)
         //   任务栏在左/右（罕见）：x 同理
         // 使用 taskbarRect.Right/Top 屏幕绝对坐标，而不是 Width/Height 任务栏相对尺寸。
-        var screenW = TaskbarNativeMethods.GetSystemMetrics(0);  // SM_CXSCREEN
-        var screenH = TaskbarNativeMethods.GetSystemMetrics(1);  // SM_CYSCREEN
+        // 多显示器适配：使用任务栏所在显示器的边界而非主屏 GetSystemMetrics
+        var monitorHandle = TaskbarNativeMethods.MonitorFromWindow(_taskbarHandle,
+            TaskbarNativeMethods.MONITOR_DEFAULTTONEAREST);
+        var monitorInfo = new TaskbarNativeMethods.MONITORINFO { cbSize = Marshal.SizeOf<TaskbarNativeMethods.MONITORINFO>() };
+        TaskbarNativeMethods.GetMonitorInfo(monitorHandle, ref monitorInfo);
+        var screenW = monitorInfo.rcMonitor.Width;
+        var screenH = monitorInfo.rcMonitor.Height;
+        var screenLeft = monitorInfo.rcMonitor.Left;
+        var screenTop = monitorInfo.rcMonitor.Top;
+        FileLogger.Info("TaskbarHelper", $"EmbedWindow: monitor=({screenLeft},{screenTop}) {screenW}x{screenH} primary={monitorInfo.dwFlags == TaskbarNativeMethods.MONITORINFOF_PRIMARY}");
         var height = taskbarRect.Height;
         var width_ = width;  // 避免与外层 width 形参同名，alias
 
@@ -211,11 +238,11 @@ public class TaskbarHelper : IDisposable
         if (x < taskbarRect.Left + leftMargin) x = taskbarRect.Left + leftMargin;
         var y = taskbarRect.Top;                      // 任务栏顶端（顶部任务栏 y=0；底部任务栏 y=1392）
 
-        // 防御性：限制窗口完全在屏幕内
-        if (x + width_ > screenW) x = screenW - width_;
-        if (x < 0) x = 0;
-        if (y + height > screenH) y = screenH - height;
-        if (y < 0) y = 0;
+        // 防御性：限制窗口完全在任务栏所在显示器内
+        if (x + width_ > screenLeft + screenW) x = screenLeft + screenW - width_;
+        if (x < screenLeft) x = screenLeft;
+        if (y + height > screenTop + screenH) y = screenTop + screenH - height;
+        if (y < screenTop) y = screenTop;
 
         bool swpOk = TaskbarNativeMethods.SetWindowPos(windowHandle, TaskbarNativeMethods.HWND_TOPMOST,
             x, y, width_, height,
@@ -229,7 +256,7 @@ public class TaskbarHelper : IDisposable
     }
 
     /// <summary>
-    /// 更新嵌入窗口的位置和大小
+    /// 更新嵌入窗口的位置和大小（多显示器适配）
     /// </summary>
     public void UpdatePosition(int width = 300)
     {
@@ -238,9 +265,10 @@ public class TaskbarHelper : IDisposable
 
         TaskbarNativeMethods.GetWindowRect(_taskbarHandle, out var taskbarRect);
         var height = taskbarRect.Height;
-        var x = taskbarRect.Width - width - 80;
+        // 使用任务栏绝对坐标而非相对宽度，适配多显示器偏移
+        var x = taskbarRect.Right - width - 80;
 
-        TaskbarNativeMethods.MoveWindow(_childWindowHandle, x, 0, width, height, true);
+        TaskbarNativeMethods.MoveWindow(_childWindowHandle, x, taskbarRect.Top, width, height, true);
     }
 
     /// <summary>

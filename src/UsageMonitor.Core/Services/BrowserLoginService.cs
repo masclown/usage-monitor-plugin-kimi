@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -128,7 +129,7 @@ public static class BrowserLoginService
                 ViewportSize = new ViewportSize { Width = 1280, Height = 800 },
                 UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
                              "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                IgnoreHTTPSErrors = true,
+                IgnoreHTTPSErrors = false,
                 Locale = "zh-CN",
                 TimezoneId = "Asia/Shanghai",
                 ExtraHTTPHeaders = new Dictionary<string, string>
@@ -363,7 +364,7 @@ public static class BrowserLoginService
                     $"Captured names: {string.Join(",", cookies.Select(c => c.Name))}");
             }
             FileLogger.Info("BrowserLoginService",
-                $"Captured {cookies.Count} cookies. Names: {string.Join(",", cookies.Select(c => c.Name))}");
+                $"Captured {cookies.Count} cookies");
 
             var cookieData = new BrowserCookieData
             {
@@ -496,7 +497,8 @@ public static class BrowserLoginService
 
         try
         {
-            var json = File.ReadAllText(path, Encoding.UTF8);
+            var encryptedJson = File.ReadAllText(path, Encoding.UTF8);
+            var json = Decrypt(encryptedJson);
             return JsonSerializer.Deserialize<BrowserCookieData>(json,
                 new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
         }
@@ -506,7 +508,7 @@ public static class BrowserLoginService
         }
     }
 
-    /// <summary>Save cookie to JSON.</summary>
+    /// <summary>Save cookie to JSON with DPAPI encryption.</summary>
     public static void SaveCookieData(BrowserCookieData data)
     {
         if (data == null) throw new ArgumentNullException(nameof(data));
@@ -519,7 +521,25 @@ public static class BrowserLoginService
             WriteIndented = true,
             Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
         };
-        File.WriteAllText(path, JsonSerializer.Serialize(data, options), Encoding.UTF8);
+        var json = JsonSerializer.Serialize(data, options);
+        var encryptedJson = Encrypt(json);
+        File.WriteAllText(path, encryptedJson, Encoding.UTF8);
+    }
+
+    /// <summary>使用DPAPI加密字符串</summary>
+    private static string Encrypt(string plainText)
+    {
+        var bytes = Encoding.UTF8.GetBytes(plainText);
+        var encrypted = ProtectedData.Protect(bytes, null, DataProtectionScope.CurrentUser);
+        return Convert.ToBase64String(encrypted);
+    }
+
+    /// <summary>使用DPAPI解密字符串</summary>
+    private static string Decrypt(string cipherText)
+    {
+        var bytes = Convert.FromBase64String(cipherText);
+        var decrypted = ProtectedData.Unprotect(bytes, null, DataProtectionScope.CurrentUser);
+        return Encoding.UTF8.GetString(decrypted);
     }
 
     /// <summary>Delete saved cookie by ProviderId.</summary>

@@ -291,9 +291,9 @@ public partial class App : Application
                 var counterVm = _viewModel.Usages?.FirstOrDefault(vm => vm.HasFiveHourCountdown);
                 // req-053：直接读取已计算的 FiveHourCountdownText，不再重新调用 RefreshFiveHourCountdownText
                 var countdown = counterVm?.FiveHourCountdownText ?? "00:00:00";
-                // 托盘 tooltip Text 最大约 63 char（Windows 限制），拼接 "用量/倒计时" 形式。
+                // 托盘 tooltip Text 最大约 63 char（Windows 限制），拼接 "Provider/用量/倒计时" 形式。
                 if (counterVm != null)
-                    _notifyIcon.Text = $"用量 {counterVm.UsagePercentage:0}% · 5h:{countdown}";
+                    _notifyIcon.Text = $"{counterVm.DisplayName} {counterVm.UsagePercentage:0}% · 5h:{countdown}";
                 else
                     _notifyIcon.Text = "UsageMonitor";
             }

@@ -51,7 +51,6 @@ public class Program
             Console.WriteLine();
             Console.WriteLine("V Login successful! Cookie obtained.");
             Console.WriteLine($"  Cookie length: {cookie.Length} chars");
-            Console.WriteLine($"  Cookie prefix: {cookie.Substring(0, Math.Min(60, cookie.Length))}...");
 
             // Hand the new cookie to ConfigService so it's stored in the encrypted
             // config.json path (with sensitive-field encryption) instead of being

@@ -311,6 +311,7 @@ internal static class MiniMaxBalanceFetcher
         try
         {
             Directory.CreateDirectory(DebugDir);
+            CleanupOldDebugFiles();
             var path = Path.Combine(DebugDir, fileName);
             File.WriteAllText(path, content, Encoding.UTF8);
             return path;
@@ -318,6 +319,30 @@ internal static class MiniMaxBalanceFetcher
         catch
         {
             return null;
+        }
+    }
+
+    /// <summary>
+    /// 清理 7 天前的 debug 文件，避免磁盘占用无限增长。
+    /// </summary>
+    private static void CleanupOldDebugFiles()
+    {
+        try
+        {
+            if (!Directory.Exists(DebugDir)) return;
+            var cutoff = DateTime.Now.AddDays(-7);
+            foreach (var file in Directory.GetFiles(DebugDir))
+            {
+                var info = new FileInfo(file);
+                if (info.CreationTime < cutoff)
+                {
+                    info.Delete();
+                }
+            }
+        }
+        catch
+        {
+            // Silently ignore cleanup failures
         }
     }
 }

@@ -647,7 +647,7 @@ public class ConfigService
     /// <summary>判断是否为敏感配置键</summary>
     private static bool IsSensitiveKey(string key)
     {
-        var sensitiveKeywords = new[] { "apikey", "token", "secret", "password", "key", "cookie" };
+        var sensitiveKeywords = new[] { "apikey", "token", "secret", "password", "cookie" };
         return sensitiveKeywords.Any(k => key.Contains(k, StringComparison.OrdinalIgnoreCase));
     }
 

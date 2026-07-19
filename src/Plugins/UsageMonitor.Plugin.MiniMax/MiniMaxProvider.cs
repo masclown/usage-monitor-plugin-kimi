@@ -238,9 +238,12 @@ public class MiniMaxProvider : IUsageProvider
                 UsageMonitor.Core.Services.FileLogger.Info(LogSource,
                     "GetUsageAsync start. Trying DOM extraction (primary)...");
                 var sw = System.Diagnostics.Stopwatch.StartNew();
+                // req-062 B1: Pass region to DOM extractor for dynamic cookie domain and URL selection
+                var region = config.GetValue("Region") ?? "CN";
                 var domUsage = await MiniMaxDomExtractor.ExtractAsync(
                     cookie,
-                    userAgent ?? string.Empty);
+                    userAgent ?? string.Empty,
+                    region);
                 sw.Stop();
                 if (domUsage != null && domUsage.IsSuccess)
                 {
@@ -611,6 +614,7 @@ public class MiniMaxProvider : IUsageProvider
         try
         {
             Directory.CreateDirectory(DebugDir);
+            CleanupOldDebugFiles();
             var fileName = $"MiniMax-{DateTime.Now:yyyyMMdd-HHmmss-fff}.json";
             var path = Path.Combine(DebugDir, fileName);
             var content = $"// baseUrl: {baseUrl}\n// time: {DateTime.Now:O}\n\n{json}";
@@ -619,6 +623,30 @@ public class MiniMaxProvider : IUsageProvider
         catch
         {
             // Silently ignore
+        }
+    }
+
+    /// <summary>
+    /// 清理 7 天前的 debug 文件，避免磁盘占用无限增长。
+    /// </summary>
+    private static void CleanupOldDebugFiles()
+    {
+        try
+        {
+            if (!Directory.Exists(DebugDir)) return;
+            var cutoff = DateTime.Now.AddDays(-7);
+            foreach (var file in Directory.GetFiles(DebugDir))
+            {
+                var info = new FileInfo(file);
+                if (info.CreationTime < cutoff)
+                {
+                    info.Delete();
+                }
+            }
+        }
+        catch
+        {
+            // Silently ignore cleanup failures
         }
     }
 }

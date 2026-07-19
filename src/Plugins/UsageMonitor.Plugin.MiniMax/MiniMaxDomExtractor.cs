@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -34,9 +35,10 @@ internal static class MiniMaxDomExtractor
     /// </summary>
     /// <param name="cookie">Cookie string from %AppData%\UsageMonitor\cookies\MiniMax.json</param>
     /// <param name="userAgent">Browser User-Agent for replay</param>
+    /// <param name="region">Region identifier: "CN" (default) or "Global". Affects cookie domain and navigation URL.</param>
     /// <param name="ct">Cancellation</param>
     public static async Task<UsageInfo?> ExtractAsync(
-        string cookie, string userAgent, CancellationToken ct = default)
+        string cookie, string userAgent, string region = "CN", CancellationToken ct = default)
     {
         FileLogger.Info(LogSource, $"ExtractAsync started. cookieLen={cookie?.Length ?? 0}, uaLen={userAgent?.Length ?? 0}");
         if (string.IsNullOrWhiteSpace(cookie))
@@ -69,7 +71,7 @@ internal static class MiniMaxDomExtractor
                         ? "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
                           "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
                         : userAgent,
-                    IgnoreHTTPSErrors = true,
+                    IgnoreHTTPSErrors = false,
                     Locale = "zh-CN",
                     TimezoneId = "Asia/Shanghai",
                     ExtraHTTPHeaders = new Dictionary<string, string>
@@ -89,13 +91,14 @@ internal static class MiniMaxDomExtractor
             FileLogger.Debug(LogSource, $"Edge launched in {stepSw.ElapsedMilliseconds}ms total");
 
             // Inject saved cookies. Playwright requires {Name, Value, Domain or Url} per entry.
-            var cookieList = ParseCookieString(cookie);
+            // req-062 B1: Pass region to dynamically select cookie domain (.minimaxi.com vs .minimax.io)
+            var cookieList = ParseCookieString(cookie, region);
             if (cookieList.Count == 0)
             {
                 FileLogger.Warn(LogSource, "Empty cookie list parsed, skip");
                 return null;
             }
-            FileLogger.Info(LogSource, $"Parsed {cookieList.Count} cookies. Names: {string.Join(",", cookieList.Select(c => c.Name))}");
+            FileLogger.Info(LogSource, $"Parsed {cookieList.Count} cookies");
             FileLogger.Debug(LogSource, $"First cookie domain='{cookieList[0].Domain}' url='{cookieList[0].Url ?? "<null>"}'");
 
             // Domain is always set in ParseCookieString, so no further fallback needed.
@@ -116,7 +119,8 @@ internal static class MiniMaxDomExtractor
             // Capture network responses for /backend/account/token_plan/* endpoints
             // (the trend chart, heatmap, credit all come from here)
             // 另订阅档位来自 /v1/api/openplatform/charge/combo/cycle_audio_resource_package
-            var capturedResponses = new Dictionary<string, string>();
+            // req-062 B2: Use ConcurrentDictionary for thread-safe response capture
+            var capturedResponses = new ConcurrentDictionary<string, string>();
             page.Response += async (_, response) =>
             {
                 try
@@ -148,14 +152,20 @@ internal static class MiniMaxDomExtractor
             };
 
             // Navigate to the usage page; wait for chart rendering.
-            FileLogger.Info(LogSource, $"Navigating to https://platform.minimaxi.com/console/usage ...");
+            // req-062 B1: Select URL based on region (CN: platform.minimaxi.com, Global: platform.minimax.io)
+            var usageUrl = string.Equals(region, "Global", StringComparison.OrdinalIgnoreCase)
+                ? "https://platform.minimax.io/console/usage"
+                : "https://platform.minimaxi.com/console/usage";
+            FileLogger.Info(LogSource, $"Navigating to {usageUrl} ...");
             var navSw = System.Diagnostics.Stopwatch.StartNew();
             try
             {
-                await page.GotoAsync("https://platform.minimaxi.com/console/usage",
+                // req-062 B19: Use Commit instead of NetworkIdle for faster navigation,
+                // then wait for canvas element to ensure chart rendering
+                await page.GotoAsync(usageUrl,
                     new PageGotoOptions
                     {
-                        WaitUntil = WaitUntilState.NetworkIdle,
+                        WaitUntil = WaitUntilState.Commit,
                         Timeout = 30_000,
                     });
             }
@@ -166,8 +176,16 @@ internal static class MiniMaxDomExtractor
             FileLogger.Info(LogSource, $"Navigation completed in {navSw.ElapsedMilliseconds}ms (URL: {page.Url})");
             ct.ThrowIfCancellationRequested();
 
-            // Give echarts a moment to render after NetworkIdle
-            await page.WaitForTimeoutAsync(2000);
+            // req-062 B19: Wait for canvas element (echarts container) instead of fixed timeout
+            try
+            {
+                await page.WaitForSelectorAsync("canvas", new PageWaitForSelectorOptions { Timeout = 10_000 });
+                FileLogger.Debug(LogSource, "Canvas element detected, chart likely rendered");
+            }
+            catch (Exception canvasEx)
+            {
+                FileLogger.Warn(LogSource, $"Canvas wait timeout (chart may not be rendered): {canvasEx.Message}");
+            }
             ct.ThrowIfCancellationRequested();
 
             // Verify we're not redirected to login page
@@ -308,10 +326,11 @@ internal static class MiniMaxDomExtractor
     /// <summary>
     /// Combine DOM metrics with captured JSON responses to build UsageInfo + extras dict.
     /// prefers JSON for trend data, DOM for primary numbers.
+    /// req-062 B2: Accept ConcurrentDictionary for thread-safe response capture.
     /// </summary>
     private static void BuildUsageInfo(
         DomMetrics dom,
-        Dictionary<string, string> captured,
+        ConcurrentDictionary<string, string> captured,
         int cookieCount,
         out UsageInfo usageInfo,
         out Dictionary<string, object> extras)
@@ -366,10 +385,16 @@ internal static class MiniMaxDomExtractor
                             }
                             else if (name == "video")
                             {
-                                extras["mm_videoIntervalUsed"] = GetLong(m, "current_interval_used_count");
+                                // req-062 B20: Fix field semantics - current_*_used_count is actually REMAINING count
+                                // (per OpenClaw Issue #81156: current_*_usage_count means "remaining count", not used)
+                                // We store as "remaining" and calculate used = total - remaining in UI layer if needed
+                                extras["mm_videoIntervalRemaining"] = GetLong(m, "current_interval_used_count");
                                 extras["mm_videoIntervalTotal"] = GetLong(m, "current_interval_total_count");
-                                extras["mm_videoWeeklyUsed"] = GetLong(m, "current_weekly_used_count");
+                                extras["mm_videoWeeklyRemaining"] = GetLong(m, "current_weekly_used_count");
                                 extras["mm_videoWeeklyTotal"] = GetLong(m, "current_weekly_total_count");
+                                // Keep legacy keys for backward compatibility (deprecated, will be removed)
+                                extras["mm_videoIntervalUsed"] = GetLong(m, "current_interval_used_count");
+                                extras["mm_videoWeeklyUsed"] = GetLong(m, "current_weekly_used_count");
                             }
                         }
                     }
@@ -584,19 +609,31 @@ internal static class MiniMaxDomExtractor
     /// Parse a Cookie header string into Playwright Cookie objects.
     /// <para>
     /// Playwright requires each cookie to have either Url or Domain set;
-    /// using Domain (".minimaxi.com") lets Playwright match against multiple
-    /// subdomains (www / platform / account) without per-cookie URL tuning.
+    /// using Domain lets Playwright match against multiple subdomains
+    /// (www / platform / account) without per-cookie URL tuning.
     /// </para>
     /// <para>
     /// IMPORTANT: When Domain is set, Url must remain null — Playwright throws
     /// "Cookie should have either url or domain" if both have non-empty values
     /// that do not agree. We never set Url here.
     /// </para>
+    /// <para>
+    /// req-062 B1: Added region parameter to dynamically select cookie domain.
+    /// CN region uses .minimaxi.com, Global region uses .minimax.io.
+    /// </para>
     /// </summary>
-    private static List<Cookie> ParseCookieString(string cookieString)
+    /// <param name="cookieString">Raw cookie header string (name=value; name2=value2)</param>
+    /// <param name="region">Region identifier: "CN" (default) or "Global"</param>
+    private static List<Cookie> ParseCookieString(string cookieString, string region = "CN")
     {
         var list = new List<Cookie>();
         if (string.IsNullOrWhiteSpace(cookieString)) return list;
+
+        // req-062 B1: Dynamically select domain based on region
+        var domain = string.Equals(region, "Global", StringComparison.OrdinalIgnoreCase)
+            ? ".minimax.io"
+            : ".minimaxi.com";
+
         foreach (var part in cookieString.Split(';', StringSplitOptions.RemoveEmptyEntries))
         {
             var eqIdx = part.IndexOf('=');
@@ -608,7 +645,7 @@ internal static class MiniMaxDomExtractor
             {
                 Name = name,
                 Value = value,
-                Domain = ".minimaxi.com",
+                Domain = domain,
                 Path = "/",
                 // Url intentionally left null — Domain above satisfies Playwright's
                 // "either url or domain" requirement and applies to all subdomains.
@@ -617,11 +654,12 @@ internal static class MiniMaxDomExtractor
         return list;
     }
 
-    private static void WriteDebug(Dictionary<string, string> capturedResponses, string suffix, string? finalUrl = null, string? pageTitle = null)
+    private static void WriteDebug(ConcurrentDictionary<string, string> capturedResponses, string suffix, string? finalUrl = null, string? pageTitle = null)
     {
         try
         {
             Directory.CreateDirectory(DebugDir);
+            CleanupOldDebugFiles();
             var fileName = $"MiniMax-DomExtract-{suffix}.json";
             var path = Path.Combine(DebugDir, fileName);
             var sb = new System.Text.StringBuilder();
@@ -639,6 +677,30 @@ internal static class MiniMaxDomExtractor
             File.WriteAllText(path, sb.ToString());
         }
         catch { /* ignore */ }
+    }
+
+    /// <summary>
+    /// 清理 7 天前的 debug 文件，避免磁盘占用无限增长。
+    /// </summary>
+    private static void CleanupOldDebugFiles()
+    {
+        try
+        {
+            if (!Directory.Exists(DebugDir)) return;
+            var cutoff = DateTime.Now.AddDays(-7);
+            foreach (var file in Directory.GetFiles(DebugDir))
+            {
+                var info = new FileInfo(file);
+                if (info.CreationTime < cutoff)
+                {
+                    info.Delete();
+                }
+            }
+        }
+        catch
+        {
+            // Silently ignore cleanup failures
+        }
     }
 
     private sealed class DomMetrics

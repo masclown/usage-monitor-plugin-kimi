@@ -35,7 +35,8 @@
             </StackPanel>
             <StackPanel Orientation="Horizontal" DockPanel.Dock="Right"
                         HorizontalAlignment="Right" VerticalAlignment="Center">
-                <Button Content="刷新" Command="{Binding RefreshCommand}" Margin="8,0,0,0">
+                <Button Content="刷新" Command="{Binding RefreshCommand}" Margin="8,0,0,0"
+                        RenderTransformOrigin="0.5,0.5">
                     <Button.RenderTransform>
                         <RotateTransform Angle="0" />
                     </Button.RenderTransform>
@@ -56,6 +57,14 @@
                                     </DataTrigger.EnterActions>
                                     <DataTrigger.ExitActions>
                                         <StopStoryboard BeginStoryboardName="TopRefreshSpinStoryboard" />
+                                        <!-- req-025 修复：停止动画后显式重置角度为 0，避免停留在非零值 -->
+                                        <BeginStoryboard>
+                                            <Storyboard>
+                                                <DoubleAnimation
+                                                    Storyboard.TargetProperty="(UIElement.RenderTransform).(RotateTransform.Angle)"
+                                                    To="0" Duration="0:0:0.1" />
+                                            </Storyboard>
+                                        </BeginStoryboard>
                                     </DataTrigger.ExitActions>
                                 </DataTrigger>
                             </Style.Triggers>
@@ -127,6 +136,14 @@
                                                                     </DataTrigger.EnterActions>
                                                                     <DataTrigger.ExitActions>
                                                                         <StopStoryboard BeginStoryboardName="RefreshSpinStoryboard" />
+                                                                        <!-- req-025 修复：停止动画后显式重置角度为 0，避免停留在非零值 -->
+                                                                        <BeginStoryboard>
+                                                                            <Storyboard>
+                                                                                <DoubleAnimation
+                                                                                    Storyboard.TargetProperty="(UIElement.RenderTransform).(RotateTransform.Angle)"
+                                                                                    To="0" Duration="0:0:0.1" />
+                                                                            </Storyboard>
+                                                                        </BeginStoryboard>
                                                                     </DataTrigger.ExitActions>
                                                                 </DataTrigger>
                                                             </Style.Triggers>

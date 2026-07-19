@@ -57,6 +57,11 @@ public class MiMoProvider : IUsageProvider
         }
 
         var baseUrl = config.GetValue("BaseUrl") ?? "https://api.mimo.ai";
+        // req-056: SSRF防护 - 校验BaseUrl为HTTPS且非公网地址
+        if (!BaseUrlValidator.TryValidate(baseUrl, out var urlError))
+        {
+            return UsageInfo.CreateError(ProviderId, DisplayName, $"BaseUrl 校验失败: {urlError}");
+        }
 
         try
         {
