@@ -81,6 +81,16 @@ public static class I18n
             ["plugin.MiMo.field.ApiKey.placeholder"] = "请输入您的 MiMo API 密钥",
             ["plugin.MiMo.field.BaseUrl.name"] = "API 地址",
             ["plugin.MiMo.field.BaseUrl.placeholder"] = "https://api.mimo.ai",
+
+            // ---- req-070 F-28：历史窗口下拉框文案 ----
+            ["history.range.last7days"] = "最近 7 天",
+            ["history.range.last30days"] = "最近 30 天",
+            ["history.range.last90days"] = "最近 90 天",
+            ["history.range.all"] = "全部",
+            ["history.chart.line"] = "折线图",
+            ["history.chart.bar"] = "柱状图",
+            ["history.chart.heatmap"] = "热力图",
+            ["history.chart.daynightarc"] = "编程时段",
         };
         lock (_lock)
         {

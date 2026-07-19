@@ -247,6 +247,25 @@ public partial class TriggerAreaOverlayWindow : Window
         }
     }
 
+    /// <summary>req-080 U-38：窗口级 KeyDown 处理（补充 PreviewKeyDown）。</summary>
+    private void OnWindowKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape)
+        {
+            FlushPendingSave();
+            Close();
+            e.Handled = true;
+        }
+    }
+
+    /// <summary>req-080 U-38：取消按钮点击——不保存当前拖动结果，直接关闭。</summary>
+    private void OnCancelClick(object sender, RoutedEventArgs e)
+    {
+        // 取消：停止防抖计时器，不保存 pending 的拖动结果，直接关闭
+        _saveRectTimer.Stop();
+        Close();
+    }
+
     // =====================================================
     // 写入：500ms 防抖 + 立即落盘
     // =====================================================

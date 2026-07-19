@@ -78,11 +78,24 @@
                         <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
                     </Border>
                     <ControlTemplate.Triggers>
+                        <!-- req-076 U-12：悬停轻微抬升 + 阴影 -->
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="bd" Property="Opacity" Value="0.9" />
+                            <Setter TargetName="bd" Property="Opacity" Value="0.92" />
+                            <Setter TargetName="bd" Property="Effect">
+                                <Setter.Value>
+                                    <DropShadowEffect Color="#33FF6B4A" BlurRadius="8" ShadowDepth="0" Opacity="0.6" />
+                                </Setter.Value>
+                            </Setter>
                         </Trigger>
+                        <!-- req-076 U-12：按下明显下沉 + 缩放 -->
                         <Trigger Property="IsPressed" Value="True">
-                            <Setter TargetName="bd" Property="Opacity" Value="0.8" />
+                            <Setter TargetName="bd" Property="Opacity" Value="0.85" />
+                            <Setter TargetName="bd" Property="RenderTransform">
+                                <Setter.Value>
+                                    <ScaleTransform ScaleX="0.97" ScaleY="0.97" />
+                                </Setter.Value>
+                            </Setter>
+                            <Setter TargetName="bd" Property="RenderTransformOrigin" Value="0.5,0.5" />
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter TargetName="bd" Property="Opacity" Value="0.45" />
@@ -206,8 +219,14 @@
                         <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}" VerticalAlignment="Center" />
                     </Border>
                     <ControlTemplate.Triggers>
+                        <!-- req-076 U-13：焦点状态增加外发光模拟 focus ring (WCAG 2.4.7) -->
                         <Trigger Property="IsKeyboardFocused" Value="True">
                             <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                            <Setter TargetName="bd" Property="Effect">
+                                <Setter.Value>
+                                    <DropShadowEffect Color="#59FF6B4A" BlurRadius="4" ShadowDepth="0" Opacity="0.8" />
+                                </Setter.Value>
+                            </Setter>
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter Property="Opacity" Value="0.5" />
@@ -307,6 +326,13 @@
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
+        <!-- req-076 U-15：ComboBox 禁用状态样式 -->
+        <Style.Triggers>
+            <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Opacity" Value="0.5" />
+                <Setter Property="Cursor" Value="No" />
+            </Trigger>
+        </Style.Triggers>
     </Style>
 
     <Style TargetType="ComboBoxItem">

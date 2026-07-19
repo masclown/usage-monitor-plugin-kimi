@@ -247,6 +247,19 @@ public class TrayTooltipPosition
 /// </summary>
 public class ConfigService
 {
+    /// <summary>req-060：序列化配置复用（写入用，带缩进）。</summary>
+    private static readonly JsonSerializerOptions s_writeOptions = new()
+    {
+        WriteIndented = true,
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+    };
+
+    /// <summary>req-060：反序列化配置复用（读取用，大小写不敏感）。</summary>
+    internal static readonly JsonSerializerOptions s_readOptions = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
+
     private readonly string _configDirectory;
     private readonly string _configFilePath;
     private AppSettings _settings;
@@ -348,6 +361,9 @@ public class ConfigService
         // sticky / animation 极值保护
         if (_settings.RingChartStickySeconds < 0) _settings.RingChartStickySeconds = 0;
         if (_settings.RingChartSwitchAnimationMs < 0) _settings.RingChartSwitchAnimationMs = 0;
+
+        // req-060：RefreshIntervalSeconds 钳制到合理范围（30秒~24小时），避免 int 乘法溢出
+        _settings.RefreshIntervalSeconds = Math.Clamp(_settings.RefreshIntervalSeconds, 30, 86400);
     }
 
     /// <summary>
@@ -409,12 +425,7 @@ public class ConfigService
                 var settingsToSave = CloneSettings();
                 EncryptSensitiveFields(settingsToSave);
 
-                var options = new JsonSerializerOptions
-                {
-                    WriteIndented = true,
-                    Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
-                };
-                var json = JsonSerializer.Serialize(settingsToSave, options);
+                var json = JsonSerializer.Serialize(settingsToSave, s_writeOptions);
                 // 原子写入：先写临时文件，校验非空后用 File.Replace 原子替换，并保留 .bak 备份。
                 // 直接 File.WriteAllText 若在写入中途被中断（进程退出/断电），会留下空或半截的 config.json，
                 // 下次启动反序列化失败即导致配置被重置（插件启用状态、Cookie 等全部丢失）。
@@ -461,12 +472,13 @@ public class ConfigService
             {
                 if (!File.Exists(_configFilePath)) return;
                 var json = File.ReadAllText(_configFilePath, Encoding.UTF8);
-                var fresh = JsonSerializer.Deserialize<AppSettings>(json,
-                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                var fresh = JsonSerializer.Deserialize<AppSettings>(json, s_readOptions);
                 if (fresh?.ProviderConfigs != null)
                 {
                     // Replace only the ProviderConfigs dict, keep other settings
                     _settings.ProviderConfigs = fresh.ProviderConfigs;
+                    // req-068 F-21：磁盘上敏感字段是 DPAPI 密文，必须解密后再赋值给内存
+                    DecryptSensitiveFields();
                     FileLogger.Info("ConfigService",
                         $"Reloaded ProviderConfigs from disk. Count={fresh.ProviderConfigs.Count}");
                 }

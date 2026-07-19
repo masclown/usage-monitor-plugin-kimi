@@ -57,4 +57,11 @@
     <DropShadowEffect x:Key="CardShadowEffect" Color="#FF334155" BlurRadius="12"
                       ShadowDepth="1" Direction="270" Opacity="0.12" />
 
+    <!-- ===== req-070 F-26：TriggerArea 覆盖层主题 Token ===== -->
+    <SolidColorBrush x:Key="OverlayMaskBrush" Color="#60000000" />
+    <SolidColorBrush x:Key="OverlayDebugBorderBrush" Color="{StaticResource AccentColor}" />
+    <SolidColorBrush x:Key="OverlayDebugFillBrush" Color="#20F5502E" />
+    <SolidColorBrush x:Key="OverlayHandleBackgroundBrush" Color="#FFFFFFFF" />
+    <SolidColorBrush x:Key="OverlayHandleBorderBrush" Color="{StaticResource AccentColor}" />
+
 </ResourceDictionary>

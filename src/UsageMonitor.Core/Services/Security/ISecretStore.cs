@@ -5,6 +5,10 @@ namespace UsageMonitor.Core.Services.Security;
 /// <summary>
 /// 敏感凭据（API Key / Token / Cookie / Password 等）安全存储抽象。
 /// <para>
+/// ℹ️ req-061 标注：本 Security 模块当前未启用。ConfigService 仍直接使用 DPAPI（ProtectedData.Protect）。
+/// 待后续版本统一迁移到 ISecretStore 体系。
+/// </para>
+/// <para>
 /// 业务调用方只需关心 <see cref="Set"/> / <see cref="Get"/> 两个接口，
 /// 无需感知底层是 Windows Credential Manager 还是 AES-256-GCM 加密文件。
 /// </para>

@@ -194,14 +194,18 @@ public class YourProvider : IUsageProvider
 ## 路线图
 
 - [x] 项目初始化与架构设计
-- [ ] 核心插件接口实现
-- [ ] 插件管理器与配置服务
-- [ ] Deepseek 插件
-- [ ] MiMo 插件
-- [ ] WPF 主程序界面
-- [ ] 任务栏嵌入窗口
+- [x] 核心插件接口实现
+- [x] 插件管理器与配置服务
+- [x] Deepseek 插件
+- [x] MiMo 插件
+- [x] MiniMax 插件（网页版 + API 版）
+- [x] WPF 主程序界面（现代化双主题 UI）
+- [x] 任务栏嵌入窗口（圆环图 + 文字模式）
+- [x] 托盘悬浮窗（触发区域可配置）
+- [x] 用量历史统计与图表（折线图/柱状图/热力图/编程时段）
+- [x] 安全加固（DPAPI 加密、Cookie 保护、SSRF 防护）
 - [ ] 更多插件支持（OpenAI、Claude、Gemini 等）
-- [ ] 用量历史统计与图表
+- [ ] 图表 SDK v2 泛化架构
 
 ## 许可证
 

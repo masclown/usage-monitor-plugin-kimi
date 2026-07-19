@@ -22,6 +22,14 @@ namespace UsageMonitor.App;
 /// </summary>
 public partial class App : Application
 {
+    /// <summary>
+    /// Win32 API：释放由 Bitmap.GetHicon() 分配的 GDI icon 句柄。
+    /// req-068 F-07：修复 LoadTrayIconFromLogo 中 hIcon 泄漏问题。
+    /// </summary>
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+    private static extern bool DestroyIcon(IntPtr handle);
+
     private NotifyIcon? _notifyIcon;
     private PluginManager _pluginManager = null!;
     private ConfigService _configService = null!;
@@ -352,9 +360,17 @@ public partial class App : Application
             var path = Helpers.LogoProvider.GetLogoPath();
             using var bmp = new System.Drawing.Bitmap(path);
             var hIcon = bmp.GetHicon();
-            // Icon.FromHandle 不接管 hicon 释放 → 必须 Clone 出独立 Icon，否则旧 hIcon 被释放后托盘图标失效
-            var icon = (System.Drawing.Icon)System.Drawing.Icon.FromHandle(hIcon).Clone();
-            return icon;
+            try
+            {
+                // Icon.FromHandle 不接管 hicon 释放 → Clone 出独立 Icon
+                var icon = (System.Drawing.Icon)System.Drawing.Icon.FromHandle(hIcon).Clone();
+                return icon;
+            }
+            finally
+            {
+                // req-068 F-07：显式释放原始 GDI handle，避免每次主题切换泄漏一个句柄
+                DestroyIcon(hIcon);
+            }
         }
         catch (Exception ex)
         {

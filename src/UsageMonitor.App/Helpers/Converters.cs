@@ -60,9 +60,12 @@ public class ErrorColorConverter : IValueConverter
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
     {
         var isError = value is bool b && b;
-        return isError
+        // req-081 U-40：Freeze 减少 GC 压力
+        var brush = isError
             ? new SolidColorBrush(System.Windows.Media.Color.FromRgb(220, 38, 38))   // 红色
             : new SolidColorBrush(System.Windows.Media.Color.FromRgb(148, 163, 184)); // 灰色
+        brush.Freeze();
+        return brush;
     }
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
@@ -242,7 +245,12 @@ public class PercentToBrushConverter : IValueConverter
         {
             var tier = UsageTierScale.ResolveByLevel(level);
             if (tier != null)
-                return new System.Windows.Media.SolidColorBrush(tier.Color);
+            {
+                // req-081 U-40：Freeze 减少 GC 压力
+                var brush = new System.Windows.Media.SolidColorBrush(tier.Color);
+                brush.Freeze();
+                return brush;
+            }
         }
 
         // 按已用百分比（0-100）自动分档。

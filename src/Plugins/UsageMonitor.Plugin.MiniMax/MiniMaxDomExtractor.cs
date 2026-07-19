@@ -680,7 +680,11 @@ internal static class MiniMaxDomExtractor
             }
             File.WriteAllText(path, sb.ToString());
         }
-        catch { /* ignore */ }
+        catch (Exception ex)
+        {
+            // req-060：补日志记录
+            UsageMonitor.Core.Services.FileLogger.Debug("MiniMaxDomExtractor", $"WriteDebug failed: {ex.Message}");
+        }
     }
 
     private sealed class DomMetrics

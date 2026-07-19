@@ -109,12 +109,17 @@ public static class UsageTierScale
     }
 
     /// <summary>
-    /// 按已用百分比取画笔：每个 Tier 直接构造 SolidColorBrush（**不 Freeze**，便于热力图等自定义渲染控件
-    /// 在 <see cref="TierChanged"/> 时正确刷新；进度条场景每次 binding 重新解析即可接受代价）。
+    /// 按已用百分比取画笔。
+    /// req-081 U-40：Freeze 减少高频刷新场景（热力图每秒数十次）的 GC 压力。
+    /// 注意：Freeze 后画笔不可修改，但每次调用都返回新实例，不影响 TierChanged 刷新。
     /// </summary>
     /// <param name="percent">已用百分比（0-100）。</param>
     public static Brush ResolveBrush(double percent)
-        => new SolidColorBrush(Resolve(percent).Color);
+    {
+        var brush = new SolidColorBrush(Resolve(percent).Color);
+        brush.Freeze();
+        return brush;
+    }
 
     /// <summary>
     /// 按显式档位键（low / mid / high）取档：按 Tiers 升序的第 0 / 中间 / 末位。

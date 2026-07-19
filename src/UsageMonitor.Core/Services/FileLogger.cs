@@ -194,7 +194,7 @@ public static class FileLogger
 
     /// <summary>
     /// Walk up the directory tree looking for UsageMonitor.sln to locate the project root.
-    /// Falls back to the current working directory if not found.
+    /// req-060：生产环境（未找到 .sln）回退到 %AppData%/UsageMonitor，避免日志散落在不可预期位置。
     /// </summary>
     private static string ResolveProjectRoot()
     {
@@ -207,6 +207,15 @@ public static class FileLogger
                 if (File.Exists(slnPath)) return dir.FullName;
                 dir = dir.Parent;
             }
+        }
+        catch { }
+        // 生产环境回退到 AppData，避免使用 GetCurrentDirectory() 的不可预测性
+        try
+        {
+            var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            var path = Path.Combine(appData, "UsageMonitor");
+            Directory.CreateDirectory(path); // 确保目录存在，避免后续写入抛 DirectoryNotFoundException
+            return path;
         }
         catch { }
         return Directory.GetCurrentDirectory();

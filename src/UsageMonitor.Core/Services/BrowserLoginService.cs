@@ -25,6 +25,27 @@ namespace UsageMonitor.Core.Services;
 /// </summary>
 public class BrowserLoginService
 {
+    /// <summary>
+    /// req-060：静态 HttpClient 复用，避免每次 CheckCookieValidAsync 都 new HttpClient 导致 socket 耗尽。
+    /// </summary>
+    private static readonly System.Net.Http.HttpClient _sharedHttp = new()
+    {
+        Timeout = TimeSpan.FromSeconds(15)
+    };
+
+    /// <summary>req-060：JSON 序列化配置复用（写入用）。</summary>
+    private static readonly JsonSerializerOptions s_writeOptions = new()
+    {
+        WriteIndented = true,
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+    };
+
+    /// <summary>req-060：JSON 反序列化配置复用（读取用）。</summary>
+    private static readonly JsonSerializerOptions s_readOptions = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
+
     /// <summary>Optional ConfigService for in-memory rehydration after disk write.</summary>
     private readonly ConfigService? _configService;
 
@@ -510,8 +531,7 @@ public class BrowserLoginService
         {
             var encryptedJson = File.ReadAllText(path, Encoding.UTF8);
             var json = Decrypt(encryptedJson);
-            return JsonSerializer.Deserialize<BrowserCookieData>(json,
-                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            return JsonSerializer.Deserialize<BrowserCookieData>(json, s_readOptions);
         }
         catch
         {
@@ -527,12 +547,7 @@ public class BrowserLoginService
         Directory.CreateDirectory(CookieDir);
         var path = GetCookieFilePath(data.ProviderId);
 
-        var options = new JsonSerializerOptions
-        {
-            WriteIndented = true,
-            Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
-        };
-        var json = JsonSerializer.Serialize(data, options);
+        var json = JsonSerializer.Serialize(data, s_writeOptions);
         var encryptedJson = Encrypt(json);
         File.WriteAllText(path, encryptedJson, Encoding.UTF8);
     }
@@ -574,7 +589,6 @@ public class BrowserLoginService
 
         try
         {
-            using var http = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(15) };
             using var request = new System.Net.Http.HttpRequestMessage(
                 System.Net.Http.HttpMethod.Get, config.ValidateUrl);
             // req-065 B6：Cookie header injection防护，清理控制字符
@@ -588,7 +602,7 @@ public class BrowserLoginService
                 request.Headers.UserAgent.ParseAdd(data.UserAgent);
             }
 
-            using var response = await http.SendAsync(request, cancellationToken);
+            using var response = await _sharedHttp.SendAsync(request, cancellationToken);
             return (int)response.StatusCode == 200;
         }
         catch

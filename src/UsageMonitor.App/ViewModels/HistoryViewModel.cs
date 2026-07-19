@@ -10,6 +10,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Media;
 using UsageMonitor.App.Controls;
+using UsageMonitor.App.Helpers;
 using UsageMonitor.Core.Services;
 // ★ WPF/WinForms 命名冲突 alias（项目 UseWPF + UseWindowsForms + ImplicitUsings 触发 CS0104）
 //   明确选择 WPF 版本，避免与 System.Drawing / System.Windows.Forms 同名类型冲突。
@@ -137,19 +138,19 @@ public class HistoryViewModel : INotifyPropertyChanged
 
         _rangeOptions = new[]
         {
-            new KeyValuePair<HistoryRange, string>(HistoryRange.Last7Days, "最近 7 天"),
-            new KeyValuePair<HistoryRange, string>(HistoryRange.Last30Days, "最近 30 天"),
-            new KeyValuePair<HistoryRange, string>(HistoryRange.Last90Days, "最近 90 天"),
-            new KeyValuePair<HistoryRange, string>(HistoryRange.All, "全部")
+            new KeyValuePair<HistoryRange, string>(HistoryRange.Last7Days, I18n.T(I18nKeys.Range_Last7Days)),
+            new KeyValuePair<HistoryRange, string>(HistoryRange.Last30Days, I18n.T(I18nKeys.Range_Last30Days)),
+            new KeyValuePair<HistoryRange, string>(HistoryRange.Last90Days, I18n.T(I18nKeys.Range_Last90Days)),
+            new KeyValuePair<HistoryRange, string>(HistoryRange.All, I18n.T(I18nKeys.Range_All))
         };
         _selectedRange = HistoryRange.Last7Days;
 
         _chartKindOptions = new[]
         {
-            new KeyValuePair<HistoryChartKind, string>(HistoryChartKind.Line, "折线图"),
-            new KeyValuePair<HistoryChartKind, string>(HistoryChartKind.Bar, "柱状图"),
-            new KeyValuePair<HistoryChartKind, string>(HistoryChartKind.HeatMap, "热力图"),
-            new KeyValuePair<HistoryChartKind, string>(HistoryChartKind.DayNightArc, "编程时段")
+            new KeyValuePair<HistoryChartKind, string>(HistoryChartKind.Line, I18n.T(I18nKeys.Chart_Line)),
+            new KeyValuePair<HistoryChartKind, string>(HistoryChartKind.Bar, I18n.T(I18nKeys.Chart_Bar)),
+            new KeyValuePair<HistoryChartKind, string>(HistoryChartKind.HeatMap, I18n.T(I18nKeys.Chart_HeatMap)),
+            new KeyValuePair<HistoryChartKind, string>(HistoryChartKind.DayNightArc, I18n.T(I18nKeys.Chart_DayNightArc))
         };
         _selectedChartKind = HistoryChartKind.Line;
 

@@ -43,6 +43,12 @@ public class MiniMaxProvider : HttpUsageProviderBase
     /// <summary>MiniMax domain list (for browser Cookie extraction)</summary>
     private static readonly string[] MiniMaxDomains = { "minimaxi.com", "api.minimaxi.com", "api.minimax.io" };
 
+    /// <summary>req-060：JSON 反序列化配置复用。</summary>
+    private static readonly System.Text.Json.JsonSerializerOptions s_jsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
+
     /// <summary>Debug log directory (raw API/DOM dumps) - same dir as FileLogger.LogDir/debug</summary>
     private static readonly string DebugDir = Path.Combine(
         UsageMonitor.Core.Services.FileLogger.LogDir, "debug");
@@ -389,8 +395,7 @@ public class MiniMaxProvider : HttpUsageProviderBase
         var json = await response.Content.ReadAsStringAsync();
         WriteDebugResponse(baseUrl, json);
 
-        var remainsResponse = JsonSerializer.Deserialize<MiniMaxRemainsResponse>(json,
-            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        var remainsResponse = JsonSerializer.Deserialize<MiniMaxRemainsResponse>(json, s_jsonOptions);
 
         if (remainsResponse == null)
         {
@@ -474,8 +479,7 @@ public class MiniMaxProvider : HttpUsageProviderBase
         }
 
         var json = await response.Content.ReadAsStringAsync();
-        return JsonSerializer.Deserialize<MiniMaxUsageSummaryResponse>(json,
-            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        return JsonSerializer.Deserialize<MiniMaxUsageSummaryResponse>(json, s_jsonOptions);
     }
 
     /// <summary>
@@ -640,9 +644,10 @@ public class MiniMaxProvider : HttpUsageProviderBase
             var content = $"// baseUrl: {baseUrl}\n// time: {DateTime.Now:O}\n\n{json}";
             File.WriteAllText(path, content);
         }
-        catch
+        catch (Exception ex)
         {
-            // Silently ignore
+            // req-060：补日志记录，便于排查调试文件写入失败
+            UsageMonitor.Core.Services.FileLogger.Debug(LogSource, $"WriteDebugResponse failed: {ex.Message}");
         }
     }
 }

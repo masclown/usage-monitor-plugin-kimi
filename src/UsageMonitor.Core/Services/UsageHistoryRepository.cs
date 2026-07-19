@@ -616,6 +616,7 @@ LIMIT 1;";
         return string.Join("|", fields);
     }
 
+    /// <summary>req-070 F-30：从 extras 字典安全提取 double，补充 JsonElement 分支。</summary>
     private static double TryGetDouble(IReadOnlyDictionary<string, object> extras, string key)
     {
         if (extras.TryGetValue(key, out var v) && v != null)
@@ -625,17 +626,27 @@ LIMIT 1;";
             if (v is int i) return i;
             if (v is long l) return l;
             if (v is decimal m) return (double)m;
+            if (v is JsonElement je && je.ValueKind == JsonValueKind.Number)
+                return je.GetDouble();
             if (double.TryParse(v.ToString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var p)) return p;
         }
         return 0;
     }
 
+    /// <summary>req-070 F-30：从 extras 字典安全提取 string，补充 JsonElement 分支。</summary>
     private static string TryGetString(IReadOnlyDictionary<string, object> extras, string key)
     {
-        if (extras.TryGetValue(key, out var v) && v != null) return v.ToString() ?? string.Empty;
+        if (extras.TryGetValue(key, out var v) && v != null)
+        {
+            if (v is string s) return s;
+            if (v is JsonElement je)
+                return je.ValueKind == JsonValueKind.String ? je.GetString() ?? string.Empty : je.ToString();
+            return v.ToString() ?? string.Empty;
+        }
         return string.Empty;
     }
 
+    /// <summary>req-070 F-30：从 extras 字典安全提取 long，补充 JsonElement 分支。</summary>
     private static long TryGetLong(IReadOnlyDictionary<string, object> extras, string key)
     {
         if (extras.TryGetValue(key, out var v) && v != null)
@@ -644,16 +655,24 @@ LIMIT 1;";
             if (v is int i) return i;
             if (v is double d) return (long)d;
             if (v is decimal m) return (long)m;
+            if (v is JsonElement je && je.ValueKind == JsonValueKind.Number)
+                return je.GetInt64();
             if (long.TryParse(v.ToString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var p)) return p;
         }
         return 0;
     }
 
+    /// <summary>req-070 F-30：从 extras 字典安全提取 bool，补充 JsonElement 分支。</summary>
     private static bool TryGetBool(IReadOnlyDictionary<string, object> extras, string key)
     {
         if (extras.TryGetValue(key, out var v) && v != null)
         {
             if (v is bool b) return b;
+            if (v is JsonElement je)
+            {
+                if (je.ValueKind == JsonValueKind.True) return true;
+                if (je.ValueKind == JsonValueKind.False) return false;
+            }
             if (bool.TryParse(v.ToString(), out var p)) return p;
         }
         return false;
@@ -873,35 +892,36 @@ ORDER BY day ASC, provider_id ASC;
         try
         {
             await using var conn = OpenConnection();
-            await using var cmd = conn.CreateCommand();
-            // 单事务两条 DELETE：避免删完 points 后程序崩溃导致 daily 残留孤儿
-            // Microsoft.Data.Sqlite 的 BeginTransaction 返回 SqliteTransaction；BeginTransactionAsync
-            // 在某些版本返回基类 DbTransaction（需要强转），所以这里用同步版本 + Task.Run 异步化。
-            var deleteAsync = Task.Run(async () =>
-            {
-                await using var tx = conn.BeginTransaction();
+            // req-070 F-31：移除不必要的 Task.Run 包裹，直接在 async 方法中执行事务
+            await using var tx = conn.BeginTransaction();
 
+            int n1, n2, n3;
+            using (var cmd = conn.CreateCommand())
+            {
+                cmd.Transaction = tx;
                 cmd.CommandText = "DELETE FROM usage_points WHERE provider_id = $id";
                 cmd.Parameters.AddWithValue("$id", providerId);
-                var n1 = await cmd.ExecuteNonQueryAsync();
-
-                cmd.Parameters.Clear();
+                n1 = await cmd.ExecuteNonQueryAsync();
+            }
+            using (var cmd = conn.CreateCommand())
+            {
+                cmd.Transaction = tx;
                 cmd.CommandText = "DELETE FROM usage_daily WHERE provider_id = $id";
                 cmd.Parameters.AddWithValue("$id", providerId);
-                var n2 = await cmd.ExecuteNonQueryAsync();
-
-                // req-013: 同时清理刷新聚合表
-                cmd.Parameters.Clear();
+                n2 = await cmd.ExecuteNonQueryAsync();
+            }
+            // req-013: 同时清理刷新聚合表
+            using (var cmd = conn.CreateCommand())
+            {
+                cmd.Transaction = tx;
                 cmd.CommandText = "DELETE FROM usage_refresh_aggregates WHERE provider_id = $id";
                 cmd.Parameters.AddWithValue("$id", providerId);
-                var n3 = await cmd.ExecuteNonQueryAsync();
+                n3 = await cmd.ExecuteNonQueryAsync();
+            }
 
-                await tx.CommitAsync();
-                return (n1, n2, n3);
-            });
-            var (n1Final, n2Final, n3Final) = await deleteAsync;
+            await tx.CommitAsync();
             FileLogger.Info("UsageHistoryRepository",
-                $"DeleteProviderDataAsync({providerId}): usage_points={n1Final} 行, usage_daily={n2Final} 行, usage_refresh_aggregates={n3Final} 行");
+                $"DeleteProviderDataAsync({providerId}): usage_points={n1} 行, usage_daily={n2} 行, usage_refresh_aggregates={n3} 行");
         }
         catch (Exception ex)
         {
@@ -1003,9 +1023,14 @@ WHERE provider_id = $pid AND day = $day LIMIT 1;
         }
     }
 
+    /// <summary>
+    /// req-070 F-32：保留 IDisposable 以兼容现有调用方（App.OnExit）。
+    /// 当前为 no-op：每次操作都创建新的 SqliteConnection 并用 using 释放，不持有长生命周期 disposable 对象。
+    /// 如未来引入连接池或长生命周期资源，在此实现真正的释放逻辑。
+    /// </summary>
     public void Dispose()
     {
-        // Microsoft.Data.Sqlite 在 using 后会自动释放连接；这里无需主动释放长连接对象
+        // Intentionally no-op: SqliteConnection 在每个操作中用 using 释放
         GC.SuppressFinalize(this);
     }
 }

@@ -23,3 +23,13 @@ obj/
 .vs/
 packages/
 *.nupkg
+
+# req-061：敏感文件模式防护
+config.json
+cookies/
+secrets/
+*.key
+*.bin
+*.pfx
+appsettings.json
+appsettings.*.json

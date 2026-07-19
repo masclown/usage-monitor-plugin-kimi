@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text.Json.Serialization;
@@ -105,13 +106,14 @@ public class DeepseekProvider : HttpUsageProviderBase
             var primary = balanceResponse.BalanceInfos[0];
 
             // 已用和总额
-            if (decimal.TryParse(primary.TotalGranted, out var totalGranted))
+            // req-060：加 InvariantCulture 避免不同区域设置下解析失败
+            if (decimal.TryParse(primary.TotalGranted, NumberStyles.Any, CultureInfo.InvariantCulture, out var totalGranted))
                 usageInfo.TotalAmount = totalGranted;
 
-            if (decimal.TryParse(primary.TotalUsed, out var totalUsed))
+            if (decimal.TryParse(primary.TotalUsed, NumberStyles.Any, CultureInfo.InvariantCulture, out var totalUsed))
                 usageInfo.UsedAmount = totalUsed;
 
-            if (decimal.TryParse(primary.TotalLeft, out var totalLeft))
+            if (decimal.TryParse(primary.TotalLeft, NumberStyles.Any, CultureInfo.InvariantCulture, out var totalLeft))
             {
                 // 如果TotalLeft可用，用TotalUsed+TotalLeft作为TotalAmount
                 if (usageInfo.TotalAmount == 0)

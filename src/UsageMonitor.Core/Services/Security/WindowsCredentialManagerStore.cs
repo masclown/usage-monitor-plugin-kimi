@@ -86,6 +86,9 @@ public sealed class WindowsCredentialManagerStore : ISecretStore
     {
         ValidateArgs(serviceName, accountName);
         if (secretData == null) throw new ArgumentNullException(nameof(secretData));
+        // req-070 F-34：空字符串 secret 会导致 CredWrite 写入 0 长度 blob，行为未文档化
+        if (string.IsNullOrEmpty(secretData))
+            throw new ArgumentException("secretData 不能为空字符串", nameof(secretData));
 
         var target = BuildTarget(serviceName, accountName);
         var blobBytes = Encoding.UTF8.GetBytes(secretData);

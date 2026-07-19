@@ -4,6 +4,7 @@ namespace UsageMonitor.Core.Plugins;
 /// 插件元数据接口 - 提供插件的描述性信息
 /// IUsageProvider 已包含这些属性，此接口可作为独立的元数据契约使用
 /// </summary>
+[Obsolete("req-060：此接口全代码库无引用（死代码），待后续版本移除。")]
 public interface IPluginMetadata
 {
     /// <summary>插件唯一标识</summary>
