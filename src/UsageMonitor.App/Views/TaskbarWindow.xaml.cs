@@ -49,8 +49,8 @@ public partial class TaskbarWindow : Window
     private int _dragStartWindowLeft;           // 拖拽起始时窗口左边（屏幕坐标）
     private int _dragStartWindowWidth;          // 拖拽起始时窗口宽度（用于调整宽度模式）
 
-    // 位置保存节流
-    private DispatcherTimer? _savePositionTimer;
+    // 位置保存节流（req-063 B8：一次性订阅，避免高频拖拽时连续 new 大量 timer）
+    private readonly DispatcherTimer _savePositionTimer;
 
     // req-052：可见性检查定时器，周期性确保窗口在任务栏内可见
     private DispatcherTimer? _visibilityCheckTimer;
@@ -65,6 +65,17 @@ public partial class TaskbarWindow : Window
         DataContext = _viewModel;
         // 默认光标为移动样式（进入边缘热区时由 UpdateCursorForPosition 切换为水平调整箭头）
         Cursor = System.Windows.Input.Cursors.SizeAll;
+
+        // req-063 B8：位置保存节流 timer 一次性订阅，避免高频拖拽时连续 new 大量 timer
+        _savePositionTimer = new DispatcherTimer(DispatcherPriority.Background)
+        {
+            Interval = TimeSpan.FromMilliseconds(500)
+        };
+        _savePositionTimer.Tick += (_, _) =>
+        {
+            _savePositionTimer.Stop();
+            SavePositionToConfig();
+        };
 
         // 位置变更触发节流保存
         LocationChanged += OnLocationChanged;
@@ -301,12 +312,11 @@ public partial class TaskbarWindow : Window
         // 位置计算：把 config.json 保存的 TaskbarRelativeX 直接传给 EmbedWindow（一次 SetWindowPos）。
         //   默认值 0.5 = 任务栏正中（避免用户感觉"窗口在屏幕右上角"）。
         var relX = _configService.Settings.TaskbarRelativeX ?? 0.5;
-        _taskbarHelper.EmbedWindow(_hwnd, _embedWidth, relX);
-
-        // 注意：之前这里调 ApplySavedRelativeX() 会被 EmbedWindow 后的 SetWindowPos 覆盖，
-        // 导致保存的位置反复重设。现在 EmbedWindow 内部已用 relX 计算一次位置，调用顺序无关。
-
-        _hasPlacedOnce = true;
+        // req-064 B26：EmbedWindow 返回 false 时不设置 _hasPlacedOnce，避免后续 OnLocationChanged 保存错误位置
+        if (_taskbarHelper.EmbedWindow(_hwnd, _embedWidth, relX))
+        {
+            _hasPlacedOnce = true;
+        }
     }
 
     /// <summary>
@@ -490,21 +500,13 @@ public partial class TaskbarWindow : Window
     /// <summary>
     /// 窗口位置变更事件节流：500ms 内重复事件推迟保存，
     /// 拖动过程中只写一次盘而非每帧。
+    /// req-063 B8：timer 已一次性订阅，此处仅 Stop/Start 复用。
     /// </summary>
     private void OnLocationChanged(object? sender, EventArgs e)
     {
         if (!_hasPlacedOnce) return;
 
-        _savePositionTimer?.Stop();
-        _savePositionTimer = new DispatcherTimer(DispatcherPriority.Background)
-        {
-            Interval = TimeSpan.FromMilliseconds(500)
-        };
-        _savePositionTimer.Tick += (_, _) =>
-        {
-            _savePositionTimer?.Stop();
-            SavePositionToConfig();
-        };
+        _savePositionTimer.Stop();
         _savePositionTimer.Start();
     }
 

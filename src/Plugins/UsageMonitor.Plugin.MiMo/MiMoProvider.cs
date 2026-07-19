@@ -1,9 +1,7 @@
 using System.Net.Http;
 using System.Net.Http.Headers;
-using System.Text.Json;
 using System.Text.Json.Serialization;
 using UsageMonitor.Core.Models;
-using UsageMonitor.Core.Plugins;
 using UsageMonitor.Core.Services;
 
 namespace UsageMonitor.Plugin.MiMo;
@@ -11,8 +9,11 @@ namespace UsageMonitor.Plugin.MiMo;
 /// <summary>
 /// MiMo Token Plan 用量查询插件
 /// 查询 MiMo 平台的 Token Plan 用量信息
+/// <para>
+/// req-065 B14：继承 <see cref="HttpUsageProviderBase"/>，消除重复样板代码。
+/// </para>
 /// </summary>
-public class MiMoProvider : IUsageProvider
+public class MiMoProvider : HttpUsageProviderBase
 {
     private static readonly HttpClient _httpClient = new()
     {
@@ -20,25 +21,19 @@ public class MiMoProvider : IUsageProvider
     };
 
     /// <inheritdoc />
-    public string ProviderId => "mimo";
+    protected override HttpClient Http => _httpClient;
 
     /// <inheritdoc />
-    public string DisplayName => "MiMo";
+    public override string ProviderId => "mimo";
 
     /// <inheritdoc />
-    public string? IconPath => null;
+    public override string DisplayName => "MiMo";
 
     /// <inheritdoc />
-    public string Version => "1.0.0";
+    public override string Description => "查询 MiMo Token Plan 的用量信息";
 
     /// <inheritdoc />
-    public string Author => "UsageMonitor";
-
-    /// <inheritdoc />
-    public string Description => "查询 MiMo Token Plan 的用量信息";
-
-    /// <inheritdoc />
-    public IReadOnlyList<ConfigField> ConfigFields => new[]
+    public override IReadOnlyList<ConfigField> ConfigFields => new[]
     {
         // req-013：从 StandardConfigFields 工厂方法生成"重复声明模板"，字段 key / i18n key / 类型 / required 全部对齐重构前。
         StandardConfigFields.ApiKey("MiMo"),
@@ -48,59 +43,43 @@ public class MiMoProvider : IUsageProvider
     /// <summary>
     /// 查询 MiMo Token Plan 的用量信息
     /// </summary>
-    public async Task<UsageInfo> GetUsageAsync(ProviderConfig config)
+    public override async Task<UsageInfo> GetUsageAsync(ProviderConfig config, CancellationToken ct = default)
     {
         var apiKey = config.GetValue("ApiKey");
-        if (string.IsNullOrWhiteSpace(apiKey))
-        {
-            return UsageInfo.CreateError(ProviderId, DisplayName, "API Key 未配置");
-        }
+        if (ValidateApiKey(apiKey) is { } apiKeyError)
+            return apiKeyError;
 
-        var baseUrl = config.GetValue("BaseUrl") ?? "https://api.mimo.ai";
-        // req-056: SSRF防护 - 校验BaseUrl为HTTPS且非公网地址
-        if (!BaseUrlValidator.TryValidate(baseUrl, out var urlError))
-        {
-            return UsageInfo.CreateError(ProviderId, DisplayName, $"BaseUrl 校验失败: {urlError}");
-        }
+        if (ValidateBaseUrl(config.GetValue("BaseUrl"), "https://api.mimo.ai", out var baseUrl) is { } urlError)
+            return urlError;
 
         try
         {
-            return await QueryUsageAsync(baseUrl, apiKey);
+            return await QueryUsageAsync(baseUrl, apiKey!, ct);
         }
         catch (HttpRequestException ex)
         {
-            return UsageInfo.CreateError(ProviderId, DisplayName, $"网络请求失败: {ex.Message}");
+            return CreateError($"网络请求失败: {ex.Message}");
         }
         catch (Exception ex)
         {
-            return UsageInfo.CreateError(ProviderId, DisplayName, ex.Message);
+            return CreateError(ex.Message);
         }
     }
 
     /// <summary>
     /// 调用 MiMo API 查询用量
     /// </summary>
-    private async Task<UsageInfo> QueryUsageAsync(string baseUrl, string apiKey)
+    private async Task<UsageInfo> QueryUsageAsync(string baseUrl, string apiKey, CancellationToken ct)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Get, $"{baseUrl.TrimEnd('/')}/v1/usage");
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
-
-        var response = await _httpClient.SendAsync(request);
-
-        if (!response.IsSuccessStatusCode)
-        {
-            var errorBody = await response.Content.ReadAsStringAsync();
-            return UsageInfo.CreateError(ProviderId, DisplayName,
-                $"API返回错误 ({(int)response.StatusCode}): {errorBody}");
-        }
-
-        var json = await response.Content.ReadAsStringAsync();
-        var usageResponse = JsonSerializer.Deserialize<MiMoUsageResponse>(json,
-            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        var usageResponse = await GetJsonAsync<MiMoUsageResponse>(
+            baseUrl,
+            "/v1/usage",
+            req => req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey),
+            ct);
 
         if (usageResponse == null)
         {
-            return UsageInfo.CreateError(ProviderId, DisplayName, "无法解析API响应");
+            return CreateError("无法解析API响应");
         }
 
         return new UsageInfo
@@ -114,22 +93,14 @@ public class MiMoProvider : IUsageProvider
             UsedAmount = usageResponse.UsedCredits,
             TotalAmount = usageResponse.TotalCredits,
             ExpireDate = usageResponse.ExpireDate,
-            LastUpdated = DateTime.Now,
+            // req-067 B21：统一使用 UTC 时间存储，避免时区问题
+            LastUpdated = DateTime.UtcNow,
             Extra = new Dictionary<string, object>
             {
                 ["planName"] = usageResponse.PlanName ?? "Unknown",
                 ["planType"] = usageResponse.PlanType ?? "Unknown"
             }
         };
-    }
-
-    /// <summary>
-    /// 验证配置是否有效
-    /// </summary>
-    public async Task<bool> ValidateConfigAsync(ProviderConfig config)
-    {
-        var result = await GetUsageAsync(config);
-        return result.IsSuccess;
     }
 }
 

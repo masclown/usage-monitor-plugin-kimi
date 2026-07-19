@@ -29,7 +29,7 @@ namespace UsageMonitor.Plugin.MiniMax;
 /// 1. User manually paste Cookie (fallback)
 /// 2. Auto-extract from system Edge/Chrome Cookie database (if user already logged in)
 /// </remarks>
-public class MiniMaxProvider : IUsageProvider
+public class MiniMaxProvider : HttpUsageProviderBase
 {
     /// <summary>CN region API base URL (uses www. subdomain which SPA actually uses)</summary>
     private const string DefaultCnBaseUrl = "https://www.minimaxi.com";
@@ -55,28 +55,31 @@ public class MiniMaxProvider : IUsageProvider
     };
 
     /// <inheritdoc />
-    public string ProviderId => "MiniMax";
+    protected override HttpClient Http => _httpClient;
 
     /// <inheritdoc />
-    public string DisplayName => "MiniMax";
+    public override string ProviderId => "MiniMax";
 
     /// <inheritdoc />
-    public string? IconPath => null;
+    public override string DisplayName => "MiniMax";
 
     /// <inheritdoc />
-    public string Version => "1.4.0";
+    public override string? IconPath => null;
+
+    /// <inheritdoc />
+    public override string Version => "1.4.0";
 
     /// <summary>Source name used in FileLogger</summary>
     private const string LogSource = "MiniMaxProvider";
 
     /// <inheritdoc />
-    public string Author => "UsageMonitor";
+    public override string Author => "UsageMonitor";
 
     /// <inheritdoc />
-    public string Description => "Query MiniMax Token Plan usage (5h / weekly windows)";
+    public override string Description => "Query MiniMax Token Plan usage (5h / weekly windows)";
 
     /// <inheritdoc />
-    public IReadOnlyList<ConfigField> ConfigFields => new[]
+    public override IReadOnlyList<ConfigField> ConfigFields => new[]
     {
         new ConfigField("ApiKey", I18n.T("plugin.MiniMax.field.ApiKey.name"), ConfigFieldType.Password, false,
             placeholder: I18n.T("plugin.MiniMax.field.ApiKey.placeholder")),
@@ -101,7 +104,7 @@ public class MiniMaxProvider : IUsageProvider
     /// 与 <see cref="MiniMaxDomExtractor.BuildUsageInfo"/> 末段写入的 mm_render_kinds 保持一致，
     /// 让首屏渲染时 5h/周/视频赠送/订阅胶囊等区块就先可见，数据刷新后再由运行时实际值覆盖。
     /// </summary>
-    public IReadOnlyList<string> DefaultRenderKinds => new[]
+    public override IReadOnlyList<string> DefaultRenderKinds => new[]
     {
         "subscriptionTitle", "primaryBar", "weeklyBar", "videoProgress",
         "summary", "ranking", "credits"
@@ -115,7 +118,7 @@ public class MiniMaxProvider : IUsageProvider
     /// 让 MiniMax 只暴露有真实数据支撑的两种图表，供配置窗口生成对应复选框。
     /// </para>
     /// </summary>
-    public IReadOnlyList<CardChartKind> SupportedCardCharts => new[]
+    public override IReadOnlyList<CardChartKind> SupportedCardCharts => new[]
     {
         CardChartKind.Line,
         CardChartKind.HeatMap
@@ -129,7 +132,7 @@ public class MiniMaxProvider : IUsageProvider
     /// mm_remainingCredits</c> 等 mm_* 字段填充。返回空集合可以避免与默认 4 项重复拼接。
     /// </para>
     /// </summary>
-    public IReadOnlyList<UsageMonitor.Core.Models.BalanceItem> BalanceItems => System.Array.Empty<UsageMonitor.Core.Models.BalanceItem>();
+    public override IReadOnlyList<UsageMonitor.Core.Models.BalanceItem> BalanceItems => System.Array.Empty<UsageMonitor.Core.Models.BalanceItem>();
 
     /// <summary>
     /// req-026：MiniMax 环形图中心支持的数字类型。
@@ -140,10 +143,20 @@ public class MiniMaxProvider : IUsageProvider
     /// 同时生成两个 CheckBox，用户可独立启用/关闭。
     /// </para>
     /// </summary>
-    public IReadOnlyList<string> SupportedRingChartMetrics => new[] { "Percent", "Credits" };
+    public override IReadOnlyList<string> SupportedRingChartMetrics => new[] { "Percent", "Credits" };
 
-    // req-009：HeatMapTiers 在 Plugin 项目中不显式 override（依赖 App 项目类型会循环依赖）。
-    // 默认值由 ConfigService.Settings.ProviderHeatMapTiers["minimax"] 填入的 6 档出厂默认色阶兑底。
+    // req-066 A8：MiniMax 热力图色阶默认值，替代原 AppSettings 中硬编码的 6 档配置。
+    // 启动时由 App.OnStartup 从 IUsageProvider.HeatMapTiers 装配到 ProviderHeatMapTiers。
+    /// <inheritdoc />
+    public override IReadOnlyList<UsageMonitor.Core.Models.HeatMapTierConfig>? HeatMapTiers => new List<UsageMonitor.Core.Models.HeatMapTierConfig>
+    {
+        new() { MinTokens = 0,            ColorHex = "#f3f4f6" },
+        new() { MinTokens = 1,            ColorHex = "#ffe7e2" },
+        new() { MinTokens = 20_000_000,   ColorHex = "#ffc6bb" },
+        new() { MinTokens = 100_000_000,  ColorHex = "#ffa595" },
+        new() { MinTokens = 200_000_000,  ColorHex = "#ff7b64" },
+        new() { MinTokens = 300_000_000,  ColorHex = "#ff5a3d" },
+    };
 
     /// <summary>
     /// req-007：MiniMax 卡片在主窗口折线图右上角显示“近 7 天 / 近 30 天”周期切换按钮。
@@ -154,7 +167,7 @@ public class MiniMaxProvider : IUsageProvider
     /// 在这里仅记录用户选择的 period + 写一条 Info 日志供后期跟踪。
     /// </para>
     /// </summary>
-    public bool SupportsPeriodSwitch => true;
+    public override bool SupportsPeriodSwitch => true;
 
     /// <summary>
     /// req-007：MiniMax 折线图 hover tooltip 扩展文本行：调用量与缓存命中率。
@@ -163,7 +176,7 @@ public class MiniMaxProvider : IUsageProvider
     /// 原始的「调用 {value:0.##}」文本，避免 tooltip 出现空行。
     /// </para>
     /// </summary>
-    public IReadOnlyList<string> ExtraTooltipLines
+    public override IReadOnlyList<string> ExtraTooltipLines
     {
         get
         {
@@ -180,7 +193,7 @@ public class MiniMaxProvider : IUsageProvider
     /// 返回 <see cref="Task.CompletedTask"/> 以保证接口契约同步。
     /// </para>
     /// </summary>
-    public Task SetPeriodAsync(string period, CancellationToken ct = default)
+    public override Task SetPeriodAsync(string period, CancellationToken ct = default)
     {
         UsageMonitor.Core.Services.FileLogger.Info(LogSource,
             $"SetPeriodAsync invoked: period={period}");
@@ -190,7 +203,7 @@ public class MiniMaxProvider : IUsageProvider
     /// <summary>
     /// Query MiniMax Token Plan usage.
     /// </summary>
-    public async Task<UsageInfo> GetUsageAsync(ProviderConfig config)
+    public override async Task<UsageInfo> GetUsageAsync(ProviderConfig config, CancellationToken ct = default)
     {
         var baseUrl = ResolveBaseUrl(config);
         var apiKey = config.GetValue("ApiKey")?.Trim();
@@ -225,7 +238,7 @@ public class MiniMaxProvider : IUsageProvider
         // Need at least one auth method
         if (string.IsNullOrWhiteSpace(apiKey) && string.IsNullOrWhiteSpace(cookie))
         {
-            return UsageInfo.CreateError(ProviderId, DisplayName,
+            return CreateError(
                 "Please login via the 'Get login state' button in settings (Cookie is the primary auth), or optionally set a Token Plan subscription key.");
         }
 
@@ -271,20 +284,25 @@ public class MiniMaxProvider : IUsageProvider
         }
         catch (HttpRequestException ex)
         {
-            return UsageInfo.CreateError(ProviderId, DisplayName, $"Network request failed: {ex.Message}");
+            return CreateError($"Network request failed: {ex.Message}");
+        }
+        // req-065 B7：取消与超时分类，用户主动取消显示"用户取消"，网络超时显示"请求超时"
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            return CreateError("用户取消");
         }
         catch (TaskCanceledException)
         {
-            return UsageInfo.CreateError(ProviderId, DisplayName,
-                $"Request timeout (30s). MiniMax API server may be slow or unreachable. Please retry later.");
+            return CreateError(
+                $"请求超时（30s）。MiniMax API 服务器可能响应缓慢或不可达，请稍后重试。");
         }
         catch (JsonException ex)
         {
-            return UsageInfo.CreateError(ProviderId, DisplayName, $"JSON parse failed: {ex.Message}");
+            return CreateError($"JSON parse failed: {ex.Message}");
         }
         catch (Exception ex)
         {
-            return UsageInfo.CreateError(ProviderId, DisplayName, ex.Message);
+            return CreateError(ex.Message);
         }
     }
 
@@ -343,7 +361,12 @@ public class MiniMaxProvider : IUsageProvider
         else if (!string.IsNullOrWhiteSpace(cookie))
         {
             // Cookie session auth - new endpoint requires x-group-id header from cookie
-            request.Headers.Add("Cookie", cookie);
+            // req-065 B6：Cookie header injection防护，清理控制字符
+            var safeCookie = UsageMonitor.Core.Services.CookieHeaderSanitizer.Sanitize(cookie);
+            if (!request.Headers.TryAddWithoutValidation("Cookie", safeCookie))
+            {
+                UsageMonitor.Core.Services.FileLogger.Warn("MiniMaxProvider", "Cookie header rejected after sanitization");
+            }
             // Extract minimax_group_id_v2 from cookie string for x-group-id header
             var groupId = ExtractCookieValue(cookie, "minimax_group_id_v2");
             if (!string.IsNullOrEmpty(groupId))
@@ -359,8 +382,8 @@ public class MiniMaxProvider : IUsageProvider
         if (!response.IsSuccessStatusCode)
         {
             var errorBody = await response.Content.ReadAsStringAsync();
-            return UsageInfo.CreateError(ProviderId, DisplayName,
-                $"API error ({(int)response.StatusCode}): {Truncate(errorBody, 200)}");
+            return CreateError(
+                $"API error ({(int)response.StatusCode}): {SanitizeErrorBody(errorBody)}");
         }
 
         var json = await response.Content.ReadAsStringAsync();
@@ -371,21 +394,21 @@ public class MiniMaxProvider : IUsageProvider
 
         if (remainsResponse == null)
         {
-            return UsageInfo.CreateError(ProviderId, DisplayName, "Failed to parse API response");
+            return CreateError("Failed to parse API response");
         }
 
         if (remainsResponse.BaseResp != null && remainsResponse.BaseResp.StatusCode != 0)
         {
             var msg = remainsResponse.BaseResp.StatusMsg ?? "Unknown error";
             var hint = MapErrorCodeToHint(remainsResponse.BaseResp.StatusCode);
-            return UsageInfo.CreateError(ProviderId, DisplayName,
+            return CreateError(
                 $"API business error (code={remainsResponse.BaseResp.StatusCode}): {msg}\n\nTroubleshooting: {hint}");
         }
 
         var modelRemains = remainsResponse.ModelRemains;
         if (modelRemains == null || modelRemains.Count == 0)
         {
-            return UsageInfo.CreateError(ProviderId, DisplayName,
+            return CreateError(
                 "Response has no model_remains data. Cookie may be expired, please re-login.");
         }
 
@@ -433,7 +456,12 @@ public class MiniMaxProvider : IUsageProvider
         }
 
         using var request = new HttpRequestMessage(HttpMethod.Get, $"{baseUrl.TrimEnd('/')}{path}");
-        request.Headers.Add("Cookie", cookie);
+        // req-065 B6：Cookie header injection防护，清理控制字符
+        var safeCookie = UsageMonitor.Core.Services.CookieHeaderSanitizer.Sanitize(cookie);
+        if (!request.Headers.TryAddWithoutValidation("Cookie", safeCookie))
+        {
+            UsageMonitor.Core.Services.FileLogger.Warn("MiniMaxProvider", "Cookie header rejected after sanitization in QueryUsageSummaryAsync");
+        }
         request.Headers.Add("x-group-id", groupId);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         request.Headers.UserAgent.ParseAdd($"Mozilla/5.0 (Windows NT 10.0; Win64; x64) UsageMonitor/{Version}");
@@ -442,7 +470,7 @@ public class MiniMaxProvider : IUsageProvider
         if (!response.IsSuccessStatusCode)
         {
             throw new HttpRequestException(
-                $"usage_summary API returned {(int)response.StatusCode}: {Truncate(await response.Content.ReadAsStringAsync(), 100)}");
+                $"usage_summary API returned {(int)response.StatusCode}: {SanitizeErrorBody(await response.Content.ReadAsStringAsync(), 100)}");
         }
 
         var json = await response.Content.ReadAsStringAsync();
@@ -462,7 +490,8 @@ public class MiniMaxProvider : IUsageProvider
             ProviderId = ProviderIdStatic,
             ProviderName = "MiniMax",
             IsSuccess = true,
-            LastUpdated = DateTime.Now
+            // req-067 B21：统一使用 UTC 时间存储，避免时区问题
+            LastUpdated = DateTime.UtcNow
         };
 
         // Try to parse percent strings. The new API returns -1 for unlimited totals,
@@ -547,7 +576,7 @@ public class MiniMaxProvider : IUsageProvider
     private static string ProviderIdStatic => "MiniMax";
 
     /// <inheritdoc />
-    public UsageMonitor.Core.Models.BrowserLoginConfig LoginConfig { get; } = new()
+    public override UsageMonitor.Core.Models.BrowserLoginConfig LoginConfig { get; } = new()
     {
         ProviderId = "MiniMax",
         LoginUrl = "https://platform.minimaxi.com",
@@ -574,9 +603,9 @@ public class MiniMaxProvider : IUsageProvider
     };
 
     /// <inheritdoc />
-    public async Task<bool> ValidateConfigAsync(ProviderConfig config)
+    public override async Task<bool> ValidateConfigAsync(ProviderConfig config, CancellationToken ct = default)
     {
-        var result = await GetUsageAsync(config);
+        var result = await GetUsageAsync(config, ct);
         return result.IsSuccess;
     }
 
@@ -597,15 +626,6 @@ public class MiniMaxProvider : IUsageProvider
     };
 
     /// <summary>
-    /// Truncate long strings to avoid overly long error messages.
-    /// </summary>
-    private static string Truncate(string? value, int maxLength)
-    {
-        if (string.IsNullOrEmpty(value)) return string.Empty;
-        return value.Length <= maxLength ? value : value.Substring(0, maxLength) + "...";
-    }
-
-    /// <summary>
     /// Write each call's raw response JSON to %AppData%/UsageMonitor/debug/ for field-mapping debugging.
     /// Silently fail on errors (does not affect main flow).
     /// </summary>
@@ -614,7 +634,7 @@ public class MiniMaxProvider : IUsageProvider
         try
         {
             Directory.CreateDirectory(DebugDir);
-            CleanupOldDebugFiles();
+            DebugFileManager.CleanupOldDebugFiles();
             var fileName = $"MiniMax-{DateTime.Now:yyyyMMdd-HHmmss-fff}.json";
             var path = Path.Combine(DebugDir, fileName);
             var content = $"// baseUrl: {baseUrl}\n// time: {DateTime.Now:O}\n\n{json}";
@@ -623,30 +643,6 @@ public class MiniMaxProvider : IUsageProvider
         catch
         {
             // Silently ignore
-        }
-    }
-
-    /// <summary>
-    /// 清理 7 天前的 debug 文件，避免磁盘占用无限增长。
-    /// </summary>
-    private static void CleanupOldDebugFiles()
-    {
-        try
-        {
-            if (!Directory.Exists(DebugDir)) return;
-            var cutoff = DateTime.Now.AddDays(-7);
-            foreach (var file in Directory.GetFiles(DebugDir))
-            {
-                var info = new FileInfo(file);
-                if (info.CreationTime < cutoff)
-                {
-                    info.Delete();
-                }
-            }
-        }
-        catch
-        {
-            // Silently ignore cleanup failures
         }
     }
 }

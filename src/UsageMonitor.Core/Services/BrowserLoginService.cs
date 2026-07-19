@@ -19,22 +19,29 @@ namespace UsageMonitor.Core.Services;
 /// 解决了反复出现的 5+ Bug（页面太小、navigate 丢失、URL 关键字误判、Cookie 提取失败等）。
 /// 复用系统已安装的 Microsoft Edge（channel=msedge），不下载 Chromium。
 /// </para>
+/// <para>
+/// req-065 B4：去静态化改造，每个 Provider 持有独立实例，避免并发登录时 LastError 互相覆盖。
+/// </para>
 /// </summary>
-public static class BrowserLoginService
+public class BrowserLoginService
 {
     /// <summary>Optional ConfigService for in-memory rehydration after disk write.</summary>
-    private static ConfigService? _configService;
+    private readonly ConfigService? _configService;
 
     /// <summary>
-    /// Register the live ConfigService so that when <see cref="LoginAndExtractCookieAsync"/>
-    /// writes to disk directly (bypassing <c>UpdateProviderConfig</c>), the in-memory
-    /// provider config can be reloaded — so the next refresh tick sees the new cookie
-    /// without requiring an app restart.
+    /// 创建 BrowserLoginService 实例。
     /// </summary>
-    public static void RegisterConfigService(ConfigService service)
+    /// <param name="configService">
+    /// 可选的 ConfigService，用于登录成功后自动重载内存配置。
+    /// 若传入 null，则跳过主配置持久化（Cookie 仍保存到 cookies/*.json）。
+    /// </param>
+    public BrowserLoginService(ConfigService? configService = null)
     {
-        _configService = service;
-        FileLogger.Info("BrowserLoginService", "ConfigService registered for auto-reload after login.");
+        _configService = configService;
+        if (configService != null)
+        {
+            FileLogger.Info("BrowserLoginService", "ConfigService registered for auto-reload after login.");
+        }
     }
 
     /// <summary>
@@ -42,11 +49,11 @@ public static class BrowserLoginService
     /// <para>
     /// 安全要求（req-001）：必须经由 <see cref="ConfigService"/> 的加密保存路径写入，
     /// 使 Cookie 等敏感字段以 DPAPI 密文落盘，杜绝明文泄露。
-    /// 若未注册 ConfigService（例如未调用 <see cref="RegisterConfigService"/> 的独立进程），
+    /// 若未注册 ConfigService（例如未传入构造函数参数的独立进程），
     /// 则跳过主配置写入（Cookie 仍由 <see cref="SaveCookieData"/> 存于 cookies/*.json），绝不明文写 config.json。
     /// </para>
     /// </summary>
-    private static void PersistToMainConfig(BrowserLoginConfig config, BrowserCookieData data)
+    private void PersistToMainConfig(BrowserLoginConfig config, BrowserCookieData data)
     {
         try
         {
@@ -91,13 +98,17 @@ public static class BrowserLoginService
 
     /// <summary>
     /// 最近一次失败的错误信息（用于 UI 显示真实失败原因）。
+    /// req-065 B4：改为实例属性，避免并发登录时互相覆盖。
     /// </summary>
-    public static string? LastError { get; private set; }
+    public string? LastError { get; private set; }
 
     /// <summary>
     /// 启动临时 Edge 浏览器，等待用户完成登录，提取 Cookie 后关闭浏览器。
     /// </summary>
-    public static async Task<BrowserCookieData?> LoginAndExtractCookieAsync(
+    /// <param name="config">浏览器登录配置</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>提取的 Cookie 数据，失败时返回 null</returns>
+    public async Task<BrowserCookieData?> LoginAndExtractCookieAsync(
         BrowserLoginConfig config,
         CancellationToken cancellationToken = default)
     {
@@ -566,7 +577,12 @@ public static class BrowserLoginService
             using var http = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(15) };
             using var request = new System.Net.Http.HttpRequestMessage(
                 System.Net.Http.HttpMethod.Get, config.ValidateUrl);
-            request.Headers.Add("Cookie", data.Cookie);
+            // req-065 B6：Cookie header injection防护，清理控制字符
+            var safeCookie = CookieHeaderSanitizer.Sanitize(data.Cookie);
+            if (!request.Headers.TryAddWithoutValidation("Cookie", safeCookie))
+            {
+                FileLogger.Warn("BrowserLoginService", "Cookie header rejected after sanitization in ValidateCookieAsync");
+            }
             if (!string.IsNullOrEmpty(data.UserAgent))
             {
                 request.Headers.UserAgent.ParseAdd(data.UserAgent);
@@ -585,7 +601,7 @@ public static class BrowserLoginService
     /// Get cookie if valid, otherwise refresh by launching browser.
     /// If valid cookie file is missing/corrupted, also refresh.
     /// </summary>
-    public static async Task<BrowserCookieData?> GetOrRefreshCookieAsync(
+    public async Task<BrowserCookieData?> GetOrRefreshCookieAsync(
         BrowserLoginConfig config,
         CancellationToken cancellationToken = default)
     {

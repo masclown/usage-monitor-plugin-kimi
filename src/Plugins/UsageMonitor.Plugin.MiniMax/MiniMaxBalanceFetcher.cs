@@ -173,7 +173,12 @@ internal static class MiniMaxBalanceFetcher
         string cookie, CancellationToken ct)
     {
         using var req = new HttpRequestMessage(HttpMethod.Get, CodingPlanRemainsUrl);
-        req.Headers.Add("Cookie", cookie);
+        // req-065 B6：Cookie header injection防护，清理控制字符
+        var safeCookie = UsageMonitor.Core.Services.CookieHeaderSanitizer.Sanitize(cookie);
+        if (!req.Headers.TryAddWithoutValidation("Cookie", safeCookie))
+        {
+            UsageMonitor.Core.Services.FileLogger.Warn("MiniMaxBalanceFetcher", "Cookie header rejected after sanitization in FetchCodingPlanRemainsAsync");
+        }
         req.Headers.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
         req.Headers.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) UsageMonitor/1.4.0");
 
@@ -218,7 +223,12 @@ internal static class MiniMaxBalanceFetcher
     private static async Task<string?> SaveUsagePageHtmlAsync(string cookie, CancellationToken ct)
     {
         using var req = new HttpRequestMessage(HttpMethod.Get, UsagePageUrl);
-        req.Headers.Add("Cookie", cookie);
+        // req-065 B6：Cookie header injection防护，清理控制字符
+        var safeCookie = UsageMonitor.Core.Services.CookieHeaderSanitizer.Sanitize(cookie);
+        if (!req.Headers.TryAddWithoutValidation("Cookie", safeCookie))
+        {
+            UsageMonitor.Core.Services.FileLogger.Warn("MiniMaxBalanceFetcher", "Cookie header rejected after sanitization in SaveUsagePageHtmlAsync");
+        }
         req.Headers.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) UsageMonitor/1.4.0");
 
         using var resp = await _http.SendAsync(req, ct);
@@ -237,7 +247,12 @@ internal static class MiniMaxBalanceFetcher
         string cookie, CancellationToken ct)
     {
         using var req = new HttpRequestMessage(HttpMethod.Get, UserInfoUrl);
-        req.Headers.Add("Cookie", cookie);
+        // req-065 B6：Cookie header injection防护，清理控制字符
+        var safeCookie = UsageMonitor.Core.Services.CookieHeaderSanitizer.Sanitize(cookie);
+        if (!req.Headers.TryAddWithoutValidation("Cookie", safeCookie))
+        {
+            UsageMonitor.Core.Services.FileLogger.Warn("MiniMaxBalanceFetcher", "Cookie header rejected after sanitization in FetchUserInfoAsync");
+        }
         req.Headers.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
         req.Headers.UserAgent.ParseAdd("Mozilla/5.0 UsageMonitor");
 
@@ -311,7 +326,7 @@ internal static class MiniMaxBalanceFetcher
         try
         {
             Directory.CreateDirectory(DebugDir);
-            CleanupOldDebugFiles();
+            DebugFileManager.CleanupOldDebugFiles();
             var path = Path.Combine(DebugDir, fileName);
             File.WriteAllText(path, content, Encoding.UTF8);
             return path;
@@ -319,30 +334,6 @@ internal static class MiniMaxBalanceFetcher
         catch
         {
             return null;
-        }
-    }
-
-    /// <summary>
-    /// 清理 7 天前的 debug 文件，避免磁盘占用无限增长。
-    /// </summary>
-    private static void CleanupOldDebugFiles()
-    {
-        try
-        {
-            if (!Directory.Exists(DebugDir)) return;
-            var cutoff = DateTime.Now.AddDays(-7);
-            foreach (var file in Directory.GetFiles(DebugDir))
-            {
-                var info = new FileInfo(file);
-                if (info.CreationTime < cutoff)
-                {
-                    info.Delete();
-                }
-            }
-        }
-        catch
-        {
-            // Silently ignore cleanup failures
         }
     }
 }

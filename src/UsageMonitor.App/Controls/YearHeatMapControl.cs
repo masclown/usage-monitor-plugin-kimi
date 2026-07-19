@@ -51,6 +51,10 @@ public class YearHeatMapCell
 /// </summary>
 public class YearHeatMapControl : FrameworkElement, IHoverTooltipProvider
 {
+    // req-067 B23：Typeface 缓存，避免每次 OnRender 重复创建
+    private static readonly Typeface LabelTypeface = new(
+        new FontFamily("Microsoft YaHei UI, Segoe UI"), FontStyles.Normal, FontWeights.SemiBold, FontStretches.Normal);
+
     /// <summary>单元格集合依赖属性</summary>
     public static readonly DependencyProperty CellsProperty = DependencyProperty.Register(
         nameof(Cells), typeof(IEnumerable), typeof(YearHeatMapControl),
@@ -119,6 +123,8 @@ public class YearHeatMapControl : FrameworkElement, IHoverTooltipProvider
         MinHeight = 150;
         MinWidth = 320;
         Focusable = true;
+        // req-063 B9：订阅 Unloaded 事件，控件卸载时解绑 CollectionChanged
+        Unloaded += OnControlUnloaded;
         // req-018：订阅 HeatMapTierScale（6 档 Token 绝对值色阶）替代旧的 UsageTierScale（4 档百分比色阶）。
         // 两个订阅用同一个 _tierSubscribed 静态互斥锁保护，避免双重订阅。
         if (System.Threading.Interlocked.Exchange(ref _tierSubscribed, 1) == 0)
@@ -155,18 +161,47 @@ public class YearHeatMapControl : FrameworkElement, IHoverTooltipProvider
         set => SetValue(ProviderIdProperty, value);
     }
 
+    /// <summary>req-063 B9：跟踪当前订阅的集合，用于 OnUnloaded 时解绑。</summary>
+    private INotifyCollectionChanged? _subscribed;
+
+    // req-067 B24：预排序缓存，避免每次 OnRender 重复解析和排序
+    private List<(DateTime date, YearHeatMapCell cell)>? _sortedCellsCache;
+
     private static void OnCellsChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
         var c = (YearHeatMapControl)d;
         if (e.OldValue is INotifyCollectionChanged oldIncc)
             oldIncc.CollectionChanged -= c.OnCellsCollectionChanged;
         if (e.NewValue is INotifyCollectionChanged newIncc)
+        {
             newIncc.CollectionChanged += c.OnCellsCollectionChanged;
+            c._subscribed = newIncc;
+        }
+        else
+        {
+            c._subscribed = null;
+        }
+        // req-067 B24：Cells 变化时清空缓存，下次 OnRender 时重建
+        c._sortedCellsCache = null;
         c.InvalidateVisual();
     }
 
+    /// <summary>req-063 B9：控件卸载时解绑 CollectionChanged，防止内存泄漏。</summary>
+    private void OnControlUnloaded(object sender, RoutedEventArgs e)
+    {
+        if (_subscribed != null)
+        {
+            _subscribed.CollectionChanged -= OnCellsCollectionChanged;
+            _subscribed = null;
+        }
+    }
+
     private void OnCellsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
-        => InvalidateVisual();
+    {
+        // req-067 B24：集合内容变化时清空缓存
+        _sortedCellsCache = null;
+        InvalidateVisual();
+    }
 
     protected override void OnRender(DrawingContext dc)
     {
@@ -196,21 +231,26 @@ public class YearHeatMapControl : FrameworkElement, IHoverTooltipProvider
             dc.DrawText(text, new Point(2, gridTop + r * step + (cell - text.Height) / 2.0));
         }
 
-        // 解析所有单元格为 (日期, 画笔)，按日期升序
-        var parsed = new List<(DateTime date, YearHeatMapCell cell)>();
-        if (Cells != null)
+        // req-067 B24：使用预排序缓存，避免每次 OnRender 重复解析和排序
+        var parsed = _sortedCellsCache;
+        if (parsed == null)
         {
-            foreach (var item in Cells)
+            parsed = new List<(DateTime date, YearHeatMapCell cell)>();
+            if (Cells != null)
             {
-                if (item is YearHeatMapCell yc &&
-                    DateTime.TryParseExact(yc.Day, "yyyy-MM-dd", CultureInfo.InvariantCulture,
-                        DateTimeStyles.None, out var dt))
+                foreach (var item in Cells)
                 {
-                    parsed.Add((dt.Date, yc));
+                    if (item is YearHeatMapCell yc &&
+                        DateTime.TryParseExact(yc.Day, "yyyy-MM-dd", CultureInfo.InvariantCulture,
+                            DateTimeStyles.None, out var dt))
+                    {
+                        parsed.Add((dt.Date, yc));
+                    }
                 }
             }
+            parsed.Sort((a, b) => a.date.CompareTo(b.date));
+            _sortedCellsCache = parsed;
         }
-        parsed.Sort((a, b) => a.date.CompareTo(b.date));
 
         var colsCountMax = Math.Max(1, (int)Math.Floor((gridWidth + gap) / step));
 
@@ -430,9 +470,7 @@ public class YearHeatMapControl : FrameworkElement, IHoverTooltipProvider
 
     private FormattedText MakeText(string text, Brush brush, double size, double dpi)
         => new FormattedText(text, CultureInfo.CurrentCulture, System.Windows.FlowDirection.LeftToRight,
-            new Typeface(new FontFamily("Microsoft YaHei UI, Segoe UI"), FontStyles.Normal,
-                FontWeights.SemiBold, FontStretches.Normal),
-            size, brush, dpi);
+            LabelTypeface, size, brush, dpi);
 
     private Brush FindBrush(string key, Color fallback)
     {

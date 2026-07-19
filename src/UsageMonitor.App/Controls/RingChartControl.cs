@@ -31,6 +31,10 @@ namespace UsageMonitor.App.Controls;
 /// </summary>
 public class RingChartControl : FrameworkElement, IHoverTooltipProvider
 {
+    // req-067 B23：Typeface 缓存，避免每次 OnRender 重复创建
+    private static readonly Typeface CenterTypeface = new(
+        new FontFamily("Segoe UI"), FontStyles.Normal, FontWeights.Bold, FontStretches.Normal);
+
     // =========================
     // 依赖属性（原版）
     // =========================
@@ -367,6 +371,8 @@ public class RingChartControl : FrameworkElement, IHoverTooltipProvider
         // 根据 DataContext 是否为 ProviderUsageViewModel 自动构造 5 个内置 IRingMetricProvider。
         // 让 TaskbarRingChartTemplate 不必额外指定 XAML binding。
         DataContextChanged += OnDataContextChanged;
+        // req-063 B10：订阅 Unloaded 事件，控件卸载时停止内部计时器
+        Unloaded += OnControlUnloaded;
     }
 
     /// <summary>REQ-003：根据 DataContext 自动构造内嵌 5 个 metric provider；遇到默认 Percent fallback 改走 ProviderUsageViewModel.UsagePercentage。</summary>
@@ -543,6 +549,17 @@ public class RingChartControl : FrameworkElement, IHoverTooltipProvider
             ResetToDefaultMetric();
         };
         _stickyTimer.Start();
+    }
+
+    /// <summary>
+    /// req-063 B10：控件卸载时停止内部计时器，防止内存泄漏。
+    /// </summary>
+    private void OnControlUnloaded(object sender, RoutedEventArgs e)
+    {
+        _stickyTimer?.Stop();
+        _stickyTimer = null;
+        _switchAnimTimer?.Stop();
+        _switchAnimTimer = null;
     }
 
     /// <summary>REQ-003：启动老虎机式数字切换动画。</summary>
@@ -756,8 +773,8 @@ public class RingChartControl : FrameworkElement, IHoverTooltipProvider
         var gap = Math.Max(1.0, size * 0.04);
         // 数字字号：直径的 26% + 2（req-051：字号 +2）
         var fontSize = Math.Max(7.0, size * 0.26) + 2;
-        // req-051：数字加粗
-        var typeface = new Typeface(new FontFamily("Segoe UI"), FontStyles.Normal, FontWeights.Bold, FontStretches.Normal);
+        // req-051：数字加粗（req-067 B23：使用缓存的 Typeface）
+        var typeface = CenterTypeface;
 
         // 加载 logo bitmap（按需缓存）
         var iconPath = IconPath;

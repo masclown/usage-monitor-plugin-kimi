@@ -146,19 +146,12 @@ public class AppSettings
     /// 某 Provider 缺失或 value 为空时 <c>HeatMapTierScale.ResolveBrush</c> 走 <see cref="UsageMonitor.App.Helpers.HeatMapTierScale.GenericDefaults"/> 兑底。
     /// 设置页保存后会被 <c>App.OnStartup</c> 加载 + <c>HeatMapTierScale.ApplyConfig</c> 应用。
     /// </para>
+    /// <para>
+    /// req-066 A8：移除 minimax 业务耦合，默认值改为空字典。
+    /// 启动时由 App.OnStartup 从 <see cref="IUsageProvider.HeatMapTiers"/> 装配各 Provider 的默认色阶。
+    /// </para>
     /// </summary>
-    public Dictionary<string, System.Collections.Generic.IList<UsageMonitor.Core.Models.HeatMapTierConfig>> ProviderHeatMapTiers { get; set; } = new()
-    {
-        ["minimax"] = new List<UsageMonitor.Core.Models.HeatMapTierConfig>
-        {
-            new() { MinTokens = 0,            ColorHex = "#f3f4f6" },
-            new() { MinTokens = 1,            ColorHex = "#ffe7e2" },
-            new() { MinTokens = 20_000_000,   ColorHex = "#ffc6bb" },
-            new() { MinTokens = 100_000_000,  ColorHex = "#ffa595" },
-            new() { MinTokens = 200_000_000,  ColorHex = "#ff7b64" },
-            new() { MinTokens = 300_000_000,  ColorHex = "#ff5a3d" },
-        }
-    };
+    public Dictionary<string, System.Collections.Generic.IList<UsageMonitor.Core.Models.HeatMapTierConfig>> ProviderHeatMapTiers { get; set; } = new();
 
     // =====================================================================
     // REQ-012 历史窗口 Provider 列表与插件启用状态联动 + 卸载清理工作流

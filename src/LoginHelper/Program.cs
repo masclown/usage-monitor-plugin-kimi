@@ -35,7 +35,9 @@ public class Program
 
         try
         {
-            var data = await BrowserLoginService.LoginAndExtractCookieAsync(
+            // req-065 B4：BrowserLoginService 去静态化，创建独立实例（不传 ConfigService，由下方手动保存）
+            var loginService = new BrowserLoginService();
+            var data = await loginService.LoginAndExtractCookieAsync(
                 new MiniMaxProvider().LoginConfig, cts.Token);
             var cookie = data?.Cookie;
 
@@ -43,7 +45,7 @@ public class Program
             {
                 Console.WriteLine();
                 Console.WriteLine("X Login failed or cancelled");
-                Console.WriteLine("Last error: " + BrowserLoginService.LastError);
+                Console.WriteLine("Last error: " + loginService.LastError);
                 Console.WriteLine("Please retry, or check if Edge can access platform.minimaxi.com");
                 return 1;
             }

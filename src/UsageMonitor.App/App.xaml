@@ -9,6 +9,8 @@
                  主题颜色/画笔已全部迁入 Themes/Dark.xaml、Themes/Light.xaml，
                  通过 ThemeManager 在运行时替换主题字典实现换肤。 -->
             <helpers:BoolToVisibilityConverter x:Key="BoolToVisibility" />
+            <!-- req-072 U-18：整数值转可见性转换器（用于错误计数胶囊显示） -->
+            <helpers:IntToVisibilityConverter x:Key="IntToVisibility" />
             <helpers:BoolToOpacityConverter x:Key="BoolToOpacity" />
             <helpers:ErrorColorConverter x:Key="ErrorColorConverter" />
             <helpers:PercentageWidthConverter x:Key="PercentageWidthConverter" />

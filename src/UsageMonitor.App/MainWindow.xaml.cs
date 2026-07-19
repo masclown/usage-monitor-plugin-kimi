@@ -65,11 +65,30 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>req-064 U5：首次关闭时提示用户"最小化到托盘"，避免误以为程序已退出。</summary>
+    private bool _hasShownMinimizeHint;
+
     /// <summary>
     /// 关闭窗口时隐藏而非退出（最小化到托盘）
+    /// req-064 U5：首次关闭弹提示，选"是"最小化、选"否"真退出；第二次起不再弹。
     /// </summary>
     protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
     {
+        if (!_hasShownMinimizeHint)
+        {
+            _hasShownMinimizeHint = true;
+            var result = System.Windows.MessageBox.Show(
+                "关闭窗口将最小化到托盘继续监控。\n如需完全退出，请右键托盘图标 → 退出。\n\n是否继续最小化？",
+                "UsageMonitor",
+                System.Windows.MessageBoxButton.YesNo,
+                System.Windows.MessageBoxImage.Information);
+            if (result != System.Windows.MessageBoxResult.Yes)
+            {
+                _hasShownMinimizeHint = false;
+                e.Cancel = false;  // 真退出
+                return;
+            }
+        }
         e.Cancel = true;
         Hide();
     }

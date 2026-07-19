@@ -243,6 +243,9 @@ public class MiniLineChartControl : FrameworkElement, IHoverTooltipProvider
         set => SetValue(HighBrushProperty, value);
     }
 
+    /// <summary>req-063 B9：跟踪当前订阅的集合，用于 OnUnloaded 时解绑。</summary>
+    private INotifyCollectionChanged? _subscribed;
+
     /// <summary>
     /// 监听集合变化（支持 ObservableCollection 等实现 INotifyCollectionChanged 的源）
     /// </summary>
@@ -252,8 +255,25 @@ public class MiniLineChartControl : FrameworkElement, IHoverTooltipProvider
         if (e.OldValue is INotifyCollectionChanged oldIncc)
             oldIncc.CollectionChanged -= control.OnCollectionChanged;
         if (e.NewValue is INotifyCollectionChanged newIncc)
+        {
             newIncc.CollectionChanged += control.OnCollectionChanged;
+            control._subscribed = newIncc;
+        }
+        else
+        {
+            control._subscribed = null;
+        }
         control.InvalidateVisual();
+    }
+
+    /// <summary>req-063 B9：控件卸载时解绑 CollectionChanged，防止内存泄漏。</summary>
+    private void OnControlUnloaded(object sender, RoutedEventArgs e)
+    {
+        if (_subscribed != null)
+        {
+            _subscribed.CollectionChanged -= OnCollectionChanged;
+            _subscribed = null;
+        }
     }
 
     private void OnCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
@@ -269,6 +289,8 @@ public class MiniLineChartControl : FrameworkElement, IHoverTooltipProvider
     public MiniLineChartControl()
     {
         Focusable = true;
+        // req-063 B9：订阅 Unloaded 事件，控件卸载时解绑 CollectionChanged
+        Unloaded += OnControlUnloaded;
         if (System.Threading.Interlocked.Exchange(ref _tierChangedSubscribed, 1) == 0)
         {
             UsageMonitor.App.Helpers.UsageTierScale.TierChanged += OnTierChangedStatic;
@@ -572,6 +594,11 @@ public class MiniLineChartControl : FrameworkElement, IHoverTooltipProvider
     }
 
     /// <summary>用默认字体（Segoe UI / Microsoft YaHei UI 等）创建 FormattedText；不自动换行。</summary>
+    // req-067 B23：Typeface 缓存，避免每次 OnRender 重复创建
+    private static readonly Typeface DefaultTypeface = new(
+        new System.Windows.Media.FontFamily("Segoe UI, Microsoft YaHei UI, PingFang SC"),
+        FontStyles.Normal, FontWeights.SemiBold, FontStretches.Normal);
+
     private FormattedText MakeText(string text, double fontSize, Brush brush)
     {
         // 用 instance 自身作 visual 锚点，让 VisualTreeHelper.GetDpi 拿到真实 DPI。
@@ -584,11 +611,7 @@ public class MiniLineChartControl : FrameworkElement, IHoverTooltipProvider
             text,
             CultureInfo.CurrentCulture,
             System.Windows.FlowDirection.LeftToRight,
-            new Typeface(
-                new System.Windows.Media.FontFamily("Segoe UI, Microsoft YaHei UI, PingFang SC"),
-                FontStyles.Normal,
-                FontWeights.SemiBold,
-                FontStretches.Normal),
+            DefaultTypeface,
             fontSize,
             brush,
             dpi);

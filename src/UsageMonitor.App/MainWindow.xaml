@@ -12,6 +12,381 @@
         TextElement.FontFamily="{DynamicResource AppFontFamily}"
         TextOptions.TextFormattingMode="Ideal"
         WindowStartupLocation="CenterScreen">
+
+    <!-- req-072 U-05：卡片拆分 5 个子 DataTemplate（头部/限额/余额/图表/错误） -->
+    <Window.Resources>
+        <!-- 子模板 1：卡片头部（Provider 名称 + 状态摘要 + 操作按钮） -->
+        <DataTemplate x:Key="CardHeaderTemplate">
+            <DockPanel Margin="0,0,0,10">
+                <!-- Provider Logo 图标 -->
+                <Image Source="{Binding IconPath}" Width="22" Height="22"
+                       VerticalAlignment="Center" Margin="0,0,8,0"
+                       RenderOptions.BitmapScalingMode="HighQuality"
+                       Visibility="{Binding IconPath, Converter={StaticResource StringToVisibility}}" />
+                <TextBlock Text="{Binding DisplayName}" FontSize="17" FontWeight="SemiBold"
+                           Foreground="{DynamicResource TextPrimaryBrush}"
+                           VerticalAlignment="Center" />
+
+                <!-- 右侧区：水平 StackPanel 内子元素严格按声明顺序从左到右排列，末尾（最右）为设置按钮 -->
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                    <!-- 订阅档位胶囊（TokenPlan）：位于刷新/设置按钮左侧、可按需隐藏 -->
+                    <Border VerticalAlignment="Center"
+                            Style="{StaticResource SubscriptionPillActiveStyle}"
+                            Visibility="{Binding RenderKinds, Converter={StaticResource RenderKindToVisibility}, ConverterParameter=subscriptionTitle}">
+                        <TextBlock Text="{Binding SubscriptionTitle}"
+                                   FontSize="11" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource AccentBrush}"
+                                   VerticalAlignment="Center" />
+                    </Border>
+
+                    <!-- 刷新本卡片按钮：位于设置按钮左侧，仅刷新当前服务商用量；刷新中图标持续旋转作为进行反馈 -->
+                    <!-- req-064 U2：补充 a11y AutomationProperties 标注 -->
+                    <Button Command="{Binding RefreshCardCommand}"
+                            Margin="8,0,0,0"
+                            Style="{StaticResource IconButtonStyle}"
+                            ToolTip="仅刷新此卡片的用量信息"
+                            AutomationProperties.Name="刷新此卡片"
+                            AutomationProperties.HelpText="重新查询该服务商的当前用量">
+                        <StackPanel Orientation="Horizontal">
+                            <!-- 旋转图标：RefreshCardCommand.IsRunning=True 时绕中心持续旋转，False 时停止并回正 -->
+                            <TextBlock Text="⟳" VerticalAlignment="Center"
+                                       RenderTransformOrigin="0.5,0.5">
+                                <TextBlock.RenderTransform>
+                                    <RotateTransform Angle="0" />
+                                </TextBlock.RenderTransform>
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding RefreshCardCommand.IsRunning}" Value="True">
+                                                <DataTrigger.EnterActions>
+                                                    <BeginStoryboard x:Name="RefreshSpinStoryboard">
+                                                        <Storyboard>
+                                                            <DoubleAnimation
+                                                                Storyboard.TargetProperty="(UIElement.RenderTransform).(RotateTransform.Angle)"
+                                                                From="0" To="360" Duration="0:0:0.8"
+                                                                RepeatBehavior="Forever" />
+                                                        </Storyboard>
+                                                    </BeginStoryboard>
+                                                </DataTrigger.EnterActions>
+                                                <DataTrigger.ExitActions>
+                                                    <StopStoryboard BeginStoryboardName="RefreshSpinStoryboard" />
+                                                    <!-- req-025 修复：停止动画后显式重置角度为 0，避免停留在非零值 -->
+                                                    <BeginStoryboard>
+                                                        <Storyboard>
+                                                            <DoubleAnimation
+                                                                Storyboard.TargetProperty="(UIElement.RenderTransform).(RotateTransform.Angle)"
+                                                                To="0" Duration="0:0:0.1" />
+                                                        </Storyboard>
+                                                    </BeginStoryboard>
+                                                </DataTrigger.ExitActions>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </StackPanel>
+                    </Button>
+
+                    <!-- 设置按钮：订阅胶囊右侧、卡片头部最右；改为纯扳手图标（Segoe MDL2 Assets 的 Repair 字形，码点 E90F），不再显示"设置"文字，样式与刷新按钮统一为 IconButtonStyle（透明底 + 悬停软色底） -->
+                    <!-- req-064 U2：补充 a11y AutomationProperties 标注 -->
+                    <Button Command="{Binding ConfigCommand}"
+                            Margin="8,0,0,0"
+                            Style="{StaticResource IconButtonStyle}"
+                            ToolTip="打开此服务商的配置窗口（输入 API Key、获取登录态、选择卡片图表等）"
+                            AutomationProperties.Name="配置此服务商"
+                            AutomationProperties.HelpText="打开配置窗口，输入 API Key、获取登录态、选择卡片图表等">
+                        <!-- 扳手图标：使用 Segoe MDL2 Assets 字体的 Repair 字形，单色跟随前景强调色，字号继承按钮 FontSize，与刷新按钮 ⟳ 视觉一致 -->
+                        <TextBlock Text="&#xE90F;" FontFamily="Segoe MDL2 Assets" VerticalAlignment="Center" />
+                    </Button>
+                </StackPanel>
+
+                <!-- 状态摘要：作为末子元素填充中部、右对齐（如 5h 已用 0% · 本周 已用 49%），右侧留 12px 与信息区分隔 -->
+                <!-- req-064 U3：错误颜色 Converter 改 Style+DataTrigger，支持主题切换 -->
+                <TextBlock Text="{Binding StatusText}" FontSize="13"
+                           HorizontalAlignment="Right"
+                           VerticalAlignment="Center" Margin="8,0,12,0"
+                           Visibility="{Binding StatusText, Converter={StaticResource StringToVisibility}}">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsError}" Value="True">
+                                    <Setter Property="Foreground" Value="{DynamicResource DangerBrush}" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+            </DockPanel>
+        </DataTemplate>
+
+        <!-- 子模板 2：错误信息 -->
+        <DataTemplate x:Key="CardErrorTemplate">
+            <TextBlock Text="{Binding ErrorMessage}"
+                       Foreground="{DynamicResource DangerBrush}"
+                       FontSize="12" TextWrapping="Wrap"
+                       Margin="0,4,0,0" />
+        </DataTemplate>
+
+        <!-- 子模板 3：限额进度条（5h/周/视频赠送） -->
+        <DataTemplate x:Key="CardLimitBarsTemplate">
+            <StackPanel>
+                <!-- 5h 限额进度条 -->
+                <StackPanel Margin="0,0,0,10">
+                    <StackPanel.Visibility>
+                        <MultiBinding Converter="{StaticResource MultiVisibilityAnd}">
+                            <Binding Path="RenderKinds" Converter="{StaticResource RenderKindToVisibility}" ConverterParameter="primaryBar" />
+                            <Binding Path="Show5hBar" Converter="{StaticResource BoolToVisibility}" />
+                        </MultiBinding>
+                    </StackPanel.Visibility>
+                    <DockPanel>
+                        <TextBlock Text="5h 限额" FontSize="12"
+                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                   VerticalAlignment="Center" />
+                        <TextBlock DockPanel.Dock="Right" HorizontalAlignment="Right"
+                                   FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
+                                   Text="{Binding PrimaryResetText}" />
+                    </DockPanel>
+                    <Grid Margin="0,5,0,0" Height="{DynamicResource ProgressBarHeight}">
+                        <Border CornerRadius="{DynamicResource ProgressBarRadius}" Background="{DynamicResource TrackBrush}" />
+                        <Border CornerRadius="{DynamicResource ProgressBarRadius}"
+                                Background="{Binding PrimaryBarPercent, Converter={StaticResource PercentToBrush}}"
+                                HorizontalAlignment="Left">
+                            <Border.Width>
+                                <MultiBinding Converter="{StaticResource PercentageWidthConverter}">
+                                    <Binding Path="PrimaryBarPercent" />
+                                    <Binding RelativeSource="{RelativeSource FindAncestor, AncestorType={x:Type Grid}}" Path="ActualWidth" />
+                                </MultiBinding>
+                            </Border.Width>
+                        </Border>
+                    </Grid>
+                    <DockPanel Margin="0,3,0,0">
+                        <TextBlock Text="总额度 100%" FontSize="11"
+                                   Foreground="{DynamicResource TextTertiaryBrush}" />
+                        <TextBlock DockPanel.Dock="Right" HorizontalAlignment="Right"
+                                   FontSize="11" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource TextPrimaryBrush}"
+                                   Text="{Binding PrimaryBarPercent, StringFormat=已用 {0:0}%}" />
+                    </DockPanel>
+                </StackPanel>
+
+                <!-- 周限额进度条 -->
+                <StackPanel Margin="0,4,0,10">
+                    <StackPanel.Visibility>
+                        <MultiBinding Converter="{StaticResource MultiVisibilityAnd}">
+                            <Binding Path="RenderKinds" Converter="{StaticResource RenderKindToVisibility}" ConverterParameter="weeklyBar" />
+                            <Binding Path="ShowWeeklyBar" Converter="{StaticResource BoolToVisibility}" />
+                        </MultiBinding>
+                    </StackPanel.Visibility>
+                    <DockPanel>
+                        <TextBlock Text="本周限额" FontSize="12"
+                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                   VerticalAlignment="Center" />
+                        <TextBlock DockPanel.Dock="Right" HorizontalAlignment="Right"
+                                   FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
+                                   Text="{Binding WeeklyResetText}" />
+                    </DockPanel>
+                    <Grid Margin="0,5,0,0" Height="{DynamicResource ProgressBarHeight}">
+                        <Border CornerRadius="{DynamicResource ProgressBarRadius}" Background="{DynamicResource TrackBrush}" />
+                        <Border CornerRadius="{DynamicResource ProgressBarRadius}"
+                                Background="{Binding WeeklyBarPercent, Converter={StaticResource PercentToBrush}}"
+                                HorizontalAlignment="Left">
+                            <Border.Width>
+                                <MultiBinding Converter="{StaticResource PercentageWidthConverter}">
+                                    <Binding Path="WeeklyBarPercent" />
+                                    <Binding RelativeSource="{RelativeSource FindAncestor, AncestorType={x:Type Grid}}" Path="ActualWidth" />
+                                </MultiBinding>
+                            </Border.Width>
+                        </Border>
+                    </Grid>
+                    <DockPanel Margin="0,3,0,0">
+                        <TextBlock Text="总额度 100%" FontSize="11"
+                                   Foreground="{DynamicResource TextTertiaryBrush}" />
+                        <TextBlock DockPanel.Dock="Right" HorizontalAlignment="Right"
+                                   FontSize="11" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource TextPrimaryBrush}"
+                                   Text="{Binding WeeklyBarPercent, StringFormat=已用 {0:0}%}" />
+                    </DockPanel>
+                </StackPanel>
+
+                <!-- 视频赠送进度条 -->
+                <StackPanel Margin="0,0,0,8">
+                    <StackPanel.Visibility>
+                        <MultiBinding Converter="{StaticResource MultiVisibilityOr}">
+                            <Binding Path="RenderKinds" Converter="{StaticResource RenderKindToVisibility}" ConverterParameter="videoProgress" />
+                            <Binding Path="ShowVideo5hBar" Converter="{StaticResource BoolToVisibility}" />
+                            <Binding Path="ShowVideoWeeklyBar" Converter="{StaticResource BoolToVisibility}" />
+                        </MultiBinding>
+                    </StackPanel.Visibility>
+                    <DockPanel Visibility="{Binding ShowVideo5hBar, Converter={StaticResource BoolToVisibility}}">
+                        <TextBlock Text="视频赠送 5h" FontSize="12"
+                                   Foreground="{DynamicResource TextSecondaryBrush}" />
+                        <TextBlock DockPanel.Dock="Right" HorizontalAlignment="Right"
+                                   FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
+                                   Text="{Binding VideoQuotaText}" />
+                    </DockPanel>
+                    <Grid Margin="0,5,0,2" Height="{DynamicResource ProgressBarHeight}"
+                          Visibility="{Binding ShowVideo5hBar, Converter={StaticResource BoolToVisibility}}">
+                        <Border CornerRadius="{DynamicResource ProgressBarRadius}" Background="{DynamicResource TrackBrush}" />
+                        <Border CornerRadius="{DynamicResource ProgressBarRadius}"
+                                Background="{Binding VideoIntervalPercent, Converter={StaticResource PercentToBrush}}"
+                                HorizontalAlignment="Left">
+                            <Border.Width>
+                                <MultiBinding Converter="{StaticResource PercentageWidthConverter}">
+                                    <Binding Path="VideoIntervalPercent" />
+                                    <Binding RelativeSource="{RelativeSource FindAncestor, AncestorType={x:Type Grid}}" Path="ActualWidth" />
+                                </MultiBinding>
+                            </Border.Width>
+                        </Border>
+                    </Grid>
+                    <DockPanel Margin="0,4,0,0"
+                               Visibility="{Binding ShowVideoWeeklyBar, Converter={StaticResource BoolToVisibility}}">
+                        <TextBlock Text="视频赠送 周" FontSize="12"
+                                   Foreground="{DynamicResource TextSecondaryBrush}" />
+                        <TextBlock DockPanel.Dock="Right" HorizontalAlignment="Right"
+                                   FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
+                                   Text="{Binding VideoWeeklyText}" />
+                    </DockPanel>
+                    <Grid Margin="0,4,0,0" Height="{DynamicResource ProgressBarHeight}"
+                          Visibility="{Binding ShowVideoWeeklyBar, Converter={StaticResource BoolToVisibility}}">
+                        <Border CornerRadius="{DynamicResource ProgressBarRadius}" Background="{DynamicResource TrackBrush}" />
+                        <Border CornerRadius="{DynamicResource ProgressBarRadius}"
+                                Background="{Binding VideoWeeklyPercent, Converter={StaticResource PercentToBrush}}"
+                                HorizontalAlignment="Left">
+                            <Border.Width>
+                                <MultiBinding Converter="{StaticResource PercentageWidthConverter}">
+                                    <Binding Path="VideoWeeklyPercent" />
+                                    <Binding RelativeSource="{RelativeSource FindAncestor, AncestorType={x:Type Grid}}" Path="ActualWidth" />
+                                </MultiBinding>
+                            </Border.Width>
+                        </Border>
+                    </Grid>
+                </StackPanel>
+            </StackPanel>
+        </DataTemplate>
+
+        <!-- 子模板 4：余额快照 -->
+        <DataTemplate x:Key="CardBalanceTemplate">
+            <!-- 余额快照（req-008 多列并排布局）：
+                 4 个默认项横向拼接（累计 / 峰值 / 活跃 / 积分余额），
+                 列与列之间用 1px 实线竖向分隔。模块永远显示，不再受 HasBalanceInfo 折叠控制。 -->
+            <Border Background="{DynamicResource SurfaceAltBrush}"
+                    CornerRadius="{DynamicResource RadiusSmall}" Padding="12,8"
+                    Margin="0,8,0,0">
+                <StackPanel>
+                    <!-- req-045：移除"💰 余额快照"标题文字，保留数据区域 -->
+                    <ItemsControl ItemsSource="{Binding BalanceItems}">
+                        <!-- req-019：余额快照等宽分布 → ItemsPanel 由 StackPanel 换为 UniformGrid（Rows=1，动态列数） -->
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <UniformGrid Rows="1" Columns="{Binding Count}" />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <!-- req-030：三行固定高度 Grid（Label/Value/Detail 全部占位），解决 Detail 为空时列高不一致 -->
+                                <Grid Margin="0"
+                                      Visibility="{Binding IsVisible, Converter={StaticResource BoolToVisibility}}">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <!-- req-030：3 行固定高度，所有列 Label/Value/Detail 自然对齐到同一水平线 -->
+                                    <Grid Grid.Column="0" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />   <!-- Label -->
+                                            <RowDefinition Height="36" />     <!-- Value 固定 -->
+                                            <RowDefinition Height="Auto" />   <!-- Detail -->
+                                        </Grid.RowDefinitions>
+                                        <TextBlock Grid.Row="0" Text="{Binding Label}" FontSize="12"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                   Foreground="{DynamicResource TextSecondaryBrush}" />
+                                        <TextBlock Grid.Row="1" Text="{Binding Value}" FontSize="26" FontWeight="Bold"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                   Foreground="{DynamicResource AccentBrush}"
+                                                   TextTrimming="CharacterEllipsis" />
+                                        <!-- req-030：Detail 始终存在（不隐藏），空时显示空字符串，保持行高一致 -->
+                                        <TextBlock Grid.Row="2" Text="{Binding Detail, FallbackValue='', TargetNullValue=''}" FontSize="10"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                   Foreground="{DynamicResource TextTertiaryBrush}"
+                                                   TextWrapping="Wrap" />
+                                    </Grid>
+                                    <!-- req-019：竖向分隔线居中，末项由 IsLast 控制可见性（沿用 req-008 的 BoolToVisibility + Invert） -->
+                                    <Rectangle Grid.Column="1" Width="1" Height="32"
+                                               Margin="8,0,0,0" VerticalAlignment="Center"
+                                               Fill="{DynamicResource TrackBrush}"
+                                               Visibility="{Binding IsLast, Converter={StaticResource BoolToVisibility}, ConverterParameter=Invert}" />
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </Border>
+        </DataTemplate>
+
+        <!-- 子模板 5：卡片图表区 -->
+        <DataTemplate x:Key="CardChartTemplate">
+            <!-- 卡片图表区（用户在插件配置窗口勾选的图表类型，多选叠加显示） -->
+            <StackPanel Margin="0,12,0,0"
+                        Visibility="{Binding HasCardChart, Converter={StaticResource BoolToVisibility}}">
+                <!-- 折线图：MiniMax 为每日 Token 趋势（Y 轴自适应），其它插件为历史用量%。
+                     req-007 完整化后新增 Dates / ExtraTooltipLines / SupportsPeriodSwitch /
+                     CurrentPeriod / IsLoading 五个绑定，X 轴 + 周期切换按钮仅在
+                     SupportsPeriodSwitch=true 时呈现。 -->
+                <controls:MiniLineChartControl Height="132" Margin="0,0,0,8"
+                    Values="{Binding CardLineValues}" MaxValue="{Binding CardLineMax}" StrokeThickness="2.4"
+                    ProviderName="{Binding DisplayName}"
+                    ValueUnit="%"
+                    LowBrush="{DynamicResource UsageLowBrush}"
+                    MidBrush="{DynamicResource UsageMidBrush}"
+                    HighBrush="{DynamicResource UsageHighBrush}"
+                    Dates="{Binding Dates}"
+                    ExtraTooltipLines="{Binding ExtraTooltipLines}"
+                    CacheHitPercent="{Binding CacheHitPercent}"
+                    DailyCacheHitPercents="{Binding DailyCacheHitPercents}"
+                    SupportsPeriodSwitch="{Binding SupportsPeriodSwitch}"
+                    CurrentPeriod="{Binding CurrentPeriod}"
+                    IsLoading="{Binding IsLoading}"
+                    PeriodChanged="OnLineChartPeriodChanged"
+                    Visibility="{Binding CardChartKinds, Converter={StaticResource CardChartKindsContains}, ConverterParameter=Line}" />
+                <!-- 柱状图：历史用量% 序列 -->
+                <controls:BarChartControl Height="132" Margin="0,0,0,8"
+                    Values="{Binding HistoryValues}"
+                    ProviderName="{Binding DisplayName}"
+                    ValueUnit="%"
+                    BarBrush="{DynamicResource AccentGradientBrush}"
+                    GridLineBrush="{DynamicResource ChartAxisBrush}"
+                    TextBrush="{DynamicResource TextSecondaryBrush}"
+                    Visibility="{Binding CardChartKinds, Converter={StaticResource CardChartKindsContains}, ConverterParameter=Bar}" />
+                <!-- 圆环图：当前已用百分比 -->
+                <controls:RingChartControl Height="132" Margin="0,0,0,8"
+                    Percent="{Binding UsagePercentage}" Size="112" StrokeThickness="11"
+                    ProviderName="{Binding DisplayName}"
+                    ResetTimeText="{Binding PrimaryResetText}"
+                    HorizontalAlignment="Center"
+                    TrackBrush="{DynamicResource TrackBrush}"
+                    ProgressBrush="{DynamicResource AccentBrush}"
+                    WarningBrush="{DynamicResource WarningBrush}"
+                    DangerBrush="{DynamicResource DangerBrush}"
+                    Visibility="{Binding CardChartKinds, Converter={StaticResource CardChartKindsContains}, ConverterParameter=Ring}" />
+                <!-- 热力图：MiniMax 每日 Token 用量日历（GitHub 贡献图风格） -->
+                <controls:YearHeatMapControl Height="170" Margin="0,0,0,8"
+                    Cells="{Binding HeatMapCells}"
+                    EmptyCellBrush="{DynamicResource TrackBrush}"
+                    TextBrush="{DynamicResource TextSecondaryBrush}"
+                    ProviderId="{Binding ProviderId}"
+                    Visibility="{Binding CardChartKinds, Converter={StaticResource CardChartKindsContains}, ConverterParameter=HeatMap}" />
+                <!-- 编程时段：示例数据（暂无真实逐时活跃度数据源） -->
+                <controls:DayNightArcControl Height="132" Margin="0,0,0,8"
+                    HourlyActivity="{x:Static helpers:SampleChartData.HourlyActivity}"
+                    TrackBrush="{DynamicResource TextTertiaryBrush}"
+                    AccentBrush="{DynamicResource AccentBrush}"
+                    TextBrush="{DynamicResource TextSecondaryBrush}"
+                    Visibility="{Binding CardChartKinds, Converter={StaticResource CardChartKindsContains}, ConverterParameter=DayNightArc}" />
+            </StackPanel>
+        </DataTemplate>
+    </Window.Resources>
+
     <Grid Margin="{DynamicResource PagePadding}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -22,29 +397,32 @@
         <!-- 标题栏：品牌标识 + 标题/副标题 + 操作按钮 -->
         <DockPanel Grid.Row="0" Margin="0,0,0,18">
             <!-- req-048：将闪电图标替换为项目 Logo -->
-            <Border DockPanel.Dock="Left" Width="40" Height="40" VerticalAlignment="Center">
-                <Image Source="{Binding CurrentLogoSource}" Width="40" Height="40"
+            <!-- req-072 U-04：图标 40→28px，标题字号 21→18pt 走 FontSizeTitle Token，改用 SemiBold -->
+            <Border DockPanel.Dock="Left" Width="28" Height="28" VerticalAlignment="Center">
+                <Image Source="{Binding CurrentLogoSource}" Width="28" Height="28"
                        HorizontalAlignment="Center" VerticalAlignment="Center"
                        RenderOptions.BitmapScalingMode="HighQuality" />
             </Border>
-            <StackPanel DockPanel.Dock="Left" Margin="12,0,0,0" VerticalAlignment="Center">
-                <TextBlock Text="AI 用量监控" FontSize="21" FontWeight="Bold"
+            <StackPanel DockPanel.Dock="Left" Margin="10,0,0,0" VerticalAlignment="Center">
+                <TextBlock Text="AI 用量监控"
+                           FontSize="{DynamicResource FontSizeTitle}"
+                           FontWeight="SemiBold"
                            Foreground="{DynamicResource TextPrimaryBrush}" />
-                <TextBlock Text="统一监控各家 AI 服务的用量与余额" FontSize="12"
-                           Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,2,0,0" />
+                <TextBlock Text="统一监控各家 AI 服务的用量与余额"
+                           FontSize="{DynamicResource FontSizeCaption}"
+                           Foreground="{DynamicResource TextSecondaryBrush}"
+                           Margin="0,2,0,0" />
             </StackPanel>
             <StackPanel Orientation="Horizontal" DockPanel.Dock="Right"
                         HorizontalAlignment="Right" VerticalAlignment="Center">
-                <Button Content="刷新" Command="{Binding RefreshCommand}" Margin="8,0,0,0"
-                        RenderTransformOrigin="0.5,0.5">
-                    <Button.RenderTransform>
-                        <RotateTransform Angle="0" />
-                    </Button.RenderTransform>
+                <!-- req-072 U-16：顶部 3 按钮统一为 GhostButtonStyle，刷新运行中切 AccentSoftButtonStyle -->
+                <Button Command="{Binding RefreshCommand}" Margin="8,0,0,0">
                     <Button.Style>
-                        <Style TargetType="Button" BasedOn="{StaticResource PrimaryButtonStyle}">
+                        <Style TargetType="Button" BasedOn="{StaticResource GhostButtonStyle}">
                             <Style.Triggers>
                                 <!-- req-025：顶部"刷新"按钮旋转动画（IsRunning=True 触发 Storyboard） -->
                                 <DataTrigger Binding="{Binding RefreshCommand.IsRunning}" Value="True">
+                                    <Setter Property="Style" Value="{StaticResource AccentSoftButtonStyle}" />
                                     <DataTrigger.EnterActions>
                                         <BeginStoryboard x:Name="TopRefreshSpinStoryboard">
                                             <Storyboard>
@@ -70,6 +448,10 @@
                             </Style.Triggers>
                         </Style>
                     </Button.Style>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="↻" Margin="0,0,6,0" VerticalAlignment="Center" />
+                        <TextBlock Text="刷新" VerticalAlignment="Center" />
+                    </StackPanel>
                 </Button>
                 <Button Content="历史" Click="OnHistoryClick"
                         Style="{StaticResource GhostButtonStyle}" Margin="8,0,0,0" />
@@ -79,368 +461,110 @@
         </DockPanel>
 
         <!-- 用量卡片列表（仅展示已启用插件） -->
-        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="0,0,6,0">
-            <ItemsControl ItemsSource="{Binding EnabledUsages}">
+        <!-- req-072 U-19：空状态 - 插画 + "打开设置"按钮 -->
+        <Grid Grid.Row="1">
+            <!-- 空状态：当 EnabledUsages 为空时显示 -->
+            <Border Visibility="{Binding IsEmpty, Converter={StaticResource BoolToVisibility}}"
+                    Background="{DynamicResource SurfaceBrush}"
+                    CornerRadius="{DynamicResource RadiusCard}"
+                    Padding="40">
+                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <!-- 空状态插画（使用 Emoji 作为占位符） -->
+                    <TextBlock Text="📊" FontSize="64" HorizontalAlignment="Center" Margin="0,0,0,16" />
+                    <TextBlock Text="暂无用量数据" FontSize="{DynamicResource FontSizeTitle}"
+                               FontWeight="SemiBold" Foreground="{DynamicResource TextPrimaryBrush}"
+                               HorizontalAlignment="Center" Margin="0,0,0,8" />
+                    <TextBlock Text="请先在设置中启用至少一个插件" FontSize="{DynamicResource FontSizeBody}"
+                               Foreground="{DynamicResource TextSecondaryBrush}"
+                               HorizontalAlignment="Center" Margin="0,0,0,24" />
+                    <Button Content="打开设置" Click="OnSettingsClick"
+                            Style="{StaticResource PrimaryButtonStyle}"
+                            HorizontalAlignment="Center" Padding="16,8" />
+                </StackPanel>
+            </Border>
+
+            <!-- 用量卡片列表 -->
+            <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,6,0"
+                          Visibility="{Binding IsEmpty, Converter={StaticResource BoolToVisibility}, ConverterParameter=Invert}">
+                <ItemsControl ItemsSource="{Binding EnabledUsages}">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
-                        <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,14">
+                        <!-- req-072 U-05：卡片拆分 5 个子 DataTemplate + Expander 折叠次要信息 -->
+                        <!-- req-064 U4：卡片 MinHeight 对齐，避免不同 Provider 卡片高度差异过大 -->
+                        <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,14" MinHeight="220">
                             <StackPanel>
-                                <!-- 服务商名称（左） + 状态摘要（中，填充右对齐） + 右侧信息/操作区（订阅胶囊 → 刷新 → 设置，声明顺序即从左到右，设置为最右） -->
-                                <DockPanel Margin="0,0,0,10">
-                                    <!-- Provider Logo 图标 -->
-                                    <Image Source="{Binding IconPath}" Width="22" Height="22"
-                                           VerticalAlignment="Center" Margin="0,0,8,0"
-                                           RenderOptions.BitmapScalingMode="HighQuality"
-                                           Visibility="{Binding IconPath, Converter={StaticResource StringToVisibility}}" />
-                                    <TextBlock Text="{Binding DisplayName}" FontSize="17" FontWeight="SemiBold"
-                                               Foreground="{DynamicResource TextPrimaryBrush}"
-                                               VerticalAlignment="Center" />
-
-                                    <!-- 右侧区：水平 StackPanel 内子元素严格按声明顺序从左到右排列，末尾（最右）为设置按钮 -->
-                                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
-                                        <!-- 订阅档位胶囊（TokenPlan）：位于刷新/设置按钮左侧、可按需隐藏 -->
-                                        <Border VerticalAlignment="Center"
-                                                Style="{StaticResource SubscriptionPillActiveStyle}"
-                                                Visibility="{Binding RenderKinds, Converter={StaticResource RenderKindToVisibility}, ConverterParameter=subscriptionTitle}">
-                                            <TextBlock Text="{Binding SubscriptionTitle}"
-                                                       FontSize="11" FontWeight="SemiBold"
-                                                       Foreground="{DynamicResource AccentBrush}"
-                                                       VerticalAlignment="Center" />
-                                        </Border>
-
-                                        <!-- 刷新本卡片按钮：位于设置按钮左侧，仅刷新当前服务商用量；刷新中图标持续旋转作为进行反馈 -->
-                                        <Button Command="{Binding RefreshCardCommand}"
-                                                Margin="8,0,0,0"
-                                                Style="{StaticResource IconButtonStyle}"
-                                                ToolTip="仅刷新此卡片的用量信息">
-                                            <StackPanel Orientation="Horizontal">
-                                                <!-- 旋转图标：RefreshCardCommand.IsRunning=True 时绕中心持续旋转，False 时停止并回正 -->
-                                                <TextBlock Text="⟳" VerticalAlignment="Center"
-                                                           RenderTransformOrigin="0.5,0.5">
-                                                    <TextBlock.RenderTransform>
-                                                        <RotateTransform Angle="0" />
-                                                    </TextBlock.RenderTransform>
-                                                    <TextBlock.Style>
-                                                        <Style TargetType="TextBlock">
-                                                            <Style.Triggers>
-                                                                <DataTrigger Binding="{Binding RefreshCardCommand.IsRunning}" Value="True">
-                                                                    <DataTrigger.EnterActions>
-                                                                        <BeginStoryboard x:Name="RefreshSpinStoryboard">
-                                                                            <Storyboard>
-                                                                                <DoubleAnimation
-                                                                                    Storyboard.TargetProperty="(UIElement.RenderTransform).(RotateTransform.Angle)"
-                                                                                    From="0" To="360" Duration="0:0:0.8"
-                                                                                    RepeatBehavior="Forever" />
-                                                                            </Storyboard>
-                                                                        </BeginStoryboard>
-                                                                    </DataTrigger.EnterActions>
-                                                                    <DataTrigger.ExitActions>
-                                                                        <StopStoryboard BeginStoryboardName="RefreshSpinStoryboard" />
-                                                                        <!-- req-025 修复：停止动画后显式重置角度为 0，避免停留在非零值 -->
-                                                                        <BeginStoryboard>
-                                                                            <Storyboard>
-                                                                                <DoubleAnimation
-                                                                                    Storyboard.TargetProperty="(UIElement.RenderTransform).(RotateTransform.Angle)"
-                                                                                    To="0" Duration="0:0:0.1" />
-                                                                            </Storyboard>
-                                                                        </BeginStoryboard>
-                                                                    </DataTrigger.ExitActions>
-                                                                </DataTrigger>
-                                                            </Style.Triggers>
-                                                        </Style>
-                                                    </TextBlock.Style>
-                                                </TextBlock>
-                                            </StackPanel>
-                                        </Button>
-
-                                        <!-- 设置按钮：订阅胶囊右侧、卡片头部最右；改为纯扳手图标（Segoe MDL2 Assets 的 Repair 字形，码点 E90F），不再显示“设置”文字，样式与刷新按钮统一为 IconButtonStyle（透明底 + 悬停软色底） -->
-                                        <Button Command="{Binding ConfigCommand}"
-                                                Margin="8,0,0,0"
-                                                Style="{StaticResource IconButtonStyle}"
-                                                ToolTip="打开此服务商的配置窗口（输入 API Key、获取登录态、选择卡片图表等）">
-                                            <!-- 扳手图标：使用 Segoe MDL2 Assets 字体的 Repair 字形，单色跟随前景强调色，字号继承按钮 FontSize，与刷新按钮 ⟳ 视觉一致 -->
-                                            <TextBlock Text="&#xE90F;" FontFamily="Segoe MDL2 Assets" VerticalAlignment="Center" />
-                                        </Button>
-                                    </StackPanel>
-
-                                    <!-- 状态摘要：作为末子元素填充中部、右对齐（如 5h 已用 0% · 本周 已用 49%），右侧留 12px 与信息区分隔 -->
-                                    <TextBlock Text="{Binding StatusText}" FontSize="13"
-                                               Foreground="{Binding IsError, Converter={StaticResource ErrorColorConverter}}"
-                                               HorizontalAlignment="Right"
-                                               VerticalAlignment="Center" Margin="8,0,12,0"
-                                               Visibility="{Binding StatusText, Converter={StaticResource StringToVisibility}}" />
-                                </DockPanel>
-
-                                <!-- 5h 限额进度条 -->
-                                <StackPanel Margin="0,0,0,10">
-                                    <StackPanel.Visibility>
-                                        <MultiBinding Converter="{StaticResource MultiVisibilityAnd}">
-                                            <Binding Path="RenderKinds" Converter="{StaticResource RenderKindToVisibility}" ConverterParameter="primaryBar" />
-                                            <Binding Path="Show5hBar" Converter="{StaticResource BoolToVisibility}" />
-                                        </MultiBinding>
-                                    </StackPanel.Visibility>
-                                    <DockPanel>
-                                        <TextBlock Text="5h 限额" FontSize="12"
-                                                   Foreground="{DynamicResource TextSecondaryBrush}"
-                                                   VerticalAlignment="Center" />
-                                        <TextBlock DockPanel.Dock="Right" HorizontalAlignment="Right"
-                                                   FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
-                                                   Text="{Binding PrimaryResetText}" />
-                                    </DockPanel>
-                                    <Grid Margin="0,5,0,0" Height="9">
-                                        <Border CornerRadius="5" Background="{DynamicResource TrackBrush}" />
-                                        <Border CornerRadius="5"
-                                                Background="{Binding PrimaryBarPercent, Converter={StaticResource PercentToBrush}}"
-                                                HorizontalAlignment="Left">
-                                            <Border.Width>
-                                                <MultiBinding Converter="{StaticResource PercentageWidthConverter}">
-                                                    <Binding Path="PrimaryBarPercent" />
-                                                    <Binding RelativeSource="{RelativeSource FindAncestor, AncestorType={x:Type Grid}}" Path="ActualWidth" />
-                                                </MultiBinding>
-                                            </Border.Width>
-                                        </Border>
-                                    </Grid>
-                                    <DockPanel Margin="0,3,0,0">
-                                        <TextBlock Text="总额度 100%" FontSize="11"
-                                                   Foreground="{DynamicResource TextTertiaryBrush}" />
-                                        <TextBlock DockPanel.Dock="Right" HorizontalAlignment="Right"
-                                                   FontSize="11" FontWeight="SemiBold"
-                                                   Foreground="{DynamicResource TextPrimaryBrush}"
-                                                   Text="{Binding PrimaryBarPercent, StringFormat=已用 {0:0}%}" />
-                                    </DockPanel>
-                                </StackPanel>
-
-                                <!-- 周限额进度条 -->
-                                <StackPanel Margin="0,4,0,10">
-                                    <StackPanel.Visibility>
-                                        <MultiBinding Converter="{StaticResource MultiVisibilityAnd}">
-                                            <Binding Path="RenderKinds" Converter="{StaticResource RenderKindToVisibility}" ConverterParameter="weeklyBar" />
-                                            <Binding Path="ShowWeeklyBar" Converter="{StaticResource BoolToVisibility}" />
-                                        </MultiBinding>
-                                    </StackPanel.Visibility>
-                                    <DockPanel>
-                                        <TextBlock Text="本周限额" FontSize="12"
-                                                   Foreground="{DynamicResource TextSecondaryBrush}"
-                                                   VerticalAlignment="Center" />
-                                        <TextBlock DockPanel.Dock="Right" HorizontalAlignment="Right"
-                                                   FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
-                                                   Text="{Binding WeeklyResetText}" />
-                                    </DockPanel>
-                                    <Grid Margin="0,5,0,0" Height="9">
-                                        <Border CornerRadius="5" Background="{DynamicResource TrackBrush}" />
-                                        <Border CornerRadius="5"
-                                                Background="{Binding WeeklyBarPercent, Converter={StaticResource PercentToBrush}}"
-                                                HorizontalAlignment="Left">
-                                            <Border.Width>
-                                                <MultiBinding Converter="{StaticResource PercentageWidthConverter}">
-                                                    <Binding Path="WeeklyBarPercent" />
-                                                    <Binding RelativeSource="{RelativeSource FindAncestor, AncestorType={x:Type Grid}}" Path="ActualWidth" />
-                                                </MultiBinding>
-                                            </Border.Width>
-                                        </Border>
-                                    </Grid>
-                                    <DockPanel Margin="0,3,0,0">
-                                        <TextBlock Text="总额度 100%" FontSize="11"
-                                                   Foreground="{DynamicResource TextTertiaryBrush}" />
-                                        <TextBlock DockPanel.Dock="Right" HorizontalAlignment="Right"
-                                                   FontSize="11" FontWeight="SemiBold"
-                                                   Foreground="{DynamicResource TextPrimaryBrush}"
-                                                   Text="{Binding WeeklyBarPercent, StringFormat=已用 {0:0}%}" />
-                                    </DockPanel>
-                                </StackPanel>
-
-                                <!-- 视频赠送进度条 -->
-                                <StackPanel Margin="0,0,0,8">
-                                    <StackPanel.Visibility>
-                                        <MultiBinding Converter="{StaticResource MultiVisibilityOr}">
-                                            <Binding Path="RenderKinds" Converter="{StaticResource RenderKindToVisibility}" ConverterParameter="videoProgress" />
-                                            <Binding Path="ShowVideo5hBar" Converter="{StaticResource BoolToVisibility}" />
-                                            <Binding Path="ShowVideoWeeklyBar" Converter="{StaticResource BoolToVisibility}" />
-                                        </MultiBinding>
-                                    </StackPanel.Visibility>
-                                    <DockPanel Visibility="{Binding ShowVideo5hBar, Converter={StaticResource BoolToVisibility}}">
-                                        <TextBlock Text="视频赠送 5h" FontSize="12"
-                                                   Foreground="{DynamicResource TextSecondaryBrush}" />
-                                        <TextBlock DockPanel.Dock="Right" HorizontalAlignment="Right"
-                                                   FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
-                                                   Text="{Binding VideoQuotaText}" />
-                                    </DockPanel>
-                                    <Grid Margin="0,5,0,2" Height="7"
-                                          Visibility="{Binding ShowVideo5hBar, Converter={StaticResource BoolToVisibility}}">
-                                        <Border CornerRadius="4" Background="{DynamicResource TrackBrush}" />
-                                        <Border CornerRadius="4"
-                                                Background="{Binding VideoIntervalPercent, Converter={StaticResource PercentToBrush}}"
-                                                HorizontalAlignment="Left">
-                                            <Border.Width>
-                                                <MultiBinding Converter="{StaticResource PercentageWidthConverter}">
-                                                    <Binding Path="VideoIntervalPercent" />
-                                                    <Binding RelativeSource="{RelativeSource FindAncestor, AncestorType={x:Type Grid}}" Path="ActualWidth" />
-                                                </MultiBinding>
-                                            </Border.Width>
-                                        </Border>
-                                    </Grid>
-                                    <DockPanel Margin="0,4,0,0"
-                                               Visibility="{Binding ShowVideoWeeklyBar, Converter={StaticResource BoolToVisibility}}">
-                                        <TextBlock Text="视频赠送 周" FontSize="12"
-                                                   Foreground="{DynamicResource TextSecondaryBrush}" />
-                                        <TextBlock DockPanel.Dock="Right" HorizontalAlignment="Right"
-                                                   FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
-                                                   Text="{Binding VideoWeeklyText}" />
-                                    </DockPanel>
-                                    <Grid Margin="0,4,0,0" Height="7"
-                                          Visibility="{Binding ShowVideoWeeklyBar, Converter={StaticResource BoolToVisibility}}">
-                                        <Border CornerRadius="4" Background="{DynamicResource TrackBrush}" />
-                                        <Border CornerRadius="4"
-                                                Background="{Binding VideoWeeklyPercent, Converter={StaticResource PercentToBrush}}"
-                                                HorizontalAlignment="Left">
-                                            <Border.Width>
-                                                <MultiBinding Converter="{StaticResource PercentageWidthConverter}">
-                                                    <Binding Path="VideoWeeklyPercent" />
-                                                    <Binding RelativeSource="{RelativeSource FindAncestor, AncestorType={x:Type Grid}}" Path="ActualWidth" />
-                                                </MultiBinding>
-                                            </Border.Width>
-                                        </Border>
-                                    </Grid>
-                                </StackPanel>
-
-                                <!-- 错误信息 -->
-                                <TextBlock Text="{Binding ErrorMessage}"
-                                           Foreground="{DynamicResource DangerBrush}"
-                                           FontSize="12" TextWrapping="Wrap"
-                                           Visibility="{Binding IsError, Converter={StaticResource BoolToVisibility}}"
-                                           Margin="0,4,0,0" />
-
-                                <!-- 余额快照 -->
-                                <!-- 余额快照（req-008 多列并排布局）：
-                                     4 个默认项横向拼接（累计 / 峰值 / 活跃 / 积分余额），
-                                     列与列之间用 1px 实线竖向分隔。模块永远显示，不再受 HasBalanceInfo 折叠控制。 -->
-                                <Border Background="{DynamicResource SurfaceAltBrush}"
-                                        CornerRadius="{DynamicResource RadiusSmall}" Padding="12,8"
-                                        Margin="0,8,0,0">
+                                <!-- 卡片头部（始终显示） -->
+                                <ContentPresenter Content="{Binding}" ContentTemplate="{StaticResource CardHeaderTemplate}" />
+            
+                                <!-- 错误信息（始终显示，如果有错误） -->
+                                <ContentPresenter Content="{Binding}"
+                                                  ContentTemplate="{StaticResource CardErrorTemplate}"
+                                                  Visibility="{Binding IsError, Converter={StaticResource BoolToVisibility}}" />
+            
+                                <!-- 次要信息（Expander 折叠：限额/余额/图表） -->
+                                <Expander IsExpanded="{Binding IsDetailExpanded, Mode=TwoWay}"
+                                          Header="详细信息"
+                                          Margin="0,8,0,0"
+                                          Style="{StaticResource CardExpanderStyle}">
                                     <StackPanel>
-                                        <!-- req-045：移除"💰 余额快照"标题文字，保留数据区域 -->
-                                        <ItemsControl ItemsSource="{Binding BalanceItems}">
-                                            <!-- req-019：余额快照等宽分布 → ItemsPanel 由 StackPanel 换为 UniformGrid（Rows=1，动态列数） -->
-                                            <ItemsControl.ItemsPanel>
-                                                <ItemsPanelTemplate>
-                                                    <UniformGrid Rows="1" Columns="{Binding Count}" />
-                                                </ItemsPanelTemplate>
-                                            </ItemsControl.ItemsPanel>
-                                            <ItemsControl.ItemTemplate>
-                                                <DataTemplate>
-                                                    <!-- req-030：三行固定高度 Grid（Label/Value/Detail 全部占位），解决 Detail 为空时列高不一致 -->
-                                                    <Grid Margin="0"
-                                                          Visibility="{Binding IsVisible, Converter={StaticResource BoolToVisibility}}">
-                                                        <Grid.ColumnDefinitions>
-                                                            <ColumnDefinition Width="*" />
-                                                            <ColumnDefinition Width="Auto" />
-                                                        </Grid.ColumnDefinitions>
-                                                        <!-- req-030：3 行固定高度，所有列 Label/Value/Detail 自然对齐到同一水平线 -->
-                                                        <Grid Grid.Column="0" HorizontalAlignment="Center" VerticalAlignment="Center">
-                                                            <Grid.RowDefinitions>
-                                                                <RowDefinition Height="Auto" />   <!-- Label -->
-                                                                <RowDefinition Height="36" />     <!-- Value 固定 -->
-                                                                <RowDefinition Height="Auto" />   <!-- Detail -->
-                                                            </Grid.RowDefinitions>
-                                                            <TextBlock Grid.Row="0" Text="{Binding Label}" FontSize="12"
-                                                                       HorizontalAlignment="Center" VerticalAlignment="Center"
-                                                                       Foreground="{DynamicResource TextSecondaryBrush}" />
-                                                            <TextBlock Grid.Row="1" Text="{Binding Value}" FontSize="26" FontWeight="Bold"
-                                                                       HorizontalAlignment="Center" VerticalAlignment="Center"
-                                                                       Foreground="{DynamicResource AccentBrush}"
-                                                                       TextTrimming="CharacterEllipsis" />
-                                                            <!-- req-030：Detail 始终存在（不隐藏），空时显示空字符串，保持行高一致 -->
-                                                            <TextBlock Grid.Row="2" Text="{Binding Detail, FallbackValue='', TargetNullValue=''}" FontSize="10"
-                                                                       HorizontalAlignment="Center" VerticalAlignment="Center"
-                                                                       Foreground="{DynamicResource TextTertiaryBrush}"
-                                                                       TextWrapping="Wrap" />
-                                                        </Grid>
-                                                        <!-- req-019：竖向分隔线居中，末项由 IsLast 控制可见性（沿用 req-008 的 BoolToVisibility + Invert） -->
-                                                        <Rectangle Grid.Column="1" Width="1" Height="32"
-                                                                   Margin="8,0,0,0" VerticalAlignment="Center"
-                                                                   Fill="{DynamicResource TrackBrush}"
-                                                                   Visibility="{Binding IsLast, Converter={StaticResource BoolToVisibility}, ConverterParameter=Invert}" />
-                                                    </Grid>
-                                                </DataTemplate>
-                                            </ItemsControl.ItemTemplate>
-                                        </ItemsControl>
+                                        <!-- 限额进度条 -->
+                                        <ContentPresenter Content="{Binding}" ContentTemplate="{StaticResource CardLimitBarsTemplate}" />
+            
+                                        <!-- 余额快照 -->
+                                        <ContentPresenter Content="{Binding}" ContentTemplate="{StaticResource CardBalanceTemplate}" />
+            
+                                        <!-- 卡片图表区 -->
+                                        <ContentPresenter Content="{Binding}" ContentTemplate="{StaticResource CardChartTemplate}" />
                                     </StackPanel>
-                                </Border>
-
-                                <!-- 卡片图表区（用户在插件配置窗口勾选的图表类型，多选叠加显示） -->
-                                <StackPanel Margin="0,12,0,0"
-                                            Visibility="{Binding HasCardChart, Converter={StaticResource BoolToVisibility}}">
-                                    <!-- 折线图：MiniMax 为每日 Token 趋势（Y 轴自适应），其它插件为历史用量%。
-                                         req-007 完整化后新增 Dates / ExtraTooltipLines / SupportsPeriodSwitch /
-                                         CurrentPeriod / IsLoading 五个绑定，X 轴 + 周期切换按钮仅在
-                                         SupportsPeriodSwitch=true 时呈现。 -->
-                                    <controls:MiniLineChartControl Height="132" Margin="0,0,0,8"
-                                        Values="{Binding CardLineValues}" MaxValue="{Binding CardLineMax}" StrokeThickness="2.4"
-                                        ProviderName="{Binding DisplayName}"
-                                        ValueUnit="%"
-                                        LowBrush="{DynamicResource UsageLowBrush}"
-                                        MidBrush="{DynamicResource UsageMidBrush}"
-                                        HighBrush="{DynamicResource UsageHighBrush}"
-                                        Dates="{Binding Dates}"
-                                        ExtraTooltipLines="{Binding ExtraTooltipLines}"
-                                        CacheHitPercent="{Binding CacheHitPercent}"
-                                        DailyCacheHitPercents="{Binding DailyCacheHitPercents}"
-                                        SupportsPeriodSwitch="{Binding SupportsPeriodSwitch}"
-                                        CurrentPeriod="{Binding CurrentPeriod}"
-                                        IsLoading="{Binding IsLoading}"
-                                        PeriodChanged="OnLineChartPeriodChanged"
-                                        Visibility="{Binding CardChartKinds, Converter={StaticResource CardChartKindsContains}, ConverterParameter=Line}" />
-                                    <!-- 柱状图：历史用量% 序列 -->
-                                    <controls:BarChartControl Height="132" Margin="0,0,0,8"
-                                        Values="{Binding HistoryValues}"
-                                        ProviderName="{Binding DisplayName}"
-                                        ValueUnit="%"
-                                        BarBrush="{DynamicResource AccentGradientBrush}"
-                                        GridLineBrush="{DynamicResource ChartAxisBrush}"
-                                        TextBrush="{DynamicResource TextSecondaryBrush}"
-                                        Visibility="{Binding CardChartKinds, Converter={StaticResource CardChartKindsContains}, ConverterParameter=Bar}" />
-                                    <!-- 圆环图：当前已用百分比 -->
-                                    <controls:RingChartControl Height="132" Margin="0,0,0,8"
-                                        Percent="{Binding UsagePercentage}" Size="112" StrokeThickness="11"
-                                        ProviderName="{Binding DisplayName}"
-                                        ResetTimeText="{Binding PrimaryResetText}"
-                                        HorizontalAlignment="Center"
-                                        TrackBrush="{DynamicResource TrackBrush}"
-                                        ProgressBrush="{DynamicResource AccentBrush}"
-                                        WarningBrush="{DynamicResource WarningBrush}"
-                                        DangerBrush="{DynamicResource DangerBrush}"
-                                        Visibility="{Binding CardChartKinds, Converter={StaticResource CardChartKindsContains}, ConverterParameter=Ring}" />
-                                    <!-- 热力图：MiniMax 每日 Token 用量日历（GitHub 贡献图风格） -->
-                                    <controls:YearHeatMapControl Height="170" Margin="0,0,0,8"
-                                        Cells="{Binding HeatMapCells}"
-                                        EmptyCellBrush="{DynamicResource TrackBrush}"
-                                        TextBrush="{DynamicResource TextSecondaryBrush}"
-                                        ProviderId="{Binding ProviderId}"
-                                        Visibility="{Binding CardChartKinds, Converter={StaticResource CardChartKindsContains}, ConverterParameter=HeatMap}" />
-                                    <!-- 编程时段：示例数据（暂无真实逐时活跃度数据源） -->
-                                    <controls:DayNightArcControl Height="132" Margin="0,0,0,8"
-                                        HourlyActivity="{x:Static helpers:SampleChartData.HourlyActivity}"
-                                        TrackBrush="{DynamicResource TextTertiaryBrush}"
-                                        AccentBrush="{DynamicResource AccentBrush}"
-                                        TextBrush="{DynamicResource TextSecondaryBrush}"
-                                        Visibility="{Binding CardChartKinds, Converter={StaticResource CardChartKindsContains}, ConverterParameter=DayNightArc}" />
-                                </StackPanel>
+                                </Expander>
                             </StackPanel>
                         </Border>
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
-        </ScrollViewer>
+            </ScrollViewer>
+        </Grid>
 
         <!-- 底部状态栏 -->
+        <!-- req-072 U-18：底部状态栏扩充 - 增加上次刷新时间/刷新进度/错误计数胶囊 -->
         <Border Grid.Row="2" Margin="0,14,0,0">
-            <StackPanel Orientation="Horizontal">
-                <TextBlock Foreground="{DynamicResource TextTertiaryBrush}" FontSize="12">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <!-- 刷新间隔与插件数量 -->
+                <TextBlock Foreground="{DynamicResource TextTertiaryBrush}" FontSize="12" VerticalAlignment="Center">
                     <Run Text="刷新间隔: " />
                     <Run Text="{Binding RefreshInterval, Mode=OneWay, StringFormat={}{0}秒}" />
                     <Run Text="  |  插件数量: " />
                     <Run Text="{Binding EnabledUsages.Count, Mode=OneWay}" />
                 </TextBlock>
+
+                <!-- 分隔符 -->
+                <TextBlock Text="  |  " Foreground="{DynamicResource TextTertiaryBrush}" FontSize="12" VerticalAlignment="Center" />
+
+                <!-- 上次刷新时间 -->
+                <TextBlock Foreground="{DynamicResource TextTertiaryBrush}" FontSize="12" VerticalAlignment="Center">
+                    <Run Text="上次刷新: " />
+                    <Run Text="{Binding LastRefreshTime, Mode=OneWay}" />
+                </TextBlock>
+
+                <!-- 分隔符 -->
+                <TextBlock Text="  |  " Foreground="{DynamicResource TextTertiaryBrush}" FontSize="12" VerticalAlignment="Center" />
+
+                <!-- 刷新进度 -->
+                <TextBlock Foreground="{DynamicResource TextTertiaryBrush}" FontSize="12" VerticalAlignment="Center">
+                    <Run Text="进度: " />
+                    <Run Text="{Binding RefreshProgress, Mode=OneWay, StringFormat={}{0}%}" />
+                </TextBlock>
+
+                <!-- 错误计数胶囊（仅当有错误时显示） -->
+                <Border Margin="8,0,0,0" Padding="6,2" CornerRadius="{DynamicResource RadiusPill}"
+                        Background="{DynamicResource DangerBrush}"
+                        Visibility="{Binding ErrorCount, Converter={StaticResource IntToVisibility}}">
+                    <TextBlock FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource OnAccentBrush}"
+                               VerticalAlignment="Center">
+                        <Run Text="错误: " />
+                        <Run Text="{Binding ErrorCount, Mode=OneWay}" />
+                    </TextBlock>
+                </Border>
             </StackPanel>
         </Border>
     </Grid>

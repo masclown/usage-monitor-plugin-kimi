@@ -1,9 +1,7 @@
 using System.Net.Http;
 using System.Net.Http.Headers;
-using System.Text.Json;
 using System.Text.Json.Serialization;
 using UsageMonitor.Core.Models;
-using UsageMonitor.Core.Plugins;
 using UsageMonitor.Core.Services;
 
 namespace UsageMonitor.Plugin.OpenAI;
@@ -11,8 +9,11 @@ namespace UsageMonitor.Plugin.OpenAI;
 /// <summary>
 /// OpenAI API 用量查询插件（预留实现）
 /// 查询 OpenAI 平台的 API 用量和额度信息
+/// <para>
+/// req-065 B14：继承 <see cref="HttpUsageProviderBase"/>，消除重复样板代码。
+/// </para>
 /// </summary>
-public class OpenAIProvider : IUsageProvider
+public class OpenAIProvider : HttpUsageProviderBase
 {
     private static readonly HttpClient _httpClient = new()
     {
@@ -20,25 +21,19 @@ public class OpenAIProvider : IUsageProvider
     };
 
     /// <inheritdoc />
-    public string ProviderId => "openai";
+    protected override HttpClient Http => _httpClient;
 
     /// <inheritdoc />
-    public string DisplayName => "OpenAI";
+    public override string ProviderId => "openai";
 
     /// <inheritdoc />
-    public string? IconPath => null;
+    public override string DisplayName => "OpenAI";
 
     /// <inheritdoc />
-    public string Version => "1.0.0";
+    public override string Description => "查询 OpenAI API 的用量和额度信息";
 
     /// <inheritdoc />
-    public string Author => "UsageMonitor";
-
-    /// <inheritdoc />
-    public string Description => "查询 OpenAI API 的用量和额度信息";
-
-    /// <inheritdoc />
-    public IReadOnlyList<ConfigField> ConfigFields => new[]
+    public override IReadOnlyList<ConfigField> ConfigFields => new[]
     {
         // req-013：从 StandardConfigFields 工厂方法生成"重复声明模板"，字段 key / i18n key / 类型 / required 全部对齐重构前。
         StandardConfigFields.ApiKey("OpenAI"),
@@ -50,69 +45,54 @@ public class OpenAIProvider : IUsageProvider
     /// 查询 OpenAI API 的用量信息
     /// 调用 /v1/usage 或 /dashboard/billing 接口
     /// </summary>
-    public async Task<UsageInfo> GetUsageAsync(ProviderConfig config)
+    public override async Task<UsageInfo> GetUsageAsync(ProviderConfig config, CancellationToken ct = default)
     {
         var apiKey = config.GetValue("ApiKey");
-        if (string.IsNullOrWhiteSpace(apiKey))
-        {
-            return UsageInfo.CreateError(ProviderId, DisplayName, "API Key 未配置");
-        }
+        if (ValidateApiKey(apiKey) is { } apiKeyError)
+            return apiKeyError;
 
-        var baseUrl = config.GetValue("BaseUrl") ?? "https://api.openai.com";
-        // req-056: SSRF防护 - 校验BaseUrl为HTTPS且非公网地址
-        if (!BaseUrlValidator.TryValidate(baseUrl, out var urlError))
-        {
-            return UsageInfo.CreateError(ProviderId, DisplayName, $"BaseUrl 校验失败: {urlError}");
-        }
+        if (ValidateBaseUrl(config.GetValue("BaseUrl"), "https://api.openai.com", out var baseUrl) is { } urlError)
+            return urlError;
 
         try
         {
-            return await QueryUsageAsync(baseUrl, apiKey, config.GetValue("Organization"));
+            return await QueryUsageAsync(baseUrl, apiKey!, config.GetValue("Organization"), ct);
         }
         catch (HttpRequestException ex)
         {
-            return UsageInfo.CreateError(ProviderId, DisplayName, $"网络请求失败: {ex.Message}");
+            return CreateError($"网络请求失败: {ex.Message}");
         }
         catch (Exception ex)
         {
-            return UsageInfo.CreateError(ProviderId, DisplayName, ex.Message);
+            return CreateError(ex.Message);
         }
     }
 
     /// <summary>
     /// 调用 OpenAI API 查询用量
     /// </summary>
-    private async Task<UsageInfo> QueryUsageAsync(string baseUrl, string apiKey, string? organization)
+    private async Task<UsageInfo> QueryUsageAsync(string baseUrl, string apiKey, string? organization, CancellationToken ct)
     {
-        // 查询当月使用情况
-        var startDate = new DateTime(DateTime.Now.Year, DateTime.Now.Month, 1);
-        var endDate = DateTime.Now;
+        // 查询当月使用情况（使用 UTC 时间确保时区一致性）
+        var startDate = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1);
+        var endDate = DateTime.UtcNow;
         var startTimestamp = new DateTimeOffset(startDate).ToUnixTimeSeconds();
         var endTimestamp = new DateTimeOffset(endDate).ToUnixTimeSeconds();
 
-        using var request = new HttpRequestMessage(HttpMethod.Get,
-            $"{baseUrl.TrimEnd('/')}/v1/organization/usage?start_time={startTimestamp}&end_time={endTimestamp}");
-
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
-        if (!string.IsNullOrEmpty(organization))
-            request.Headers.Add("OpenAI-Organization", organization);
-
-        var response = await _httpClient.SendAsync(request);
-
-        if (!response.IsSuccessStatusCode)
-        {
-            var errorBody = await response.Content.ReadAsStringAsync();
-            return UsageInfo.CreateError(ProviderId, DisplayName,
-                $"API返回错误 ({(int)response.StatusCode}): {errorBody}");
-        }
-
-        var json = await response.Content.ReadAsStringAsync();
-        var usageResponse = JsonSerializer.Deserialize<OpenAIUsageResponse>(json,
-            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        var usageResponse = await GetJsonAsync<OpenAIUsageResponse>(
+            baseUrl,
+            $"/v1/organization/usage?start_time={startTimestamp}&end_time={endTimestamp}",
+            req =>
+            {
+                req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+                if (!string.IsNullOrEmpty(organization))
+                    req.Headers.Add("OpenAI-Organization", organization);
+            },
+            ct);
 
         if (usageResponse?.Data == null)
         {
-            return UsageInfo.CreateError(ProviderId, DisplayName, "无法解析API响应");
+            return CreateError("无法解析API响应");
         }
 
         // 汇总所有结果
@@ -125,22 +105,14 @@ public class OpenAIProvider : IUsageProvider
             IsSuccess = true,
             UsedAmount = totalUsed,
             Unit = "USD",
-            LastUpdated = DateTime.Now,
+            // req-067 B21：统一使用 UTC 时间存储，避免时区问题
+            LastUpdated = DateTime.UtcNow,
             Extra = new Dictionary<string, object>
             {
                 ["dataPoints"] = usageResponse.Data.Length,
                 ["period"] = $"{startDate:yyyy-MM-dd} ~ {endDate:yyyy-MM-dd}"
             }
         };
-    }
-
-    /// <summary>
-    /// 验证配置是否有效
-    /// </summary>
-    public async Task<bool> ValidateConfigAsync(ProviderConfig config)
-    {
-        var result = await GetUsageAsync(config);
-        return result.IsSuccess;
     }
 }
 

@@ -23,6 +23,10 @@ namespace UsageMonitor.App.Controls;
 /// </summary>
 public class DayNightArcControl : FrameworkElement
 {
+    // req-067 B23：Typeface 缓存，避免每次 OnRender 重复创建
+    private static readonly Typeface LabelTypeface = new(
+        new FontFamily("Segoe UI"), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
+
     /// <summary>24 小时活跃度（每项 0-1，index=0 表示 0 点）</summary>
     public static readonly DependencyProperty HourlyActivityProperty = DependencyProperty.Register(
         nameof(HourlyActivity), typeof(IReadOnlyList<double>), typeof(DayNightArcControl),
@@ -72,14 +76,37 @@ public class DayNightArcControl : FrameworkElement
     {
         MinHeight = 120;
         MinWidth = 240;
+        // req-063 B9：订阅 Unloaded 事件，控件卸载时解绑 CollectionChanged
+        Unloaded += OnControlUnloaded;
     }
+
+    /// <summary>req-063 B9：跟踪当前订阅的集合，用于 OnUnloaded 时解绑。</summary>
+    private INotifyCollectionChanged? _subscribed;
 
     private static void OnActivityChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
         var c = (DayNightArcControl)d;
         if (e.OldValue is INotifyCollectionChanged oldIncc) oldIncc.CollectionChanged -= c.OnItemsChanged;
-        if (e.NewValue is INotifyCollectionChanged newIncc) newIncc.CollectionChanged += c.OnItemsChanged;
+        if (e.NewValue is INotifyCollectionChanged newIncc)
+        {
+            newIncc.CollectionChanged += c.OnItemsChanged;
+            c._subscribed = newIncc;
+        }
+        else
+        {
+            c._subscribed = null;
+        }
         c.InvalidateVisual();
+    }
+
+    /// <summary>req-063 B9：控件卸载时解绑 CollectionChanged，防止内存泄漏。</summary>
+    private void OnControlUnloaded(object sender, RoutedEventArgs e)
+    {
+        if (_subscribed != null)
+        {
+            _subscribed.CollectionChanged -= OnItemsChanged;
+            _subscribed = null;
+        }
     }
 
     private void OnItemsChanged(object? sender, NotifyCollectionChangedEventArgs e) => InvalidateVisual();
@@ -172,7 +199,7 @@ public class DayNightArcControl : FrameworkElement
     private void DrawLabel(DrawingContext dc, string text, double x, double y, bool leftAlign)
     {
         var t = new FormattedText(text, CultureInfo.InvariantCulture, System.Windows.FlowDirection.LeftToRight,
-            new Typeface(new FontFamily("Segoe UI"), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal),
+            LabelTypeface,
             10, TextBrush, VisualTreeHelper.GetDpi(this).PixelsPerDip);
         double ox = leftAlign ? x : x - t.Width / 2.0;
         dc.DrawText(t, new Point(ox, y));

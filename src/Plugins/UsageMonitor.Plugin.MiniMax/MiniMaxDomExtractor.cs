@@ -29,6 +29,9 @@ internal static class MiniMaxDomExtractor
     private static readonly string DebugDir = Path.Combine(
         UsageMonitor.Core.Services.FileLogger.LogDir, "debug");
 
+    // req-067 B22：Regex 编译为 static readonly，避免每次调用都重新编译
+    private static readonly Regex PercentRegex = new(@"(\d+(?:\.\d+)?)\s*%", RegexOptions.Compiled);
+
     /// <summary>
     /// Build a UsageInfo by reading the logged-in MiniMax usage page via Playwright.
     /// Returns null on failure (cookie invalid, page unreachable, browser error).
@@ -307,7 +310,7 @@ internal static class MiniMaxDomExtractor
     private static double ExtractPercent(string? text)
     {
         if (string.IsNullOrWhiteSpace(text)) return -1;
-        var m = Regex.Match(text, @"(\d+(?:\.\d+)?)\s*%");
+        var m = PercentRegex.Match(text);
         if (m.Success && double.TryParse(m.Groups[1].Value, out var v)) return v;
         return -1;
     }
@@ -316,7 +319,7 @@ internal static class MiniMaxDomExtractor
     private static double ExtractTotalPercent(string? text)
     {
         if (string.IsNullOrWhiteSpace(text)) return -1;
-        var matches = Regex.Matches(text, @"(\d+(?:\.\d+)?)\s*%");
+        var matches = PercentRegex.Matches(text);
         if (matches.Count >= 2 && double.TryParse(matches[1].Groups[1].Value, out var v)) return v;
         // fall back to first
         if (matches.Count >= 1 && double.TryParse(matches[0].Groups[1].Value, out var v2)) return v2;
@@ -340,7 +343,8 @@ internal static class MiniMaxDomExtractor
             ProviderId = "MiniMax",
             ProviderName = "MiniMax",
             IsSuccess = true,
-            LastUpdated = DateTime.Now
+            // req-067 B21：统一使用 UTC 时间存储，避免时区问题
+            LastUpdated = DateTime.UtcNow
         };
 
         extras = new Dictionary<string, object>
@@ -659,7 +663,7 @@ internal static class MiniMaxDomExtractor
         try
         {
             Directory.CreateDirectory(DebugDir);
-            CleanupOldDebugFiles();
+            DebugFileManager.CleanupOldDebugFiles();
             var fileName = $"MiniMax-DomExtract-{suffix}.json";
             var path = Path.Combine(DebugDir, fileName);
             var sb = new System.Text.StringBuilder();
@@ -677,30 +681,6 @@ internal static class MiniMaxDomExtractor
             File.WriteAllText(path, sb.ToString());
         }
         catch { /* ignore */ }
-    }
-
-    /// <summary>
-    /// 清理 7 天前的 debug 文件，避免磁盘占用无限增长。
-    /// </summary>
-    private static void CleanupOldDebugFiles()
-    {
-        try
-        {
-            if (!Directory.Exists(DebugDir)) return;
-            var cutoff = DateTime.Now.AddDays(-7);
-            foreach (var file in Directory.GetFiles(DebugDir))
-            {
-                var info = new FileInfo(file);
-                if (info.CreationTime < cutoff)
-                {
-                    info.Delete();
-                }
-            }
-        }
-        catch
-        {
-            // Silently ignore cleanup failures
-        }
     }
 
     private sealed class DomMetrics

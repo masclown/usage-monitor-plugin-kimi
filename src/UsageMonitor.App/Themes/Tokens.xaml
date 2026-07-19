@@ -30,6 +30,10 @@
     <sys:Double x:Key="FontSizeBody">13</sys:Double>
     <sys:Double x:Key="FontSizeCaption">11</sys:Double>
 
+    <!-- req-072 U-17：进度条尺寸统一 Token -->
+    <sys:Double x:Key="ProgressBarHeight">8</sys:Double>
+    <CornerRadius x:Key="ProgressBarRadius">4</CornerRadius>
+
     <!--
         语义用量色（低/注意/中/高）。绿/金/橙/红在深浅两底上都有足够对比，做成共享 Token。
         与 Helpers/UsageTierScale.Tiers 的档位阈值（50 / 60 / 85）对应；

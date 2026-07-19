@@ -78,10 +78,8 @@ public partial class App : Application
         UsageMonitor.App.Helpers.UsageTierScale.ApplyConfig(_configService.GetEffectiveUsageTierConfig());
         // req-009：加载热力图色阶（按 ProviderId 独立色阶表），让首次渲染就拿到正确颜色。
         UsageMonitor.App.Helpers.HeatMapTierScale.ApplyConfig(_configService.Settings.ProviderHeatMapTiers);
-        // Register the live ConfigService with BrowserLoginService so that when login
-        // writes new cookies to config.json directly, the in-memory provider config can
-        // be reloaded — avoiding the user having to restart the app.
-        BrowserLoginService.RegisterConfigService(_configService);
+        // req-065 B4：BrowserLoginService 已去静态化，不再需要 RegisterConfigService。
+        // 登录时由 PluginConfigWindow 创建 BrowserLoginService 实例并传入 ConfigService。
 
         _pluginManager = new PluginManager();
 
@@ -96,6 +94,18 @@ public partial class App : Application
         {
             plugin.IsEnabled = _configService.Settings.PluginEnabled
                 .GetValueOrDefault(plugin.Provider.ProviderId, true);
+        }
+
+        // req-066 A8：从插件装配 HeatMapTiers 默认色阶（AppSettings 不再硬编码 minimax 默认值）
+        foreach (var plugin in _pluginManager.Plugins)
+        {
+            var pid = plugin.Provider.ProviderId;
+            if (plugin.Provider.HeatMapTiers != null && plugin.Provider.HeatMapTiers.Count > 0
+                && !_configService.Settings.ProviderHeatMapTiers.ContainsKey(pid))
+            {
+                _configService.Settings.ProviderHeatMapTiers[pid] =
+                    new List<HeatMapTierConfig>(plugin.Provider.HeatMapTiers);
+            }
         }
 
         // 创建用量历史持久化仓库（SQLite，%AppData%/UsageMonitor/history.db）

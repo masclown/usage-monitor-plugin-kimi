@@ -1,9 +1,7 @@
 using System.Net.Http;
 using System.Net.Http.Headers;
-using System.Text.Json;
 using System.Text.Json.Serialization;
 using UsageMonitor.Core.Models;
-using UsageMonitor.Core.Plugins;
 using UsageMonitor.Core.Services;
 
 namespace UsageMonitor.Plugin.Deepseek;
@@ -12,8 +10,11 @@ namespace UsageMonitor.Plugin.Deepseek;
 /// Deepseek API 用量查询插件
 /// 通过 Deepseek API 查询账户余额和用量信息
 /// API 基础地址：https://api.deepseek.com/
+/// <para>
+/// req-065 B14：继承 <see cref="HttpUsageProviderBase"/>，消除重复样板代码。
+/// </para>
 /// </summary>
-public class DeepseekProvider : IUsageProvider
+public class DeepseekProvider : HttpUsageProviderBase
 {
     private static readonly HttpClient _httpClient = new()
     {
@@ -21,25 +22,19 @@ public class DeepseekProvider : IUsageProvider
     };
 
     /// <inheritdoc />
-    public string ProviderId => "deepseek";
+    protected override HttpClient Http => _httpClient;
 
     /// <inheritdoc />
-    public string DisplayName => "Deepseek";
+    public override string ProviderId => "deepseek";
 
     /// <inheritdoc />
-    public string? IconPath => null;
+    public override string DisplayName => "Deepseek";
 
     /// <inheritdoc />
-    public string Version => "1.0.0";
+    public override string Description => "查询 Deepseek API 的账户余额和用量信息";
 
     /// <inheritdoc />
-    public string Author => "UsageMonitor";
-
-    /// <inheritdoc />
-    public string Description => "查询 Deepseek API 的账户余额和用量信息";
-
-    /// <inheritdoc />
-    public IReadOnlyList<ConfigField> ConfigFields => new[]
+    public override IReadOnlyList<ConfigField> ConfigFields => new[]
     {
         // req-013：从 StandardConfigFields 工厂方法生成"重复声明模板"，字段 key / i18n key / 类型 / required 全部对齐重构前。
         StandardConfigFields.ApiKey("Deepseek"),
@@ -50,65 +45,49 @@ public class DeepseekProvider : IUsageProvider
     /// 查询 Deepseek API 的用量信息
     /// 调用 /user/balance 接口获取账户余额
     /// </summary>
-    public async Task<UsageInfo> GetUsageAsync(ProviderConfig config)
+    public override async Task<UsageInfo> GetUsageAsync(ProviderConfig config, CancellationToken ct = default)
     {
         var apiKey = config.GetValue("ApiKey");
-        if (string.IsNullOrWhiteSpace(apiKey))
-        {
-            return UsageInfo.CreateError(ProviderId, DisplayName, "API Key 未配置");
-        }
+        if (ValidateApiKey(apiKey) is { } apiKeyError)
+            return apiKeyError;
 
-        var baseUrl = config.GetValue("BaseUrl") ?? "https://api.deepseek.com";
-        // req-056: SSRF防护 - 校验BaseUrl为HTTPS且非公网地址
-        if (!BaseUrlValidator.TryValidate(baseUrl, out var urlError))
-        {
-            return UsageInfo.CreateError(ProviderId, DisplayName, $"BaseUrl 校验失败: {urlError}");
-        }
+        if (ValidateBaseUrl(config.GetValue("BaseUrl"), "https://api.deepseek.com", out var baseUrl) is { } urlError)
+            return urlError;
 
         try
         {
             // 查询账户余额
-            var balanceInfo = await QueryBalanceAsync(baseUrl, apiKey);
+            var balanceInfo = await QueryBalanceAsync(baseUrl, apiKey!, ct);
             return balanceInfo;
         }
         catch (HttpRequestException ex)
         {
-            return UsageInfo.CreateError(ProviderId, DisplayName, $"网络请求失败: {ex.Message}");
+            return CreateError($"网络请求失败: {ex.Message}");
         }
-        catch (JsonException ex)
+        catch (System.Text.Json.JsonException ex)
         {
-            return UsageInfo.CreateError(ProviderId, DisplayName, $"解析响应失败: {ex.Message}");
+            return CreateError($"解析响应失败: {ex.Message}");
         }
         catch (Exception ex)
         {
-            return UsageInfo.CreateError(ProviderId, DisplayName, ex.Message);
+            return CreateError(ex.Message);
         }
     }
 
     /// <summary>
     /// 调用 Deepseek /user/balance 接口查询余额
     /// </summary>
-    private async Task<UsageInfo> QueryBalanceAsync(string baseUrl, string apiKey)
+    private async Task<UsageInfo> QueryBalanceAsync(string baseUrl, string apiKey, CancellationToken ct)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Get, $"{baseUrl.TrimEnd('/')}/user/balance");
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
-
-        var response = await _httpClient.SendAsync(request);
-
-        if (!response.IsSuccessStatusCode)
-        {
-            var errorBody = await response.Content.ReadAsStringAsync();
-            return UsageInfo.CreateError(ProviderId, DisplayName,
-                $"API返回错误 ({(int)response.StatusCode}): {errorBody}");
-        }
-
-        var json = await response.Content.ReadAsStringAsync();
-        var balanceResponse = JsonSerializer.Deserialize<DeepseekBalanceResponse>(json,
-            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        var balanceResponse = await GetJsonAsync<DeepseekBalanceResponse>(
+            baseUrl,
+            "/user/balance",
+            req => req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey),
+            ct);
 
         if (balanceResponse == null)
         {
-            return UsageInfo.CreateError(ProviderId, DisplayName, "无法解析API响应");
+            return CreateError("无法解析API响应");
         }
 
         // 构建用量信息
@@ -117,7 +96,8 @@ public class DeepseekProvider : IUsageProvider
             ProviderId = ProviderId,
             ProviderName = DisplayName,
             IsSuccess = true,
-            LastUpdated = DateTime.Now
+            // req-067 B21：统一使用 UTC 时间存储，避免时区问题
+            LastUpdated = DateTime.UtcNow
         };
 
         if (balanceResponse.BalanceInfos != null && balanceResponse.BalanceInfos.Count > 0)
@@ -149,15 +129,6 @@ public class DeepseekProvider : IUsageProvider
         usageInfo.Extra["isVerified"] = balanceResponse.IsAvailable;
 
         return usageInfo;
-    }
-
-    /// <summary>
-    /// 验证API Key是否有效
-    /// </summary>
-    public async Task<bool> ValidateConfigAsync(ProviderConfig config)
-    {
-        var result = await GetUsageAsync(config);
-        return result.IsSuccess;
     }
 }
 

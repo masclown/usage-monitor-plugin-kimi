@@ -32,8 +32,8 @@ public partial class TriggerAreaOverlayWindow : Window
     /// <summary>REQ-006：触发区域最小高度为 10 像素。</summary>
     private const int MinRectHeight = 10;
 
-    /// <summary>REQ-004 §5：拖动 / 缩放完成后 500ms 防抖写入配置。</summary>
-    private DispatcherTimer? _saveRectTimer;
+    /// <summary>REQ-004 §5：拖动 / 缩放完成后 500ms 防抖写入配置（req-063 B8：一次性订阅，避免高频拖拽时连续 new 大量 timer）。</summary>
+    private DispatcherTimer _saveRectTimer;
 
     /// <summary>整矩形拖动的起点状态（屏幕光标位置 + 起始 Rect）。</summary>
     private System.Drawing.Point _moveStartCursorScreen;
@@ -45,6 +45,26 @@ public partial class TriggerAreaOverlayWindow : Window
     {
         _configService = configService;
         InitializeComponent();
+
+        // req-063 B8：防抖保存 timer 一次性订阅，避免高频拖拽时连续 new 大量 timer
+        _saveRectTimer = new DispatcherTimer(DispatcherPriority.Background)
+        {
+            Interval = TimeSpan.FromMilliseconds(500)
+        };
+        _saveRectTimer.Tick += (_, _) =>
+        {
+            _saveRectTimer.Stop();
+            try
+            {
+                _configService.Save();
+                FileLogger.Info("TriggerAreaOverlayWindow",
+                    $"TriggerRect 已落盘: {_configService.Settings.TrayTooltipTriggerRect}");
+            }
+            catch (Exception ex)
+            {
+                FileLogger.Error("TriggerAreaOverlayWindow", "防抖保存 TriggerRect 失败", ex);
+            }
+        };
 
         _configService.ConfigChanged += OnConfigChanged;
         // REQ-006：Closed 也需兑底落盘，否则在 500ms 防抖窗口内被 Alt+F4 或外部 Close 绕过会丢本次拖动。
@@ -238,36 +258,17 @@ public partial class TriggerAreaOverlayWindow : Window
         _configService.Settings.TrayTooltipTriggerRect = r;
     }
 
-    /// <summary>REQ-004 §5：拖动 / 缩放结束（MouseUp）→ 500ms 后再 Save 一次配置（与 TrayTooltipWindow 防抖方案一致）。</summary>
+    /// <summary>REQ-004 §5：拖动 / 缩放结束（MouseUp）→ 500ms 后再 Save 一次配置（与 TrayTooltipWindow 防抖方案一致）。req-063 B8：timer 已一次性订阅，此处仅 Stop/Start 复用。</summary>
     private void ScheduleSave()
     {
-        _saveRectTimer?.Stop();
-        _saveRectTimer = new DispatcherTimer(DispatcherPriority.Background)
-        {
-            Interval = TimeSpan.FromMilliseconds(500)
-        };
-        _saveRectTimer.Tick += (_, _) =>
-        {
-            _saveRectTimer?.Stop();
-            try
-            {
-                _configService.Save();
-                FileLogger.Info("TriggerAreaOverlayWindow",
-                    $"TriggerRect 已落盘: {_configService.Settings.TrayTooltipTriggerRect}");
-            }
-            catch (Exception ex)
-            {
-                FileLogger.Error("TriggerAreaOverlayWindow", "防抖保存 TriggerRect 失败", ex);
-            }
-        };
+        _saveRectTimer.Stop();
         _saveRectTimer.Start();
     }
 
     /// <summary>用户主动退出时停止防抖计时并立即落盘；即使尚未建立计时器也保存当前内存矩形。</summary>
     private void FlushPendingSave()
     {
-        _saveRectTimer?.Stop();
-        _saveRectTimer = null;
+        _saveRectTimer.Stop();
         try
         {
             _configService.Save();

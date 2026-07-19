@@ -112,18 +112,19 @@ public class RefreshService : IDisposable
     /// </summary>
     /// <param name="plugin">插件包装</param>
     /// <param name="triggerKind">触发类型（"manual" / "auto"），传给 req-013 刷新聚合</param>
-    public async Task RefreshPluginAsync(LoadedPlugin plugin, string triggerKind = "manual")
+    /// <param name="ct">取消令牌，用于区分用户主动取消与网络超时</param>
+    public async Task RefreshPluginAsync(LoadedPlugin plugin, string triggerKind = "manual", CancellationToken ct = default)
     {
         var providerId = plugin.Provider.ProviderId;
         // per-provider 锁：同一 provider 的全量刷新与单卡片刷新互斥，不同 provider 仍可并行。
         var gate = _providerLocks.GetOrAdd(providerId, _ => new SemaphoreSlim(1, 1));
-        await gate.WaitAsync();
+        await gate.WaitAsync(ct);
         try
         {
             try
             {
                 var config = _configService.GetProviderConfig(providerId, plugin.Provider);
-                var usage = await plugin.Provider.GetUsageAsync(config);
+                var usage = await plugin.Provider.GetUsageAsync(config, ct);
 
                 plugin.LastUsage = usage;
                 plugin.LastQueryTime = DateTime.Now;
@@ -163,14 +164,15 @@ public class RefreshService : IDisposable
     /// 仅刷新单个 Provider，并复用 UsageRefreshed 事件让卡片 UI 与托盘文本自动更新。
     /// </summary>
     /// <param name="providerId">要刷新的服务商 Id</param>
-    public async Task RefreshProviderAsync(string providerId)
+    /// <param name="ct">取消令牌，用于区分用户主动取消与网络超时</param>
+    public async Task RefreshProviderAsync(string providerId, CancellationToken ct = default)
     {
         // 按 Id 取插件；卡片存在即插件存在，理论不会为 null，仍做空判防御。
         var plugin = _pluginManager.GetPlugin(providerId);
         if (plugin == null) return;
 
         // 复用单插件刷新逻辑（内部会写 LastUsage 并在成功时记录历史点）。
-        await RefreshPluginAsync(plugin);
+        await RefreshPluginAsync(plugin, "manual", ct);
 
         // 触发与全量刷新相同的事件，App.OnUsageRefreshed 据此更新卡片 UI 与托盘提示。
         if (plugin.LastUsage != null)

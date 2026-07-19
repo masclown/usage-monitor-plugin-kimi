@@ -67,9 +67,62 @@ public static class BaseUrlValidator
                 errorMessage = "BaseUrl 不允许使用本地主机名";
                 return false;
             }
+
+            // SSRF 防护：对域名进行 DNS 解析，检查解析结果是否为内网 IP
+            if (!TryResolveAndValidateHost(host, out errorMessage))
+            {
+                return false;
+            }
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// 对域名进行 DNS 解析并验证解析结果是否为内网 IP（SSRF 防护）
+    /// </summary>
+    /// <param name="host">待解析的域名</param>
+    /// <param name="errorMessage">验证失败时的错误信息</param>
+    /// <returns>是否通过验证</returns>
+    private static bool TryResolveAndValidateHost(string host, out string? errorMessage)
+    {
+        errorMessage = null;
+
+        try
+        {
+            // 使用 Dns.GetHostAddresses 进行同步 DNS 解析
+            var addresses = Dns.GetHostAddresses(host);
+
+            if (addresses.Length == 0)
+            {
+                errorMessage = $"无法解析域名: {host}";
+                return false;
+            }
+
+            // 检查所有解析结果，如果任何一个 IP 是内网/环回/链路本地地址，则拒绝
+            foreach (var address in addresses)
+            {
+                if (IsLoopback(address))
+                {
+                    errorMessage = $"域名 {host} 解析到环回地址 {address}，不允许使用";
+                    return false;
+                }
+
+                if (IsPrivateOrLinkLocal(address))
+                {
+                    errorMessage = $"域名 {host} 解析到内网或链路本地地址 {address}，不允许使用";
+                    return false;
+                }
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            // DNS 解析失败（网络问题、域名不存在等）
+            errorMessage = $"域名解析失败: {ex.Message}";
+            return false;
+        }
     }
 
     /// <summary>

@@ -35,8 +35,8 @@ public partial class TrayTooltipWindow : Window
 
     /// <summary>是否已经由本次 ShowNearCursor 完成首次定位（用于 LocationChanged 过滤编程设置首帧）</summary>
     private bool _hasPlacedOnce;
-    /// <summary>拖拽节流保存：位置变更 500ms 后才真正写盘</summary>
-    private DispatcherTimer? _savePositionTimer;
+    /// <summary>拖拽节流保存：位置变更 500ms 后才真正写盘（req-063 B8：一次性订阅，避免高频拖拽时连续 new 大量 timer）</summary>
+    private readonly DispatcherTimer _savePositionTimer;
 
     // 手动拖拽字段（WPF Window.DragMove() 在 WindowStyle=None + ShowActivated=False + AllowsTransparency=True 的窗体中不可靠，
     // 所以采用业界标准的鼠标捕获方案：Mouse.Capture + PreviewMouseMove + WinForms Cursor 读取）
@@ -63,6 +63,17 @@ public partial class TrayTooltipWindow : Window
         _viewModel = viewModel;
         _configService = configService;
         DataContext = viewModel;
+
+        // req-063 B8：位置保存节流 timer 一次性订阅，避免高频拖拽时连续 new 大量 timer
+        _savePositionTimer = new DispatcherTimer(DispatcherPriority.Background)
+        {
+            Interval = TimeSpan.FromMilliseconds(500)
+        };
+        _savePositionTimer.Tick += (_, _) =>
+        {
+            _savePositionTimer.Stop();
+            SavePositionToConfig();
+        };
 
         // 鼠标进入悬浮窗时取消关闭
         MouseEnter += (_, _) => CancelHide();
@@ -313,6 +324,7 @@ public partial class TrayTooltipWindow : Window
     /// <summary>
     /// 窗口位置变化时，统一节流保存。
     /// 仅当最近一次变化是用户拖拽（非编程设置）时才真正落库。
+    /// req-063 B8：timer 已一次性订阅，此处仅 Stop/Start 复用。
     /// </summary>
     private void OnLocationChanged(object? sender, EventArgs e)
     {
@@ -320,16 +332,7 @@ public partial class TrayTooltipWindow : Window
         if (!_hasPlacedOnce) return;
 
         // 重置节流计时器：500ms 内还有新位置就推迟保存
-        _savePositionTimer?.Stop();
-        _savePositionTimer = new DispatcherTimer(DispatcherPriority.Background)
-        {
-            Interval = TimeSpan.FromMilliseconds(500)
-        };
-        _savePositionTimer.Tick += (_, _) =>
-        {
-            _savePositionTimer?.Stop();
-            SavePositionToConfig();
-        };
+        _savePositionTimer.Stop();
         _savePositionTimer.Start();
     }
 

@@ -34,6 +34,7 @@ public partial class PluginConfigWindow : Window
     private readonly ProviderConfig _config;
     private readonly BrowserLoginConfig? _loginConfig;
     private readonly Dictionary<string, FrameworkElement> _inputControls = new();
+    private readonly ConfigService? _configService;
 
     /// <summary>插件声明支持的图表类型（用于生成复选框，保持声明顺序）。</summary>
     private readonly IReadOnlyList<CardChartKind> _supportedCardCharts;
@@ -53,7 +54,10 @@ public partial class PluginConfigWindow : Window
     /// 例如用户在 DeepSeek 登录中点击 MiniMax 按钮不应被错误阻塞。
     /// </para>
     /// </summary>
-    private static readonly HashSet<string> _isLoginInProgress = new();
+    /// <summary>
+    /// req-064 B12：登录防重复 HashSet 改为大小写不敏感，避免 "MiniMax" 与 "minimax" 绕过防重复锁。
+    /// </summary>
+    private static readonly HashSet<string> _isLoginInProgress = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>保护 <see cref="_isLoginInProgress"/> 的锁对象</summary>
     private static readonly object _loginInProgressLock = new();
@@ -68,18 +72,23 @@ public partial class PluginConfigWindow : Window
     /// 可选的浏览器登录配置。传入非 <c>null</c> 时，窗口底部显示"获取登录态"按钮，
     /// 点击后调用 <see cref="BrowserLoginService"/> 启动临时 Edge 窗口提取 Cookie。
     /// </param>
+    /// <param name="configService">
+    /// req-065 B4：可选的 ConfigService，用于 BrowserLoginService 实例化（登录成功后自动重载内存配置）。
+    /// </param>
     public PluginConfigWindow(
         string pluginName,
         IReadOnlyList<ConfigField> configFields,
         ProviderConfig config,
         BrowserLoginConfig? loginConfig = null,
         IReadOnlyList<CardChartKind>? supportedCardCharts = null,
-        IReadOnlyList<CardChartKind>? currentCardCharts = null)
+        IReadOnlyList<CardChartKind>? currentCardCharts = null,
+        ConfigService? configService = null)
     {
         InitializeComponent();
         _configFields = configFields;
         _config = config;
         _loginConfig = loginConfig;
+        _configService = configService;
         _supportedCardCharts = supportedCardCharts ?? System.Array.Empty<CardChartKind>();
         if (currentCardCharts != null)
             foreach (var k in currentCardCharts) _selectedCardCharts.Add(k);
@@ -430,6 +439,10 @@ public partial class PluginConfigWindow : Window
             Tag = field.Key
         };
 
+        // req-064 B13：初始化时即 Add textBox，切换时只改 Visibility，避免重复 Add 抛 InvalidOperationException
+        Grid.SetColumn(textBox, 0);
+        grid.Children.Add(textBox);
+
         bool isVisible = false;
         toggleBtn.Click += (_, _) =>
         {
@@ -440,8 +453,6 @@ public partial class PluginConfigWindow : Window
                 passwordBox.Visibility = Visibility.Collapsed;
                 textBox.Visibility = Visibility.Visible;
                 toggleBtn.Content = "隐藏";
-                Grid.SetColumn(textBox, 0);
-                grid.Children.Add(textBox);
             }
             else
             {
@@ -530,13 +541,15 @@ public partial class PluginConfigWindow : Window
 
         try
         {
-            var data = await BrowserLoginService.LoginAndExtractCookieAsync(_loginConfig);
+            // req-065 B4：BrowserLoginService 去静态化，每次登录创建独立实例避免并发时 LastError 互相覆盖
+            var loginService = new BrowserLoginService(_configService);
+            var data = await loginService.LoginAndExtractCookieAsync(_loginConfig);
 
             if (data == null || string.IsNullOrEmpty(data.Cookie))
             {
                 // 显示真实错误信息（来自 BrowserLoginService.LastError），
                 // 而不是写死的"未检测到 account.minimaxi.com 域的会话 Cookie"误导用户。
-                var lastError = BrowserLoginService.LastError;
+                var lastError = loginService.LastError;
                 var message = "未获取到 Cookie。\n\n";
                 if (!string.IsNullOrEmpty(lastError))
                 {

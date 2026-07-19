@@ -23,7 +23,8 @@
     <!-- ===== 文本 ===== -->
     <SolidColorBrush x:Key="TextPrimaryBrush" Color="#FFF1F5F9" />
     <SolidColorBrush x:Key="TextSecondaryBrush" Color="#FF9AA6B8" />
-    <SolidColorBrush x:Key="TextTertiaryBrush" Color="#FF64748B" />
+    <!-- req-071 U-02：对比度修正 #64748B → #94A3B8，3.3:1 → 6.2:1，达到 WCAG AA 标准 -->
+    <SolidColorBrush x:Key="TextTertiaryBrush" Color="#FF94A3B8" />
 
     <!-- ===== 强调色（珊瑚橙）与语义 ===== -->
     <Color x:Key="AccentColor">#FFFF6B4A</Color>
@@ -55,7 +56,8 @@
     <SolidColorBrush x:Key="OverlayBorderBrush" Color="#FF2C3242" />
 
     <!-- ===== 卡片阴影（深色底用较深阴影托起表面） ===== -->
-    <DropShadowEffect x:Key="CardShadowEffect" Color="#FF000000" BlurRadius="18"
-                      ShadowDepth="3" Direction="270" Opacity="0.45" />
+    <!-- req-071 U-03：BlurRadius 18→10，ShadowDepth 3→2，Opacity 0.45→0.35 -->
+    <DropShadowEffect x:Key="CardShadowEffect" Color="#FF000000" BlurRadius="10"
+                      ShadowDepth="2" Direction="270" Opacity="0.35" />
 
 </ResourceDictionary>

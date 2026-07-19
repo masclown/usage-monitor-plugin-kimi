@@ -25,6 +25,22 @@ public class BoolToVisibilityConverter : IValueConverter
 }
 
 /// <summary>
+/// req-072 U-18：整数值转可见性转换器（大于 0 时显示，否则折叠）
+/// </summary>
+public class IntToVisibilityConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        if (value is int intValue)
+            return intValue > 0 ? Visibility.Visible : Visibility.Collapsed;
+        return Visibility.Collapsed;
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
+/// <summary>
 /// 布尔值转透明度转换器（启用=1.0，禁用=0.5）
 /// </summary>
 public class BoolToOpacityConverter : IValueConverter

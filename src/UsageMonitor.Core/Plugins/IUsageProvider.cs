@@ -100,15 +100,17 @@ public interface IUsageProvider
     /// 查询当前用量信息
     /// </summary>
     /// <param name="config">服务商配置（包含API Key等信息）</param>
+    /// <param name="ct">取消令牌，用于区分用户主动取消与网络超时</param>
     /// <returns>用量信息</returns>
-    Task<UsageInfo> GetUsageAsync(ProviderConfig config);
+    Task<UsageInfo> GetUsageAsync(ProviderConfig config, CancellationToken ct = default);
 
     /// <summary>
     /// 验证配置是否有效（如API Key是否正确）
     /// </summary>
     /// <param name="config">待验证的配置</param>
+    /// <param name="ct">取消令牌，用于区分用户主动取消与网络超时</param>
     /// <returns>配置是否有效</returns>
-    Task<bool> ValidateConfigAsync(ProviderConfig config);
+    Task<bool> ValidateConfigAsync(ProviderConfig config, CancellationToken ct = default);
 
     /// <summary>
     /// req-026：插件声明支持的环形图中心数字 metric key 集合。

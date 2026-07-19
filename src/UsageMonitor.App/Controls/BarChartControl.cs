@@ -25,6 +25,10 @@ namespace UsageMonitor.App.Controls;
 /// </summary>
 public class BarChartControl : FrameworkElement, IHoverTooltipProvider
 {
+    // req-067 B23：Typeface 缓存，避免每次 OnRender 重复创建
+    private static readonly Typeface LabelTypeface = new(
+        new FontFamily("Microsoft YaHei UI, Segoe UI"), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
+
     /// <summary>Provider 短名称，用于 tooltip 标题</summary>
     public static readonly DependencyProperty ProviderNameProperty = DependencyProperty.Register(
         nameof(ProviderName), typeof(string), typeof(BarChartControl),
@@ -120,20 +124,43 @@ public class BarChartControl : FrameworkElement, IHoverTooltipProvider
     private double _left, _top, _plotW, _plotH;
     private int _count;
 
+    /// <summary>req-063 B9：跟踪当前订阅的集合，用于 OnUnloaded 时解绑。</summary>
+    private INotifyCollectionChanged? _subscribed;
+
     public BarChartControl()
     {
         MinHeight = 90;
         MinWidth = 160;
         Focusable = true;
+        // req-063 B9：订阅 Unloaded 事件，控件卸载时解绑 CollectionChanged
+        Unloaded += OnControlUnloaded;
     }
 
     private static void OnValuesChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
         var c = (BarChartControl)d;
         if (e.OldValue is INotifyCollectionChanged oldIncc) oldIncc.CollectionChanged -= c.OnItemsChanged;
-        if (e.NewValue is INotifyCollectionChanged newIncc) newIncc.CollectionChanged += c.OnItemsChanged;
+        if (e.NewValue is INotifyCollectionChanged newIncc)
+        {
+            newIncc.CollectionChanged += c.OnItemsChanged;
+            c._subscribed = newIncc;
+        }
+        else
+        {
+            c._subscribed = null;
+        }
         c._hoverIndex = -1;
         c.InvalidateVisual();
+    }
+
+    /// <summary>req-063 B9：控件卸载时解绑 CollectionChanged，防止内存泄漏。</summary>
+    private void OnControlUnloaded(object sender, RoutedEventArgs e)
+    {
+        if (_subscribed != null)
+        {
+            _subscribed.CollectionChanged -= OnItemsChanged;
+            _subscribed = null;
+        }
     }
 
     private void OnItemsChanged(object? sender, NotifyCollectionChangedEventArgs e) => InvalidateVisual();
@@ -275,8 +302,7 @@ public class BarChartControl : FrameworkElement, IHoverTooltipProvider
 
     private FormattedText MakeText(string text, Brush brush, double size)
         => new FormattedText(text, CultureInfo.CurrentCulture, System.Windows.FlowDirection.LeftToRight,
-            new Typeface(new FontFamily("Microsoft YaHei UI, Segoe UI"), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal),
-            size, brush, VisualTreeHelper.GetDpi(this).PixelsPerDip);
+            LabelTypeface, size, brush, VisualTreeHelper.GetDpi(this).PixelsPerDip);
 
     private Brush FindBrush(string key, Color fallback)
     {

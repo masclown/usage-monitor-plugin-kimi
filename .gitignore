@@ -10,6 +10,9 @@ logs/
 ## Qoder
 .qoder/
 
+# 临时
+node_modules/
+
 # .NET
 bin/
 obj/

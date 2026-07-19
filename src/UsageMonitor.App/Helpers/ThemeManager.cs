@@ -35,6 +35,9 @@ public static class ThemeManager
     /// <param name="mode">目标主题（深色 / 浅色）</param>
     public static void Apply(ThemeMode mode)
     {
+        // req-064 U6：当前已是目标主题时短路返回，避免重复移除/插入字典导致 UI 闪烁
+        if (mode == Current && System.Windows.Application.Current != null) return;
+
         var app = System.Windows.Application.Current;
         if (app == null) return;
 

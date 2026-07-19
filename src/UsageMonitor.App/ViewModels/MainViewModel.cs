@@ -73,6 +73,8 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
     private bool _supportsPeriodSwitch;
     private string _currentPeriod = UsageMonitor.App.Controls.ChartPeriods.Week;
     private bool _isLoading;
+    // req-072 U-05：卡片详情展开状态（默认折叠）
+    private bool _isDetailExpanded;
     // req-007：缓存 MiniMax DOM 抓取到的「每日 Token」完整数据，供 PeriodChanged 重新切片。
     // 完整数据按日期升序，最多 168 天（MiniMax usage_summary 接口上限）。
     private IReadOnlyList<long> _fullDailyValues = Array.Empty<long>();
@@ -552,6 +554,21 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         {
             if (_isLoading == value) return;
             _isLoading = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// req-072 U-05：卡片详情展开状态（默认折叠）。
+    /// 用于 Expander 绑定，控制限额/余额/图表等次要信息的显示。
+    /// </summary>
+    public bool IsDetailExpanded
+    {
+        get => _isDetailExpanded;
+        set
+        {
+            if (_isDetailExpanded == value) return;
+            _isDetailExpanded = value;
             OnPropertyChanged();
         }
     }
@@ -1423,9 +1440,10 @@ public class PluginItemViewModel : INotifyPropertyChanged
         // 读取该 Provider 当前已选的卡片图表集合（含旧单选迁移），传入配置窗口用于回显 + 预览
         var currentCharts = _configService.GetProviderCardChartKinds(ProviderId);
         // 通用登录配置：只要插件声明了 LoginConfig（不限于 MiniMax），配置窗口就显示"获取登录态"按钮
+        // req-065 B4：传递 ConfigService 给 PluginConfigWindow，用于 BrowserLoginService 实例化
         var configWindow = new Views.PluginConfigWindow(
             DisplayName, ConfigFields, config, _provider.LoginConfig,
-            _provider.SupportedCardCharts, currentCharts);
+            _provider.SupportedCardCharts, currentCharts, _configService);
         configWindow.Owner = System.Windows.Application.Current.Windows
             .OfType<Window>().FirstOrDefault(w => w.IsActive);
 
@@ -1529,6 +1547,41 @@ public class MainViewModel : INotifyPropertyChanged
             OnPropertyChanged();
         }
     }
+
+    /// <summary>
+    /// req-072 U-18：上次刷新时间（HH:mm:ss 格式），用于底部状态栏显示。
+    /// </summary>
+    public string LastRefreshTime
+    {
+        get => _lastRefreshTime;
+        private set { _lastRefreshTime = value; OnPropertyChanged(); }
+    }
+    private string _lastRefreshTime = "--:--:--";
+
+    /// <summary>
+    /// req-072 U-18：刷新进度（0-100），用于底部状态栏显示。
+    /// </summary>
+    public int RefreshProgress
+    {
+        get => _refreshProgress;
+        private set { _refreshProgress = value; OnPropertyChanged(); }
+    }
+    private int _refreshProgress;
+
+    /// <summary>
+    /// req-072 U-18：错误计数，用于底部状态栏显示。
+    /// </summary>
+    public int ErrorCount
+    {
+        get => _errorCount;
+        private set { _errorCount = value; OnPropertyChanged(); }
+    }
+    private int _errorCount;
+
+    /// <summary>
+    /// req-072 U-19：空状态判断（EnabledUsages 是否为空），用于主窗口空状态显示。
+    /// </summary>
+    public bool IsEmpty => !EnabledUsages.Any();
 
     /// <summary>是否启用任务栏显示</summary>
     public bool ShowInTaskbar
@@ -1893,7 +1946,24 @@ public class MainViewModel : INotifyPropertyChanged
         _historyStore = historyStore ?? new UsageHistoryStore();
         _historyStore.MaxPoints = Math.Max(1, _configService.Settings.HistoryPointCount);
 
-        RefreshCommand = new AsyncRelayCommand(async () => await refreshService.RefreshAllAsync());
+                // req-072 U-18：RefreshCommand 执行时更新 LastRefreshTime / RefreshProgress / ErrorCount
+                RefreshCommand = new AsyncRelayCommand(async () =>
+                {
+                    RefreshProgress = 0;
+                    ErrorCount = 0;
+                    try
+                    {
+                        await refreshService.RefreshAllAsync();
+                        LastRefreshTime = DateTime.Now.ToString("HH:mm:ss");
+                        RefreshProgress = 100;
+                        // 统计错误数量
+                        ErrorCount = EnabledUsages.Count(u => u.IsError);
+                    }
+                    catch
+                    {
+                        ErrorCount++;
+                    }
+                });
         SaveSettingsCommand = new RelayCommand(() => _configService.Save());
 
         // req-016：初始化主窗口 Logo + 订阅主题切换事件

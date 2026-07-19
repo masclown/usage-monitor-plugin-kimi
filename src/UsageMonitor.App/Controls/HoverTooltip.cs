@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
@@ -37,7 +38,17 @@ public interface IHoverTooltipProvider
 /// </summary>
 public static class HoverTooltipPresenter
 {
-    private static readonly Dictionary<FrameworkElement, ToolTip> ActiveTooltips = new();
+    /// <summary>
+    /// req-063 B11：使用 ConditionalWeakTable 替代 Dictionary，避免静态字典长期持有控件引用导致内存泄漏。
+    /// 当 owner 被 GC 回收时，对应的 ToolTip 也会自动被回收。
+    /// </summary>
+    private static readonly ConditionalWeakTable<FrameworkElement, ToolTipHolder> ActiveTooltips = new();
+
+    /// <summary>req-063 B11：ToolTip 包装类，用于 ConditionalWeakTable 的值类型。</summary>
+    private sealed class ToolTipHolder
+    {
+        public ToolTip? Tooltip { get; set; }
+    }
 
     /// <summary>
     /// req-046 修复：tooltip 内部元素引用，用于快速更新 Text 属性而不重建视觉树。
@@ -56,7 +67,7 @@ public static class HoverTooltipPresenter
     public static void Show(FrameworkElement owner, HoverTooltipData data)
     {
         // req-046 修复：如果 tooltip 已打开，只更新 Text 属性，零布局开销
-        if (ActiveTooltips.TryGetValue(owner, out var existing) && existing.Tag is TooltipElements elems)
+        if (ActiveTooltips.TryGetValue(owner, out var existingHolder) && existingHolder.Tooltip is { } existingTip && existingTip.Tag is TooltipElements elems)
         {
             elems.TitleBlock.Text = data.Title;
             elems.ValueBlock.Text = data.Value;
@@ -146,7 +157,9 @@ public static class HoverTooltipPresenter
         };
         ToolTipService.SetShowDuration(tooltip, 30000);
 
-        ActiveTooltips[owner] = tooltip;
+        // req-063 B11：使用 ConditionalWeakTable 的 AddOrUpdate 模式
+        var holder = ActiveTooltips.GetOrCreateValue(owner);
+        holder.Tooltip = tooltip;
         owner.SetValue(AutomationProperties.HelpTextProperty, data.ToAccessibleText());
         tooltip.IsOpen = true;
     }
@@ -154,9 +167,11 @@ public static class HoverTooltipPresenter
     /// <summary>关闭指定图表的 tooltip 并释放当前 ToolTip 实例。</summary>
     public static void Hide(FrameworkElement owner)
     {
-        if (!ActiveTooltips.Remove(owner, out var tooltip)) return;
-        tooltip.IsOpen = false;
-        tooltip.Content = null;
+        if (!ActiveTooltips.TryGetValue(owner, out var holder) || holder.Tooltip == null) return;
+        holder.Tooltip.IsOpen = false;
+        holder.Tooltip.Content = null;
+        holder.Tooltip = null;
+        ActiveTooltips.Remove(owner);
     }
 
     /// <summary>按主题资源键取得画笔，资源缺失时使用稳定的颜色回退。</summary>
