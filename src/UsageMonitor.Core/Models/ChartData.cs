@@ -95,3 +95,157 @@ public sealed record DayNightArcData(
     /// <inheritdoc />
     public ChartKind Kind => ChartKind.DayNightArc;
 }
+
+// ============== REQ-082 SDK v2 新增模型 ==============
+
+/// <summary>
+/// 多系列堆叠柱状图输入数据（REQ-082 SDK v2）。
+/// <para>
+/// 用于按类别拆分的多系列叠加展示（例如：按日期 × 模型维度的消费金额堆叠柱）。
+/// 业务词汇无关——“类别 / 系列 / 数值”由插件自由命名。
+/// </para>
+/// </summary>
+/// <param name="Categories">X 轴类别标签（如日期）。</param>
+/// <param name="Series">堆叠系列（数量动态）。</param>
+/// <param name="Unit">数值单位提示（"¥"/"tokens"/"次"），供 tooltip / 轴标签使用。</param>
+/// <param name="Title">图表标题（可空）。</param>
+public sealed record StackedBarChartData(
+    IReadOnlyList<string> Categories,
+    IReadOnlyList<ChartSeries> Series,
+    string? Unit = null,
+    string? Title = null) : IChartData
+{
+    /// <inheritdoc />
+    public ChartKind Kind => ChartKind.StackedBar;
+}
+
+/// <summary>
+/// 面积图输入数据（REQ-082 SDK v2），独立控件，非折线变体。
+/// <para>
+/// 用于单系列面积填充展示（如单模型请求量随时间变化）。
+/// </para>
+/// </summary>
+/// <param name="Values">Y 轴数值序列。</param>
+/// <param name="Categories">X 轴标签（可空，缺省时使用 0..N-1 索引）。</param>
+/// <param name="MaxValue">Y 轴上限（可空，缺省取序列最大值或 1）。</param>
+/// <param name="Unit">数值单位（供 tooltip 使用）。</param>
+/// <param name="SeriesName">系列名称（tooltip / 图例显示）。</param>
+public sealed record AreaChartData(
+    IReadOnlyList<double> Values,
+    IReadOnlyList<string>? Categories = null,
+    double? MaxValue = null,
+    string? Unit = null,
+    string? SeriesName = null) : IChartData
+{
+    /// <inheritdoc />
+    public ChartKind Kind => ChartKind.Area;
+}
+
+/// <summary>
+/// 分组容器输入数据（REQ-082 SDK v2）。嵌套其他 Kind 按维度分组展示。
+/// <para>
+/// 用于「多模型 / 多 Key」场景，每个分组包含多个指标 + 嵌套子图表。
+/// </para>
+/// </summary>
+/// <param name="Groups">分组集合。</param>
+public sealed record GroupedChartData(
+    IReadOnlyList<ChartGroup> Groups) : IChartData
+{
+    /// <inheritdoc />
+    public ChartKind Kind => ChartKind.Grouped;
+}
+
+/// <summary>
+/// 单个分组（REQ-082 SDK v2）。
+/// </summary>
+/// <param name="Title">分组标题（如模型名 "deepseek-v4-flash"）。</param>
+/// <param name="Subtitle">副标题（如供应商 / 上下文窗口）。</param>
+/// <param name="Metrics">该组内的多个指标。</param>
+public sealed record ChartGroup(
+    string Title,
+    string? Subtitle = null,
+    IReadOnlyList<GroupMetric>? Metrics = null);
+
+/// <summary>
+/// 单个指标项（REQ-082 SDK v2）。
+/// </summary>
+/// <param name="Name">指标名（如 "API 请求次数" / "Tokens"）。</param>
+/// <param name="FormattedTotal">汇总值文本（已格式化，如 "3,424"）。</param>
+/// <param name="Chart">该指标对应的嵌套图表数据（任意 Kind）。</param>
+public sealed record GroupMetric(
+    string Name,
+    string FormattedTotal,
+    IChartData Chart);
+
+/// <summary>
+/// 度量进度条组输入数据（REQ-082 SDK v2），动态 N 条带标签的进度条。
+/// <para>
+/// 取代主窗口 XAML 中硬编码的“5h 限额 / 本周限额 / 视频赠送”进度条，
+/// 插件可任意声明 Label + Percent + RightText + FooterText，颜色由 IChartPalette / UsageTierScale 决定。
+/// </para>
+/// </summary>
+/// <param name="Bars">进度条项集合。</param>
+public sealed record MetricBarData(
+    IReadOnlyList<MetricBarItem> Bars) : IChartData
+{
+    /// <inheritdoc />
+    public ChartKind Kind => ChartKind.MetricBar;
+}
+
+/// <summary>
+/// 单个进度条项（REQ-082 SDK v2）。
+/// </summary>
+/// <param name="Label">左侧标签（"5h 限额"/"本周限额"/任意）。</param>
+/// <param name="Percent">0-100 进度百分比。</param>
+/// <param name="RightText">右侧文本（重置时间等，可空）。</param>
+/// <param name="FooterText">底部文本（"已用 43%"，可空）。</param>
+/// <param name="ColorHint">颜色提示（null = 由主题/色阶决定）。</param>
+/// <param name="IsVisible">是否显示（默认 true）。</param>
+public sealed record MetricBarItem(
+    string Label,
+    double Percent,
+    string? RightText = null,
+    string? FooterText = null,
+    string? ColorHint = null,
+    bool IsVisible = true);
+
+/// <summary>
+/// 度量数字网格输入数据（REQ-082 SDK v2），动态 N 个并排独立数字。
+/// <para>
+/// 取代主窗口 XAML 中硬编码的余额快照 4 项（累计/峰值/活跃/积分余额），
+/// 插件可任意声明数字项。
+/// </para>
+/// </summary>
+/// <param name="Items">数字项集合。</param>
+public sealed record MetricGridData(
+    IReadOnlyList<MetricGridItem> Items) : IChartData
+{
+    /// <inheritdoc />
+    public ChartKind Kind => ChartKind.MetricGrid;
+}
+
+/// <summary>
+/// 单个数字项（REQ-082 SDK v2）。
+/// </summary>
+/// <param name="Label">标签（"累计"/"余额"/任意）。</param>
+/// <param name="Value">主数字（已格式化，如 "4.35B"）。</param>
+/// <param name="Detail">辅助行（可空，如 "前 12%"）。</param>
+/// <param name="ColorHint">颜色提示（null = 主题 Accent）。</param>
+/// <param name="IsVisible">是否显示（默认 true）。</param>
+public sealed record MetricGridItem(
+    string Label,
+    string Value,
+    string? Detail = null,
+    string? ColorHint = null,
+    bool IsVisible = true);
+
+/// <summary>
+/// 通用图表系列（REQ-082 SDK v2），用于堆叠柱 / 多系列图表。
+/// </summary>
+/// <param name="Name">系列名称（"deepseek-v4-flash"等）。</param>
+/// <param name="Values">与 Categories 等长的数值序列。</param>
+/// <param name="Color">可选指定颜色（缺省由色板分配，可接受 "#RRGGBB" / "ARGB"）。</param>
+public sealed record ChartSeries(
+    string Name,
+    IReadOnlyList<double> Values,
+    string? Color = null);

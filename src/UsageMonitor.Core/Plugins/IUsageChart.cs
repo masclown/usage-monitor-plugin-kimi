@@ -68,3 +68,18 @@ public interface IUsageChartFactory
     /// <summary>创建图表实例（宿主负责 UI 生命周期）。</summary>
     IUsageChart Create();
 }
+
+/// <summary>
+/// 图表工厂 v2（REQ-082 SDK v2）：接收 <see cref="ChartContext"/> 以适配不同展示位置。
+/// <para>
+/// 保留 <see cref="IUsageChartFactory"/> 不变以兼容现有 5 个内置工厂，
+/// 新控件（StackedBar / Area / Grouped / MetricBar / MetricGrid）实现本接口。
+/// 宿主优先检测实现方是否为本接口，是则传入 context；否则 fallback 到 <see cref="IUsageChartFactory.Create"/>。
+/// </para>
+/// </summary>
+public interface IUsageChartFactory2 : IUsageChartFactory
+{
+    /// <summary>创建图表实例，接收 <see cref="ChartContext"/> 以适配不同展示位置。</summary>
+    /// <param name="context">运行时上下文（位置/尺寸/主题/色板）。</param>
+    IUsageChart Create(ChartContext context);
+}

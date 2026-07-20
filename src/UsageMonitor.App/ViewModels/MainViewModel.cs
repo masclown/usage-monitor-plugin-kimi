@@ -510,6 +510,26 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         set { _extraTooltipLines = value; OnPropertyChanged(); }
     }
 
+    // ============== REQ-083 SDK v2 新增可选属性（委托给 Provider） ==============
+
+    /// <summary>
+    /// Provider 注入的"V2 度量进度条组"数据（REQ-083）。
+    /// 返回 null 时主窗口 <c>ChartCardTemplateSelector</c> 自动回退到旧 CardLimitBarsTemplate。
+    /// </summary>
+    public UsageMonitor.Core.Models.MetricBarData? CardMetricBarData => Provider?.CardMetricBarData;
+
+    /// <summary>
+    /// Provider 注入的"V2 度量数字网格"数据（REQ-083）。
+    /// 返回 null 时主窗口 <c>ChartCardTemplateSelector</c> 自动回退到旧 CardBalanceTemplate。
+    /// </summary>
+    public UsageMonitor.Core.Models.MetricGridData? CardMetricGridData => Provider?.CardMetricGridData;
+
+    /// <summary>
+    /// Provider 注入的"V2 TooltipContent 生成委托"（REQ-083）。
+    /// 返回 null 时主窗口沿用旧 ExtraTooltipLines 拼接逻辑。
+    /// </summary>
+    public System.Func<int, UsageMonitor.Core.Models.TooltipContent>? LineTooltipProvider => Provider?.LineTooltipProvider;
+
     /// <summary>req-034 修复：缓存命中率（0-100），供折线图 tooltip 显示。负值表示无数据。</summary>
     public double CacheHitPercent
     {
@@ -606,7 +626,20 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
     /// 插件提供者引用（req-007）：为当前 VM 关联的插件 provider，用于 SetPeriodAsync 调用。
     /// 在 MainViewModel 装配时注入，刷新流程不会修改。
     /// </summary>
-    public UsageMonitor.Core.Plugins.IUsageProvider? Provider { get; set; }
+    public UsageMonitor.Core.Plugins.IUsageProvider? Provider
+    {
+        get => _provider;
+        set
+        {
+            _provider = value;
+            // REQ-083：Provider 变更时通知 V2 数据属性，让 ChartCardTemplateSelector 重新选模板。
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(CardMetricBarData));
+            OnPropertyChanged(nameof(CardMetricGridData));
+            OnPropertyChanged(nameof(LineTooltipProvider));
+        }
+    }
+    private UsageMonitor.Core.Plugins.IUsageProvider? _provider;
 
     /// <summary>
     /// req-007：处理 MiniLineChartControl.PeriodChanged 事件。

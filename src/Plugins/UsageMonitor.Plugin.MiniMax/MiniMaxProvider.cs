@@ -140,6 +140,38 @@ public class MiniMaxProvider : HttpUsageProviderBase
     /// </summary>
     public override IReadOnlyList<UsageMonitor.Core.Models.BalanceItem> BalanceItems => System.Array.Empty<UsageMonitor.Core.Models.BalanceItem>();
 
+    // ============== REQ-083 SDK v2 新增可选属性 ==============
+
+    /// <summary>
+    /// MiniMax 为"度量进度条组"提供的 V2 数据（REQ-083）。
+    /// <para>
+    /// 当前轮为占位实现（返回 null），主窗口 DataTemplateSelector 会回退到旧 CardLimitBarsTemplate。
+    /// 后续 sprint 可根据 MiniMaxDomExtractor 提取的 mm_5hUsedPercent / mm_weeklyUsedPercent /
+    /// mm_videoInterval* 等 mm_* 字段构造 MetricBarData。
+    /// </para>
+    /// </summary>
+    public override UsageMonitor.Core.Models.MetricBarData? CardMetricBarData => null;
+
+    /// <summary>
+    /// MiniMax 为"度量数字网格"（余额快照）提供的 V2 数据（REQ-083）。
+    /// <para>
+    /// 当前轮为占位实现（返回 null），主窗口 DataTemplateSelector 会回退到旧 CardBalanceTemplate。
+    /// 后续 sprint 可根据 mm_totalTokens / mm_mostActiveDay / mm_activeDays / mm_remainingCredits
+    /// 等字段构造 MetricGridData。
+    /// </para>
+    /// </summary>
+    public override UsageMonitor.Core.Models.MetricGridData? CardMetricGridData => null;
+
+    /// <summary>
+    /// MiniMax 为折线图 hover tooltip 提供的 V2 TooltipContent 生成委托（REQ-083）。
+    /// <para>
+    /// 当前轮为占位实现（返回 null），主窗口沿用旧 ExtraTooltipLines 拼接逻辑。
+    /// 后续 sprint 可返回构造 TooltipContent 的 lambda，按索引拼装 TooltipTextBlock +
+    /// TooltipColorRow（缓存命中行）。
+    /// </para>
+    /// </summary>
+    public override System.Func<int, UsageMonitor.Core.Models.TooltipContent>? LineTooltipProvider => null;
+
     /// <summary>
     /// req-026：MiniMax 环形图中心支持的数字类型。
     /// <para>

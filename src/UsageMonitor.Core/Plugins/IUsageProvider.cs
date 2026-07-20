@@ -97,6 +97,24 @@ public interface IUsageProvider
     IReadOnlyList<IUsageChartFactory> ChartFactories => System.Array.Empty<IUsageChartFactory>();
 
     /// <summary>
+    /// 插件可注册的自定义图表工厂集合（REQ-082 SDK v2，使用 v2 签名 + ChartContext）。
+    /// <para>
+    /// 默认返回空数组。与 <see cref="ChartFactories"/> 并存：
+    /// <list type="bullet">
+    /// <item>旧 v1 工厂使用 <see cref="IUsageChartFactory.Create()"/> 签名，仍可用 <see cref="ChartFactories"/>。</item>
+    /// <item>新 v2 工厂使用 <see cref="IUsageChartFactory2.Create(ChartContext)"/> 签名，可接收 context，应声明在本属性。</item>
+    /// <item>宿主装配时同时读取两者，去重后合并到全局注册表。</item>
+    /// </list>
+    /// </para>
+    /// <para>
+    /// 返回 null 等价于返回空集合。插件返回非空集合时由宿主在装配 Provider 时合并到全局图表注册表中，
+    /// 第三方控件即可在 <c>MainWindow.xaml</c> 通过 <see cref="Models.IChartData.Kind"/> 自动路由到对应模板，
+    /// 无需修改主窗口代码。
+    /// </para>
+    /// </summary>
+    IReadOnlyList<IUsageChartFactory2>? CustomChartFactories => null;
+
+    /// <summary>
     /// 查询当前用量信息
     /// </summary>
     /// <param name="config">服务商配置（包含API Key等信息）</param>
@@ -177,4 +195,35 @@ public interface IUsageProvider
     /// </para>
     /// </summary>
     IReadOnlyList<Models.HeatMapTierConfig>? HeatMapTiers => null;
+
+    // ============== REQ-083 SDK v2 新增可选属性 ==============
+
+    /// <summary>
+    /// 插件为"度量进度条组"（5h / 本周 / 视频赠送 等）提供的 V2 数据模型（REQ-083）。
+    /// <para>
+    /// 返回 null（默认）时，主窗口 <c>ChartCardTemplateSelector</c> 会回退到旧的硬编码 XAML 模板。
+    /// 返回 <see cref="Models.MetricBarData"/> 时由新 <c>MetricBarControl</c> 渲染。
+    /// </para>
+    /// </summary>
+    Models.MetricBarData? CardMetricBarData => null;
+
+    /// <summary>
+    /// 插件为"度量数字网格"（余额快照等）提供的 V2 数据模型（REQ-083）。
+    /// <para>
+    /// 返回 null（默认）时，主窗口 <c>ChartCardTemplateSelector</c> 会回退到旧的硬编码 XAML 模板。
+    /// 返回 <see cref="Models.MetricGridData"/> 时由新 <c>MetricGridControl</c> 渲染。
+    /// </para>
+    /// </summary>
+    Models.MetricGridData? CardMetricGridData => null;
+
+    /// <summary>
+    /// 插件为折线图 hover tooltip 提供的 V2 TooltipContent 生成委托（REQ-083）。
+    /// <para>
+    /// 返回 null（默认）时，主窗口沿用插件的旧 <see cref="ExtraTooltipLines"/> 拼接逻辑。
+    /// 返回委托时由 <c>HoverTooltipPresenter.Show(FrameworkElement, TooltipContent)</c> 渲染。
+    /// </para>
+    /// </summary>
+    /// <param name="dataIndex">当前 hover 的数据点索引（0..N-1）。</param>
+    /// <returns>该索引对应的 TooltipContent。</returns>
+    System.Func<int, Models.TooltipContent>? LineTooltipProvider => null;
 }

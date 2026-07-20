@@ -106,6 +106,17 @@ public abstract class HttpUsageProviderBase : IUsageProvider
     /// <inheritdoc />
     public virtual IReadOnlyList<HeatMapTierConfig>? HeatMapTiers => null;
 
+    // ============== REQ-083 SDK v2 新增可选属性的虚默认实现 ==============
+
+    /// <inheritdoc />
+    public virtual MetricBarData? CardMetricBarData => null;
+
+    /// <inheritdoc />
+    public virtual MetricGridData? CardMetricGridData => null;
+
+    /// <inheritdoc />
+    public virtual Func<int, TooltipContent>? LineTooltipProvider => null;
+
     /// <summary>
     /// 发送 GET 请求并反序列化 JSON 响应。
     /// </summary>

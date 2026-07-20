@@ -5,10 +5,17 @@ using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Media;
+using System.Windows.Shapes;
+using UsageMonitor.Core.Models;
 using Brush = System.Windows.Media.Brush;
 using Color = System.Windows.Media.Color;
 using Point = System.Windows.Point;
 using ToolTip = System.Windows.Controls.ToolTip;
+// ★ WPF/WinForms 命名冲突 alias（项目 UseWPF + UseWindowsForms + ImplicitUsings 触发 CS0104）
+using Rectangle = System.Windows.Shapes.Rectangle;
+using Brushes = System.Windows.Media.Brushes;
+using HorizontalAlignment = System.Windows.HorizontalAlignment;
+using VerticalAlignment = System.Windows.VerticalAlignment;
 
 namespace UsageMonitor.App.Controls;
 
@@ -31,6 +38,19 @@ public interface IHoverTooltipProvider
 {
     /// <summary>根据控件内部坐标取得当前命中的数据点。</summary>
     bool TryGetTooltip(Point position, out HoverTooltipData data);
+}
+
+/// <summary>
+/// tooltip 提供者 v2（REQ-082 SDK v2）：返回 <see cref="TooltipContent"/>（插件自由拼装）。
+/// <para>
+/// 控件可同时实现 <see cref="IHoverTooltipProvider"/> 和 <see cref="IHoverTooltipProviderV2"/>；
+/// 宿主优先调用本接口，未实现时 fallback 到 V1。
+/// </para>
+/// </summary>
+public interface IHoverTooltipProviderV2
+{
+    /// <summary>根据控件内部坐标取得当前命中的 tooltip 内容。</summary>
+    bool TryGetTooltip(Point position, out TooltipContent content);
 }
 
 /// <summary>
@@ -172,6 +192,218 @@ public static class HoverTooltipPresenter
         holder.Tooltip.Content = null;
         holder.Tooltip = null;
         ActiveTooltips.Remove(owner);
+    }
+
+    /// <summary>
+    /// REQ-082 SDK v2：根据 <see cref="TooltipContent"/> 渲染 tooltip（插件自由拼装版本）。
+    /// <para>
+    /// 与 <see cref="Show(FrameworkElement, HoverTooltipData)"/> 共存：已打开时只更新 Panel 内容，
+    /// 未打开时创建新 tooltip。Host 优先调 V2，未实现时 fallback 到 V1。
+    /// </para>
+    /// </summary>
+    public static void Show(FrameworkElement owner, TooltipContent content)
+    {
+        // 已打开：更新内容（注意：v2 是动态 Panel，不只是 Text 属性，
+        // 这里为了简化直接重建视觉树，未来可优化为按 Block 类型 diff 更新）
+        if (ActiveTooltips.TryGetValue(owner, out var existingHolder) && existingHolder.Tooltip is { } existingTip)
+        {
+            existingTip.Content = BuildTooltipCard(owner, content);
+            owner.SetValue(AutomationProperties.HelpTextProperty, BuildAccessibleText(content));
+            return;
+        }
+
+        // 首次打开
+        var tooltip = new ToolTip
+        {
+            Content = BuildTooltipCard(owner, content),
+            Template = new System.Windows.Controls.ControlTemplate(typeof(ToolTip))
+            {
+                VisualTree = CreateTemplateVisualTree()
+            },
+            PlacementTarget = owner,
+            Placement = PlacementMode.Mouse,
+            HorizontalOffset = 8,
+            VerticalOffset = -12,
+            StaysOpen = true,
+            HasDropShadow = false
+        };
+        ToolTipService.SetShowDuration(tooltip, 30000);
+
+        var holder = ActiveTooltips.GetOrCreateValue(owner);
+        holder.Tooltip = tooltip;
+        owner.SetValue(AutomationProperties.HelpTextProperty, BuildAccessibleText(content));
+        tooltip.IsOpen = true;
+    }
+
+    /// <summary>根据 TooltipContent 构建 Border 视觉树。</summary>
+    private static Border BuildTooltipCard(FrameworkElement owner, TooltipContent content)
+    {
+        var titleBrush = FindBrush(owner, "TextSecondaryBrush", Color.FromRgb(0xC4, 0xCF, 0xDD));
+        var valueBrush = FindBrush(owner, "TextPrimaryBrush", Color.FromRgb(0xF8, 0xFA, 0xFC));
+        var detailBrush = FindBrush(owner, "TextTertiaryBrush", Color.FromRgb(0x94, 0xA3, 0xB8));
+        var background = FindBrush(owner, "SurfaceAltBrush", Color.FromArgb(0xE8, 0x1F, 0x24, 0x30));
+
+        var panel = new StackPanel { MinWidth = 92 };
+        if (content.Blocks != null)
+        {
+            foreach (var block in content.Blocks)
+            {
+                switch (block)
+                {
+                    case TooltipTextBlock text:
+                        panel.Children.Add(BuildTextBlock(text, titleBrush, valueBrush, detailBrush));
+                        break;
+                    case TooltipColorRow colorRow:
+                        panel.Children.Add(BuildColorRow(colorRow, titleBrush, detailBrush));
+                        break;
+                    case TooltipSummaryRow summary:
+                        panel.Children.Add(BuildSummaryRow(summary, valueBrush));
+                        break;
+                }
+            }
+        }
+
+        return new Border
+        {
+            Background = background,
+            CornerRadius = new CornerRadius(6),
+            Padding = new Thickness(9, 5, 9, 5),
+            Child = panel
+        };
+    }
+
+    /// <summary>构建文本行（按 Style 应用字号/字重/颜色）。</summary>
+    private static TextBlock BuildTextBlock(TooltipTextBlock text, Brush secondaryBrush, Brush primaryBrush, Brush tertiaryBrush)
+    {
+        Brush foreground;
+        double fontSize;
+        FontWeight weight;
+        switch (text.Style)
+        {
+            case TooltipTextStyle.Bold:
+                foreground = primaryBrush;
+                fontSize = 14;
+                weight = FontWeights.SemiBold;
+                break;
+            case TooltipTextStyle.Secondary:
+                foreground = tertiaryBrush;
+                fontSize = 10;
+                weight = FontWeights.Normal;
+                break;
+            default:
+                foreground = secondaryBrush;
+                fontSize = 12;
+                weight = FontWeights.Normal;
+                break;
+        }
+        return new TextBlock
+        {
+            Text = text.Text,
+            FontSize = fontSize,
+            FontWeight = weight,
+            Foreground = foreground,
+            Margin = new Thickness(0, 2, 0, 0)
+        };
+    }
+
+    /// <summary>构建色块明细行：■ 标签  值。</summary>
+    private static Grid BuildColorRow(TooltipColorRow row, Brush labelBrush, Brush valueBrush)
+    {
+        var grid = new Grid { Margin = new Thickness(0, 2, 0, 0) };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var swatch = new Rectangle
+        {
+            Width = 12,
+            Height = 12,
+            Margin = new Thickness(0, 0, 6, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            Fill = MetricGridControl.TryParseBrush(row.Color ?? "#888888") ?? Brushes.Gray
+        };
+        Grid.SetColumn(swatch, 0);
+        grid.Children.Add(swatch);
+
+        var label = new TextBlock
+        {
+            Text = row.Label,
+            FontSize = 12,
+            Foreground = labelBrush,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        Grid.SetColumn(label, 1);
+        grid.Children.Add(label);
+
+        var value = new TextBlock
+        {
+            Text = row.Value,
+            FontSize = 12,
+            Foreground = valueBrush,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(8, 0, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        Grid.SetColumn(value, 2);
+        grid.Children.Add(value);
+
+        return grid;
+    }
+
+    /// <summary>构建合计行：标签（左）+ 加粗值（右）。</summary>
+    private static Grid BuildSummaryRow(TooltipSummaryRow row, Brush valueBrush)
+    {
+        var grid = new Grid { Margin = new Thickness(0, 4, 0, 0) };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var label = new TextBlock
+        {
+            Text = row.Label,
+            FontSize = 12,
+            Foreground = valueBrush,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        Grid.SetColumn(label, 0);
+        grid.Children.Add(label);
+
+        var value = new TextBlock
+        {
+            Text = row.Value,
+            FontSize = 14,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = valueBrush,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(8, 0, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        Grid.SetColumn(value, 1);
+        grid.Children.Add(value);
+
+        return grid;
+    }
+
+    /// <summary>从 TooltipContent 生成屏幕阅读器文本。</summary>
+    private static string BuildAccessibleText(TooltipContent content)
+    {
+        if (content.Blocks == null || content.Blocks.Count == 0) return string.Empty;
+        var parts = new List<string>(content.Blocks.Count);
+        foreach (var block in content.Blocks)
+        {
+            switch (block)
+            {
+                case TooltipTextBlock t:
+                    parts.Add(t.Text);
+                    break;
+                case TooltipColorRow c:
+                    parts.Add($"{c.Label}：{c.Value}");
+                    break;
+                case TooltipSummaryRow s:
+                    parts.Add($"{s.Label}：{s.Value}");
+                    break;
+            }
+        }
+        return string.Join("。", parts);
     }
 
     /// <summary>按主题资源键取得画笔，资源缺失时使用稳定的颜色回退。</summary>

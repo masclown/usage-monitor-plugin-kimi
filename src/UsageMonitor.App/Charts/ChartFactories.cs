@@ -256,3 +256,263 @@ public sealed class DayNightArcAdapter : IUsageChart
         }
     }
 }
+
+// ============== REQ-082 SDK v2 新增工厂 ==============
+
+/// <summary>
+/// 堆叠柱状图工厂（REQ-082 SDK v2）—— 包装 <c>StackedBarChartControl</c>。
+/// </summary>
+public sealed class StackedBarChartFactory : IUsageChartFactory2
+{
+    /// <inheritdoc />
+    public ChartKind Kind => ChartKind.StackedBar;
+
+    /// <inheritdoc />
+    public IUsageChart Create() => new StackedBarChartAdapter();
+
+    /// <inheritdoc />
+    public IUsageChart Create(ChartContext context) => new StackedBarChartAdapter(context);
+}
+
+/// <summary>堆叠柱状图适配器：把 <see cref="StackedBarChartData"/> 注入控件。</summary>
+public sealed class StackedBarChartAdapter : IUsageChart
+{
+    private readonly ChartContext? _context;
+
+    /// <summary>无参构造（兼容 V1 调用）。</summary>
+    public StackedBarChartAdapter() { }
+
+    /// <summary>接收 <see cref="ChartContext"/> 的构造。</summary>
+    public StackedBarChartAdapter(ChartContext context) { _context = context; }
+
+    /// <summary>WPF 控件实例。</summary>
+    public StackedBarChartControl Control { get; } = new();
+
+    /// <inheritdoc />
+    public ChartKind Kind => ChartKind.StackedBar;
+
+    /// <inheritdoc />
+    public Type ControlType => typeof(StackedBarChartControl);
+
+    /// <inheritdoc />
+    public string DisplayName => "堆叠柱状图 / Stacked Bar Chart";
+
+    /// <inheritdoc />
+    public void Bind(IChartData data, IChartTheme? theme)
+    {
+        if (data is StackedBarChartData stacked)
+        {
+            Control.Categories = stacked.Categories;
+            Control.Series = stacked.Series;
+            Control.Unit = stacked.Unit;
+            Control.Title = stacked.Title;
+        }
+        if (theme != null)
+        {
+            Control.BarBrush = ThemeBrushAdapter.AsBrush(theme.MidBrush, "AccentBrush");
+            Control.GridLineBrush = ThemeBrushAdapter.AsBrush(theme.TrackBrush, "ChartAxisBrush");
+            Control.TextBrush = ThemeBrushAdapter.AsBrush(theme.TextBrush, "TextSecondaryBrush");
+        }
+    }
+}
+
+/// <summary>
+/// 面积图工厂（REQ-082 SDK v2）—— 包装 <c>AreaChartControl</c>。
+/// </summary>
+public sealed class AreaChartFactory : IUsageChartFactory2
+{
+    /// <inheritdoc />
+    public ChartKind Kind => ChartKind.Area;
+
+    /// <inheritdoc />
+    public IUsageChart Create() => new AreaChartAdapter();
+
+    /// <inheritdoc />
+    public IUsageChart Create(ChartContext context) => new AreaChartAdapter(context);
+}
+
+/// <summary>面积图适配器：把 <see cref="AreaChartData"/> 注入控件。</summary>
+public sealed class AreaChartAdapter : IUsageChart
+{
+    private readonly ChartContext? _context;
+
+    /// <summary>无参构造。</summary>
+    public AreaChartAdapter() { }
+
+    /// <summary>接收 <see cref="ChartContext"/> 的构造。</summary>
+    public AreaChartAdapter(ChartContext context) { _context = context; }
+
+    /// <summary>WPF 控件实例。</summary>
+    public AreaChartControl Control { get; } = new();
+
+    /// <inheritdoc />
+    public ChartKind Kind => ChartKind.Area;
+
+    /// <inheritdoc />
+    public Type ControlType => typeof(AreaChartControl);
+
+    /// <inheritdoc />
+    public string DisplayName => "面积图 / Area Chart";
+
+    /// <inheritdoc />
+    public void Bind(IChartData data, IChartTheme? theme)
+    {
+        if (data is AreaChartData area)
+        {
+            Control.Values = area.Values ?? Array.Empty<double>();
+            Control.Categories = area.Categories;
+            if (area.MaxValue.HasValue) Control.MaxValue = area.MaxValue.Value;
+            Control.Unit = area.Unit;
+            Control.SeriesName = area.SeriesName;
+        }
+        if (theme != null)
+        {
+            Control.AreaBrush = ThemeBrushAdapter.AsBrush(theme.LowBrush, "AccentBrush");
+            Control.StrokeBrush = ThemeBrushAdapter.AsBrush(theme.MidBrush, "AccentBrush");
+        }
+    }
+}
+
+/// <summary>
+/// 分组容器工厂（REQ-082 SDK v2）—— 包装 <c>GroupedChartControl</c>。
+/// </summary>
+public sealed class GroupedChartFactory : IUsageChartFactory2
+{
+    /// <inheritdoc />
+    public ChartKind Kind => ChartKind.Grouped;
+
+    /// <inheritdoc />
+    public IUsageChart Create() => new GroupedChartAdapter();
+
+    /// <inheritdoc />
+    public IUsageChart Create(ChartContext context) => new GroupedChartAdapter(context);
+}
+
+/// <summary>分组容器适配器：把 <see cref="GroupedChartData"/> 注入控件。</summary>
+public sealed class GroupedChartAdapter : IUsageChart
+{
+    private readonly ChartContext? _context;
+
+    /// <summary>无参构造。</summary>
+    public GroupedChartAdapter() { }
+
+    /// <summary>接收 <see cref="ChartContext"/> 的构造。</summary>
+    public GroupedChartAdapter(ChartContext context) { _context = context; }
+
+    /// <summary>WPF 控件实例。</summary>
+    public GroupedChartControl Control { get; } = new();
+
+    /// <inheritdoc />
+    public ChartKind Kind => ChartKind.Grouped;
+
+    /// <inheritdoc />
+    public Type ControlType => typeof(GroupedChartControl);
+
+    /// <inheritdoc />
+    public string DisplayName => "分组容器 / Grouped Chart";
+
+    /// <inheritdoc />
+    public void Bind(IChartData data, IChartTheme? theme)
+    {
+        if (data is GroupedChartData grouped)
+        {
+            Control.Groups = grouped.Groups;
+        }
+    }
+}
+
+/// <summary>
+/// 度量进度条工厂（REQ-082 SDK v2）—— 包装 <c>MetricBarControl</c>。
+/// </summary>
+public sealed class MetricBarChartFactory : IUsageChartFactory2
+{
+    /// <inheritdoc />
+    public ChartKind Kind => ChartKind.MetricBar;
+
+    /// <inheritdoc />
+    public IUsageChart Create() => new MetricBarChartAdapter();
+
+    /// <inheritdoc />
+    public IUsageChart Create(ChartContext context) => new MetricBarChartAdapter(context);
+}
+
+/// <summary>度量进度条适配器：把 <see cref="MetricBarData"/> 注入控件。</summary>
+public sealed class MetricBarChartAdapter : IUsageChart
+{
+    private readonly ChartContext? _context;
+
+    /// <summary>无参构造。</summary>
+    public MetricBarChartAdapter() { }
+
+    /// <summary>接收 <see cref="ChartContext"/> 的构造。</summary>
+    public MetricBarChartAdapter(ChartContext context) { _context = context; }
+
+    /// <summary>WPF 控件实例。</summary>
+    public MetricBarControl Control { get; } = new();
+
+    /// <inheritdoc />
+    public ChartKind Kind => ChartKind.MetricBar;
+
+    /// <inheritdoc />
+    public Type ControlType => typeof(MetricBarControl);
+
+    /// <inheritdoc />
+    public string DisplayName => "度量进度条 / Metric Bar";
+
+    /// <inheritdoc />
+    public void Bind(IChartData data, IChartTheme? theme)
+    {
+        if (data is MetricBarData metric)
+        {
+            Control.Bars = metric.Bars;
+        }
+    }
+}
+
+/// <summary>
+/// 度量数字网格工厂（REQ-082 SDK v2）—— 包装 <c>MetricGridControl</c>。
+/// </summary>
+public sealed class MetricGridChartFactory : IUsageChartFactory2
+{
+    /// <inheritdoc />
+    public ChartKind Kind => ChartKind.MetricGrid;
+
+    /// <inheritdoc />
+    public IUsageChart Create() => new MetricGridChartAdapter();
+
+    /// <inheritdoc />
+    public IUsageChart Create(ChartContext context) => new MetricGridChartAdapter(context);
+}
+
+/// <summary>度量数字网格适配器：把 <see cref="MetricGridData"/> 注入控件。</summary>
+public sealed class MetricGridChartAdapter : IUsageChart
+{
+    private readonly ChartContext? _context;
+
+    /// <summary>无参构造。</summary>
+    public MetricGridChartAdapter() { }
+
+    /// <summary>接收 <see cref="ChartContext"/> 的构造。</summary>
+    public MetricGridChartAdapter(ChartContext context) { _context = context; }
+
+    /// <summary>WPF 控件实例。</summary>
+    public MetricGridControl Control { get; } = new();
+
+    /// <inheritdoc />
+    public ChartKind Kind => ChartKind.MetricGrid;
+
+    /// <inheritdoc />
+    public Type ControlType => typeof(MetricGridControl);
+
+    /// <inheritdoc />
+    public string DisplayName => "度量数字网格 / Metric Grid";
+
+    /// <inheritdoc />
+    public void Bind(IChartData data, IChartTheme? theme)
+    {
+        if (data is MetricGridData metric)
+        {
+            Control.Items = metric.Items;
+        }
+    }
+}

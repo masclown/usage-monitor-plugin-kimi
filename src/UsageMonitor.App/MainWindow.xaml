@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:controls="clr-namespace:UsageMonitor.App.Controls"
         xmlns:helpers="clr-namespace:UsageMonitor.App.Helpers"
+        xmlns:selectors="clr-namespace:UsageMonitor.App.Selectors"
         Title="UsageMonitor - AI用量监控"
         Icon="{Binding CurrentLogoSource}"
         Height="640" Width="820"
@@ -15,6 +16,10 @@
 
     <!-- req-072 U-05：卡片拆分 5 个子 DataTemplate（头部/限额/余额/图表/错误） -->
     <Window.Resources>
+        <!-- REQ-083 SDK v2：卡片模板选择器（根据 VM 是否提供 V2 数据模型自动路由新/旧模板） -->
+        <selectors:ChartCardTemplateSelector x:Key="LimitBarsTemplateSelector" Kind="LimitBars" />
+        <selectors:ChartCardTemplateSelector x:Key="BalanceTemplateSelector" Kind="Balance" />
+
         <!-- 子模板 1：卡片头部（Provider 名称 + 状态摘要 + 操作按钮） -->
         <DataTemplate x:Key="CardHeaderTemplate">
             <DockPanel Margin="0,0,0,10">
@@ -385,6 +390,142 @@
                     Visibility="{Binding CardChartKinds, Converter={StaticResource CardChartKindsContains}, ConverterParameter=DayNightArc}" />
             </StackPanel>
         </DataTemplate>
+
+        <!-- REQ-083 SDK v2：MetricBarData 新模板（由 ChartCardTemplateSelector 在 V2 数据非空时启用）。
+             布局与旧 CardLimitBarsTemplate 一致（5h/周/视频赠送 4 条进度条），但数据驱动由 MetricBarData 取代硬编码字段。 -->
+        <DataTemplate x:Key="MetricBarTemplate">
+            <StackPanel>
+                <!-- 5h 限额 -->
+                <StackPanel Margin="0,0,0,10"
+                            Visibility="{Binding RenderKinds, Converter={StaticResource RenderKindToVisibility}, ConverterParameter=primaryBar}">
+                    <DockPanel>
+                        <TextBlock Text="5h 限额" FontSize="12"
+                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                   VerticalAlignment="Center" />
+                        <TextBlock DockPanel.Dock="Right" HorizontalAlignment="Right"
+                                   FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
+                                   Text="{Binding PrimaryResetText}" />
+                    </DockPanel>
+                    <Grid Margin="0,5,0,0" Height="{DynamicResource ProgressBarHeight}">
+                        <Border CornerRadius="{DynamicResource ProgressBarRadius}" Background="{DynamicResource TrackBrush}" />
+                        <Border CornerRadius="{DynamicResource ProgressBarRadius}"
+                                Background="{Binding PrimaryBarPercent, Converter={StaticResource PercentToBrush}}"
+                                HorizontalAlignment="Left">
+                            <Border.Width>
+                                <MultiBinding Converter="{StaticResource PercentageWidthConverter}">
+                                    <Binding Path="PrimaryBarPercent" />
+                                    <Binding RelativeSource="{RelativeSource FindAncestor, AncestorType={x:Type Grid}}" Path="ActualWidth" />
+                                </MultiBinding>
+                            </Border.Width>
+                        </Border>
+                    </Grid>
+                    <DockPanel Margin="0,3,0,0">
+                        <TextBlock Text="总额度 100%" FontSize="11"
+                                   Foreground="{DynamicResource TextTertiaryBrush}" />
+                        <TextBlock DockPanel.Dock="Right" HorizontalAlignment="Right"
+                                   FontSize="11" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource TextPrimaryBrush}"
+                                   Text="{Binding PrimaryBarPercent, StringFormat=已用 {0:0}%}" />
+                    </DockPanel>
+                </StackPanel>
+
+                <!-- 周限额 -->
+                <StackPanel Margin="0,4,0,10"
+                            Visibility="{Binding RenderKinds, Converter={StaticResource RenderKindToVisibility}, ConverterParameter=weeklyBar}">
+                    <DockPanel>
+                        <TextBlock Text="本周限额" FontSize="12"
+                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                   VerticalAlignment="Center" />
+                        <TextBlock DockPanel.Dock="Right" HorizontalAlignment="Right"
+                                   FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
+                                   Text="{Binding WeeklyResetText}" />
+                    </DockPanel>
+                    <Grid Margin="0,5,0,0" Height="{DynamicResource ProgressBarHeight}">
+                        <Border CornerRadius="{DynamicResource ProgressBarRadius}" Background="{DynamicResource TrackBrush}" />
+                        <Border CornerRadius="{DynamicResource ProgressBarRadius}"
+                                Background="{Binding WeeklyBarPercent, Converter={StaticResource PercentToBrush}}"
+                                HorizontalAlignment="Left">
+                            <Border.Width>
+                                <MultiBinding Converter="{StaticResource PercentageWidthConverter}">
+                                    <Binding Path="WeeklyBarPercent" />
+                                    <Binding RelativeSource="{RelativeSource FindAncestor, AncestorType={x:Type Grid}}" Path="ActualWidth" />
+                                </MultiBinding>
+                            </Border.Width>
+                        </Border>
+                    </Grid>
+                    <DockPanel Margin="0,3,0,0">
+                        <TextBlock Text="总额度 100%" FontSize="11"
+                                   Foreground="{DynamicResource TextTertiaryBrush}" />
+                        <TextBlock DockPanel.Dock="Right" HorizontalAlignment="Right"
+                                   FontSize="11" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource TextPrimaryBrush}"
+                                   Text="{Binding WeeklyBarPercent, StringFormat=已用 {0:0}%}" />
+                    </DockPanel>
+                </StackPanel>
+
+                <!-- 视频赠送（保留兼容旧字段显示，避免新模板与旧显示不一致） -->
+                <StackPanel Margin="0,0,0,8">
+                    <StackPanel.Visibility>
+                        <MultiBinding Converter="{StaticResource MultiVisibilityOr}">
+                            <Binding Path="RenderKinds" Converter="{StaticResource RenderKindToVisibility}" ConverterParameter="videoProgress" />
+                            <Binding Path="ShowVideo5hBar" Converter="{StaticResource BoolToVisibility}" />
+                            <Binding Path="ShowVideoWeeklyBar" Converter="{StaticResource BoolToVisibility}" />
+                        </MultiBinding>
+                    </StackPanel.Visibility>
+                    <DockPanel Visibility="{Binding ShowVideo5hBar, Converter={StaticResource BoolToVisibility}}">
+                        <TextBlock Text="视频赠送 5h" FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}" />
+                        <TextBlock DockPanel.Dock="Right" HorizontalAlignment="Right"
+                                   FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
+                                   Text="{Binding VideoQuotaText}" />
+                    </DockPanel>
+                    <Grid Margin="0,5,0,2" Height="{DynamicResource ProgressBarHeight}"
+                          Visibility="{Binding ShowVideo5hBar, Converter={StaticResource BoolToVisibility}}">
+                        <Border CornerRadius="{DynamicResource ProgressBarRadius}" Background="{DynamicResource TrackBrush}" />
+                        <Border CornerRadius="{DynamicResource ProgressBarRadius}"
+                                Background="{Binding VideoIntervalPercent, Converter={StaticResource PercentToBrush}}"
+                                HorizontalAlignment="Left">
+                            <Border.Width>
+                                <MultiBinding Converter="{StaticResource PercentageWidthConverter}">
+                                    <Binding Path="VideoIntervalPercent" />
+                                    <Binding RelativeSource="{RelativeSource FindAncestor, AncestorType={x:Type Grid}}" Path="ActualWidth" />
+                                </MultiBinding>
+                            </Border.Width>
+                        </Border>
+                    </Grid>
+                    <DockPanel Margin="0,4,0,0"
+                               Visibility="{Binding ShowVideoWeeklyBar, Converter={StaticResource BoolToVisibility}}">
+                        <TextBlock Text="视频赠送 周" FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}" />
+                        <TextBlock DockPanel.Dock="Right" HorizontalAlignment="Right"
+                                   FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
+                                   Text="{Binding VideoWeeklyText}" />
+                    </DockPanel>
+                    <Grid Margin="0,4,0,0" Height="{DynamicResource ProgressBarHeight}"
+                          Visibility="{Binding ShowVideoWeeklyBar, Converter={StaticResource BoolToVisibility}}">
+                        <Border CornerRadius="{DynamicResource ProgressBarRadius}" Background="{DynamicResource TrackBrush}" />
+                        <Border CornerRadius="{DynamicResource ProgressBarRadius}"
+                                Background="{Binding VideoWeeklyPercent, Converter={StaticResource PercentToBrush}}"
+                                HorizontalAlignment="Left">
+                            <Border.Width>
+                                <MultiBinding Converter="{StaticResource PercentageWidthConverter}">
+                                    <Binding Path="VideoWeeklyPercent" />
+                                    <Binding RelativeSource="{RelativeSource FindAncestor, AncestorType={x:Type Grid}}" Path="ActualWidth" />
+                                </MultiBinding>
+                            </Border.Width>
+                        </Border>
+                    </Grid>
+                </StackPanel>
+            </StackPanel>
+        </DataTemplate>
+
+        <!-- REQ-083 SDK v2：MetricGridData 新模板（由 ChartCardTemplateSelector 在 V2 数据非空时启用）。
+             当 V2 数据非空时，使用 MetricGridControl 绑定；当前 V2 数据为 null 时永远 fallback 到旧 CardBalanceTemplate。 -->
+        <DataTemplate x:Key="MetricGridTemplate">
+            <Border Background="{DynamicResource SurfaceAltBrush}"
+                    CornerRadius="{DynamicResource RadiusSmall}" Padding="12,8"
+                    Margin="0,8,0,0">
+                <controls:MetricGridControl Items="{Binding CardMetricGridData.Items}" />
+            </Border>
+        </DataTemplate>
     </Window.Resources>
 
     <Grid Margin="{DynamicResource PagePadding}">
@@ -509,11 +650,11 @@
                                           Margin="0,8,0,0"
                                           Style="{StaticResource CardExpanderStyle}">
                                     <StackPanel>
-                                        <!-- 限额进度条 -->
-                                        <ContentPresenter Content="{Binding}" ContentTemplate="{StaticResource CardLimitBarsTemplate}" />
-            
-                                        <!-- 余额快照 -->
-                                        <ContentPresenter Content="{Binding}" ContentTemplate="{StaticResource CardBalanceTemplate}" />
+                                        <!-- 限额进度条：REQ-083 通过 ChartCardTemplateSelector 在 V2 数据非空时自动切换到 MetricBarTemplate -->
+                                        <ContentPresenter Content="{Binding}" ContentTemplateSelector="{StaticResource LimitBarsTemplateSelector}" />
+
+                                        <!-- 余额快照：REQ-083 通过 ChartCardTemplateSelector 在 V2 数据非空时自动切换到 MetricGridTemplate -->
+                                        <ContentPresenter Content="{Binding}" ContentTemplateSelector="{StaticResource BalanceTemplateSelector}" />
             
                                         <!-- 卡片图表区 -->
                                         <ContentPresenter Content="{Binding}" ContentTemplate="{StaticResource CardChartTemplate}" />

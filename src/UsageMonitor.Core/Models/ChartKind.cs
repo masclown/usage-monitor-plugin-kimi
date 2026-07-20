@@ -23,5 +23,22 @@ public enum ChartKind
     HeatMap,
 
     /// <summary>日月"编程时段"弧线图。</summary>
-    DayNightArc
+    DayNightArc,
+
+    // ============== REQ-082 SDK v2 新增 ==============
+
+    /// <summary>多系列堆叠柱状图（动态 N 系列）。</summary>
+    StackedBar,
+
+    /// <summary>面积图（独立控件，非折线变体）。</summary>
+    Area,
+
+    /// <summary>分组容器（嵌套其他 Kind，按维度分组展示）。</summary>
+    Grouped,
+
+    /// <summary>度量进度条组（N 条带标签的进度条）。</summary>
+    MetricBar,
+
+    /// <summary>度量数字网格（N 个并排独立数字）。</summary>
+    MetricGrid
 }
