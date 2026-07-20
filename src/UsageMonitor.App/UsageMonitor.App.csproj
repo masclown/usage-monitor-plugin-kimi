@@ -9,13 +9,13 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
 
-    <!-- 项目版本号（0.19.0）：图表泛化架构：6个新图表控件(AreaChart/GroupedChart/MetricBar/MetricGrid/StackedBarChart/ChartDimensionSwitcher) / ChartFactories图表工厂 / IChartPalette色板接口 / TooltipContent模型 / ChartContext模型；用于程序集元数据 + 文件属性。 -->
+    <!-- 项目版本号（0.19.1）：BrowserLoginService浏览器登录服务修正 / ConfigService配置服务增强；用于程序集元数据 + 文件属性。 -->
     <!-- 显式设置 5 个属性，避免被 SDK 衍生规则变动影响。 -->
-    <Version>0.19.0</Version>
-    <AssemblyVersion>0.19.0.0</AssemblyVersion>
-    <FileVersion>0.19.0.0</FileVersion>
-    <InformationalVersion>0.19.0</InformationalVersion>
-    <ProductVersion>0.19.0</ProductVersion>
+    <Version>0.19.1</Version>
+    <AssemblyVersion>0.19.1.0</AssemblyVersion>
+    <FileVersion>0.19.1.0</FileVersion>
+    <InformationalVersion>0.19.1</InformationalVersion>
+    <ProductVersion>0.19.1</ProductVersion>
     <AssemblyTitle>UsageMonitor</AssemblyTitle>
     <Product>UsageMonitor</Product>
     <Company>UsageMonitor</Company>

@@ -424,7 +424,10 @@ public class BrowserLoginService
 
             // Also persist into main config.json so RefreshService picks up the new cookie
             // without requiring app restart. (RefreshService reads ProviderConfigs on next tick.)
-            try { PersistToMainConfig(config, cookieData); }
+            try
+            {
+                PersistToMainConfig(config, cookieData);
+            }
             catch (Exception persistEx)
             {
                 FileLogger.Warn("BrowserLoginService",

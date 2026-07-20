@@ -488,6 +488,27 @@ public class ConfigService
             }
         }
 
+        // REQ-089 Bug fix: Save 路径上的 MakeSnapshot() 是浅拷贝 (ConfigService.cs:516
+        // ProviderConfigs = new Dictionary<...>(_settings.ProviderConfigs))，
+        // 导致 EncryptSensitiveFields(snapshot) 原地改写了 _settings 里的明文 Cookie 为
+        // DPAPI 密文。下次 GetUsageAsync 读 config.GetValue("Cookie") 拿到的是密文，
+        // cookie.Contains("_token=") 返回 false，传入 MiniMax 服务端后被 1016 invalid api key
+        // 拒绝。修复：写盘完成后立即把 _settings 还原成明文，保证业务代码读到的永远是可用明文。
+        // DecryptSensitiveFields 内部 catch 单个字段失败，不影响其他字段。
+        if (changed)
+        {
+            try
+            {
+                DecryptSensitiveFields();
+            }
+            catch (Exception ex)
+            {
+                // 还原失败不应阻塞 ConfigChanged 通知；记录告警供诊断。
+                FileLogger.Warn("ConfigService",
+                    $"Save 写盘后还原明文失败，下次读取 config 可能拿到密文: {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
         if (changed)
             ConfigChanged?.Invoke(this, EventArgs.Empty);
     }
