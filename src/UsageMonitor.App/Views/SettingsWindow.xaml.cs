@@ -34,6 +34,71 @@ public partial class SettingsWindow : Window
 
         // req-053：初始化环形图中心数字项的颜色（启用=白色，禁用=灰色）
         UpdateRingMetricItemColors();
+
+        // req-089：加载安全页 ACL 状态
+        LoadSecurityTabStatus();
+    }
+
+    /// <summary>
+    /// req-089：加载安全标签页的 ACL 状态显示。
+    /// </summary>
+    private void LoadSecurityTabStatus()
+    {
+        try
+        {
+            var appDataDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "UsageMonitor");
+            var cookieDir = Path.Combine(appDataDir, "cookies");
+
+            if (CookieDirAclStatus != null)
+            {
+                var tightened = UsageMonitor.Core.Security.CookieDirAccessControl.IsTightened(cookieDir);
+                CookieDirAclStatus.Text = tightened ? "✅ 已收紧" : "⚠️ 默认（未收紧）";
+            }
+
+            if (ConfigDirAclStatus != null)
+            {
+                var tightened = UsageMonitor.Core.Security.ConfigDirAccessControl.IsTightened(_configService.ConfigFilePath);
+                ConfigDirAclStatus.Text = tightened ? "✅ 已收紧" : "⚠️ 默认（未收紧）";
+            }
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Warn("SettingsWindow", $"LoadSecurityTabStatus failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// req-089：手动触发 ACL 收紧按钮。
+    /// </summary>
+    private void ApplyAclTightening_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var appDataDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "UsageMonitor");
+            var cookieDir = Path.Combine(appDataDir, "cookies");
+            Directory.CreateDirectory(cookieDir);
+
+            var cookieResult = UsageMonitor.Core.Security.CookieDirAccessControl.ApplyTightening(cookieDir);
+            var configResult = UsageMonitor.Core.Security.ConfigDirAccessControl.ApplyTightening(_configService.ConfigFilePath);
+
+            LoadSecurityTabStatus(); // 刷新显示
+
+            var msg = (cookieResult && configResult)
+                ? "ACL 收紧已成功应用。"
+                : "ACL 收紧部分应用（可能因权限不足跳过）。详见日志。";
+            System.Windows.MessageBox.Show(msg, "安全设置",
+                System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Error("SettingsWindow", "ApplyAclTightening failed", ex);
+            System.Windows.MessageBox.Show($"应用失败：{ex.Message}", "安全设置",
+                System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
+        }
     }
 
     /// <summary>

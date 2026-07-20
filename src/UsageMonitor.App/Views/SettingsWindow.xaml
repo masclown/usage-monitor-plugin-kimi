@@ -562,6 +562,65 @@
             </ScrollViewer>
         </TabItem>
 
+        <!-- req-089：安全标签页 -->
+        <TabItem Header="安全">
+            <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,6,0">
+                <StackPanel Margin="16">
+                    <TextBlock Text="安全设置" FontSize="{DynamicResource FontSizeTitle}" FontWeight="Bold"
+                               Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,20" />
+
+                    <!-- ACL 状态区块 -->
+                    <TextBlock Text="文件访问控制（NTFS ACL）" FontSize="15" FontWeight="SemiBold"
+                               Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,12" />
+
+                    <Border Background="{DynamicResource MutedBrush}" CornerRadius="{DynamicResource RadiusButton}"
+                            Padding="12" Margin="0,0,0,16">
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                <TextBlock Text="Cookie 目录：" FontSize="13"
+                                           Foreground="{DynamicResource TextSecondaryBrush}" Width="100" />
+                                <TextBlock x:Name="CookieDirAclStatus" Text="检测中..." FontSize="13"
+                                           Foreground="{DynamicResource TextPrimaryBrush}" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                <TextBlock Text="配置目录：" FontSize="13"
+                                           Foreground="{DynamicResource TextSecondaryBrush}" Width="100" />
+                                <TextBlock x:Name="ConfigDirAclStatus" Text="检测中..." FontSize="13"
+                                           Foreground="{DynamicResource TextPrimaryBrush}" />
+                            </StackPanel>
+                            <TextBlock Text="收紧后仅当前 Windows 用户可访问 Cookie 和配置文件"
+                                       FontSize="{DynamicResource FontSizeCaption}"
+                                       Foreground="{DynamicResource TextTertiaryBrush}" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
+                        <Button Content="立即应用 ACL 收紧" Padding="18,8" Click="ApplyAclTightening_Click"
+                                Style="{StaticResource PrimaryButtonStyle}" />
+                        <TextBlock Text="（首次启动时自动应用）" FontSize="12"
+                                   VerticalAlignment="Center" Margin="12,0,0,0"
+                                   Foreground="{DynamicResource TextTertiaryBrush}" />
+                    </StackPanel>
+
+                    <Separator Margin="0,8,0,16" />
+
+                    <!-- req-090 预留：审计日志区块 -->
+                    <TextBlock Text="Cookie 审计日志" FontSize="15" FontWeight="SemiBold"
+                               Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,12" />
+                    <TextBlock Text="（req-090 实现后可用）" FontSize="13"
+                               Foreground="{DynamicResource TextTertiaryBrush}" Margin="0,0,0,16" />
+
+                    <Separator Margin="0,8,0,16" />
+
+                    <!-- req-090 预留：过期清理区块 -->
+                    <TextBlock Text="Cookie 过期清理" FontSize="15" FontWeight="SemiBold"
+                               Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,12" />
+                    <TextBlock Text="（req-090 实现后可用）" FontSize="13"
+                               Foreground="{DynamicResource TextTertiaryBrush}" />
+                </StackPanel>
+            </ScrollViewer>
+        </TabItem>
+
         <!-- 诊断 / 日志 -->
         <TabItem Header="诊断 / 日志">
             <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,6,0">

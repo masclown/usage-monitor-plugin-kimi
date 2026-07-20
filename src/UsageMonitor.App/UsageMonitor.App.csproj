@@ -9,19 +9,21 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
 
-    <!-- 项目版本号（0.19.1）：BrowserLoginService浏览器登录服务修正 / ConfigService配置服务增强；用于程序集元数据 + 文件属性。 -->
+    <!-- 项目版本号（0.20.0）：完整插件架构(PluginBase/WebPluginBase/IPluginLifecycle/PluginLifecycleManager) / 插件模板项目(Template.Api/Web) / 插件配置模型(IPluginSettings/PluginSettingsBase/StandardWebConfigFields) / 安全模块(ConfigDirAccessControl/CookieDirAccessControl/CookieProtection/CookieAuditLog/CookieCleanupService) / 3篇开发指南文档；用于程序集元数据 + 文件属性。 -->
     <!-- 显式设置 5 个属性，避免被 SDK 衍生规则变动影响。 -->
-    <Version>0.19.1</Version>
-    <AssemblyVersion>0.19.1.0</AssemblyVersion>
-    <FileVersion>0.19.1.0</FileVersion>
-    <InformationalVersion>0.19.1</InformationalVersion>
-    <ProductVersion>0.19.1</ProductVersion>
+    <Version>0.20.0</Version>
+    <AssemblyVersion>0.20.0.0</AssemblyVersion>
+    <FileVersion>0.20.0.0</FileVersion>
+    <InformationalVersion>0.20.0</InformationalVersion>
+    <ProductVersion>0.20.0</ProductVersion>
     <AssemblyTitle>UsageMonitor</AssemblyTitle>
     <Product>UsageMonitor</Product>
     <Company>UsageMonitor</Company>
     <Copyright>Copyright © 2026</Copyright>
     <!-- req-055：DPI感知manifest，支持多显示器PerMonitorV2 -->
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- req-086-3.4：App 层作为兼容层继续使用旧字段，抑制 CS0618 警告 -->
+    <NoWarn>$(NoWarn);CS0618</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

@@ -226,6 +226,11 @@ public class AppSettings
     /// </para>
     /// </summary>
     public DateTime? LastCleanedZeroTokensAt { get; set; }
+
+    /// <summary>
+    /// req-090-003：Cookie 保留天数（默认 90 天，范围 7-365）。超过此天数的 Cookie 文件在启动时被清理。
+    /// </summary>
+    public int CookieRetentionDays { get; set; } = 90;
 }
 
 /// <summary>
@@ -269,6 +274,9 @@ public class ConfigService
 
     /// <summary>当前应用配置（注意：直接修改字段不经过 _ioLock，并发场景应使用 <see cref="UpdateSettings"/>）</summary>
     public AppSettings Settings => _settings;
+
+    /// <summary>req-089：暴露 config.json 完整路径，供 ACL 收紧使用</summary>
+    public string ConfigFilePath => _configFilePath;
 
     /// <summary>
     /// req-057：线程安全的配置修改 API。在 _ioLock 内执行 mutator，避免与并发 Save/Load 产生竞态。

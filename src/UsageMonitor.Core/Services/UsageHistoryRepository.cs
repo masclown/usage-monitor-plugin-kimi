@@ -4,6 +4,9 @@ using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using UsageMonitor.Core.Models;
 
+// req-086-3.4：Core 项目内部作为兼容层继续使用旧字段，抑制 CS0618 警告
+#pragma warning disable CS0618
+
 namespace UsageMonitor.Core.Services;
 
 /// <summary>

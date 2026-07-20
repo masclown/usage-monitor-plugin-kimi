@@ -50,7 +50,7 @@ internal static class MiniMaxDomExtractor
     /// <param name="region">Region identifier: "CN" (default) or "Global". Affects cookie domain and navigation URL.</param>
     /// <param name="ct">Cancellation</param>
     public static async Task<UsageInfo?> ExtractAsync(
-        string cookie, string userAgent, string region = "CN", CancellationToken ct = default)
+        string cookie, string? userAgent, string region = "CN", CancellationToken ct = default)
     {
         FileLogger.Info(LogSource, $"ExtractAsync started. cookieLen={cookie?.Length ?? 0}, uaLen={userAgent?.Length ?? 0}");
         if (string.IsNullOrWhiteSpace(cookie))
@@ -112,7 +112,7 @@ internal static class MiniMaxDomExtractor
     /// req-058：实际的 Playwright DOM 抽取核心逻辑（从原 ExtractAsync 拆分）。
     /// </summary>
     private static async Task<UsageInfo?> ExtractCoreAsync(
-        string cookie, string userAgent, string region, CancellationToken ct)
+        string cookie, string? userAgent, string region, CancellationToken ct)
     {
 
         var tempProfile = Path.Combine(Path.GetTempPath(),

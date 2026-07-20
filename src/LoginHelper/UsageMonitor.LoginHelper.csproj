@@ -11,7 +11,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\Plugins\UsageMonitor.Plugin.Deepseek\UsageMonitor.Plugin.Deepseek.csproj" />
+    <ProjectReference Include="..\Plugins\UsageMonitor.Plugin.MiMo\UsageMonitor.Plugin.MiMo.csproj" />
     <ProjectReference Include="..\Plugins\UsageMonitor.Plugin.MiniMax\UsageMonitor.Plugin.MiniMax.csproj" />
+    <ProjectReference Include="..\Plugins\UsageMonitor.Plugin.OpenAI\UsageMonitor.Plugin.OpenAI.csproj" />
   </ItemGroup>
 
 </Project>

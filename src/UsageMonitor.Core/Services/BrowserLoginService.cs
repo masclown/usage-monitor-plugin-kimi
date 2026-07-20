@@ -524,7 +524,7 @@ public class BrowserLoginService
         return string.Empty;
     }
 
-    /// <summary>Load saved cookie by ProviderId.</summary>
+    /// <summary>Load saved cookie by ProviderId. Supports legacy Base64 format auto-migration to HMAC-signed format.</summary>
     public static BrowserCookieData? LoadCookieData(string providerId)
     {
         var path = GetCookieFilePath(providerId);
@@ -532,17 +532,46 @@ public class BrowserLoginService
 
         try
         {
+            // req-090-001：先尝试新格式（HMAC 签名二进制）
+            var rawBytes = File.ReadAllBytes(path);
+            var dpapiCipher = CookieProtection.Unprotect(rawBytes);
+            if (dpapiCipher != null)
+            {
+                // 新格式验签成功
+                var json = Encoding.UTF8.GetString(ProtectedData.Unprotect(dpapiCipher, null, DataProtectionScope.CurrentUser));
+                CookieAuditLog.Write(providerId, CookieAuditLog.AuditAction.Load, true, CookieAuditLog.AuditSource.Auto);
+                return JsonSerializer.Deserialize<BrowserCookieData>(json, s_readOptions);
+            }
+
+            // 回退旧格式（纯 Base64 DPAPI 文本）→ 自动迁移到新格式
             var encryptedJson = File.ReadAllText(path, Encoding.UTF8);
-            var json = Decrypt(encryptedJson);
-            return JsonSerializer.Deserialize<BrowserCookieData>(json, s_readOptions);
+            if (CookieProtection.IsLegacyFormat(encryptedJson))
+            {
+                var json = Decrypt(encryptedJson);
+                var data = JsonSerializer.Deserialize<BrowserCookieData>(json, s_readOptions);
+                if (data != null)
+                {
+                    FileLogger.Info("BrowserLoginService", $"Cookie 旧格式自动迁移: {providerId}");
+                    SaveCookieData(data); // 迁移到新格式
+                    CookieAuditLog.Write(providerId, CookieAuditLog.AuditAction.Load, true, CookieAuditLog.AuditSource.Auto, "legacy-migrated");
+                }
+                return data;
+            }
+
+            // 新格式但验签失败（可能被篡改）
+            FileLogger.Warn("BrowserLoginService", $"Cookie 文件验签失败，可能已被篡改: {providerId}");
+            CookieAuditLog.Write(providerId, CookieAuditLog.AuditAction.Load, false, CookieAuditLog.AuditSource.Auto, "hmac-verification-failed");
+            File.Delete(path); // 删除被篡改的文件
+            return null;
         }
-        catch
+        catch (Exception ex)
         {
+            CookieAuditLog.Write(providerId, CookieAuditLog.AuditAction.Load, false, CookieAuditLog.AuditSource.Auto, ex.Message);
             return null;
         }
     }
 
-    /// <summary>Save cookie to JSON with DPAPI encryption.</summary>
+    /// <summary>Save cookie to JSON with DPAPI encryption + HMAC-SHA256 signature.</summary>
     public static void SaveCookieData(BrowserCookieData data)
     {
         if (data == null) throw new ArgumentNullException(nameof(data));
@@ -551,8 +580,11 @@ public class BrowserLoginService
         var path = GetCookieFilePath(data.ProviderId);
 
         var json = JsonSerializer.Serialize(data, s_writeOptions);
-        var encryptedJson = Encrypt(json);
-        File.WriteAllText(path, encryptedJson, Encoding.UTF8);
+        var dpapiCipher = ProtectedData.Protect(Encoding.UTF8.GetBytes(json), null, DataProtectionScope.CurrentUser);
+        // req-090-001：HMAC 签名 + 新格式写入
+        var signed = CookieProtection.Protect(dpapiCipher);
+        File.WriteAllBytes(path, signed);
+        CookieAuditLog.Write(data.ProviderId, CookieAuditLog.AuditAction.Save, true, CookieAuditLog.AuditSource.Auto);
     }
 
     /// <summary>使用DPAPI加密字符串</summary>

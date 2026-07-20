@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Forms;
 using System.Windows.Threading;
 using System.Drawing;
+using System.IO;
 using UsageMonitor.Core.Plugins;
 using UsageMonitor.Core.Services;
 using UsageMonitor.Core.Models;
@@ -78,6 +79,35 @@ public partial class App : Application
         // 初始化核心服务
         _configService = new ConfigService();
         _configService.Load();
+
+        // req-089：Cookie 文件 ACL 收紧（P0）——对 cookies 目录和 config.json 所在目录做 NTFS ACL 收紧
+        try
+        {
+            var cookieDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "UsageMonitor", "cookies");
+            Directory.CreateDirectory(cookieDir); // 确保目录存在
+            UsageMonitor.Core.Security.CookieDirAccessControl.ApplyTightening(cookieDir);
+            UsageMonitor.Core.Security.ConfigDirAccessControl.ApplyTightening(_configService.ConfigFilePath);
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Warn("App", $"req-089 ACL tightening skipped: {ex.Message}");
+        }
+
+        // req-090-003：Cookie 过期清理（启动时扫描，删除超过保留天数的 Cookie 文件）
+        try
+        {
+            var cookieDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "UsageMonitor", "cookies");
+            UsageMonitor.Core.Services.CookieCleanupService.CleanupExpiredCookies(
+                cookieDir, _configService.Settings.CookieRetentionDays);
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Warn("App", $"req-090 cookie cleanup skipped: {ex.Message}");
+        }
 
         // 应用已保存的外观主题（必须在任何窗口/控件构造之前，保证首屏即为目标主题）
         Helpers.ThemeManager.Apply(_configService.Settings.Theme);

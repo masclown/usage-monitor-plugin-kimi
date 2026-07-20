@@ -2,10 +2,10 @@
 
   <PropertyGroup>
     <TargetFramework>net8.0-windows</TargetFramework>
-    <RootNamespace>UsageMonitor.Plugin.Deepseek</RootNamespace>
+    <RootNamespace>UsageMonitor.Plugin.Template.Web</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <!-- req-086-3.4：旧插件继续使用旧字段，抑制 CS0618 警告 -->
+    <!-- req-086-3.4：模板项目使用新字段，但仍可能访问旧字段做兼容，抑制 CS0618 -->
     <NoWarn>$(NoWarn);CS0618</NoWarn>
   </PropertyGroup>
 

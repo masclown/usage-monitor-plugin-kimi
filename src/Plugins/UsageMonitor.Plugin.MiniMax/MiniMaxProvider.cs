@@ -7,6 +7,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Data.Sqlite;
+using Microsoft.Playwright;
 using UsageMonitor.Core.Models;
 using UsageMonitor.Core.Plugins;
 using UsageMonitor.Core.Services;
@@ -28,8 +29,12 @@ namespace UsageMonitor.Plugin.MiniMax;
 /// It only accepts Cookie Session auth. This plugin supports:
 /// 1. User manually paste Cookie (fallback)
 /// 2. Auto-extract from system Edge/Chrome Cookie database (if user already logged in)
+///
+/// req-086-3.2：迁移到 <see cref="WebPluginBase"/>，保留现有公共行为。
+/// DOM 提取（<see cref="MiniMaxDomExtractor"/>）仍为主要路径（使用持久化上下文），
+/// API 调用为回退路径。<see cref="GetUsageAsync"/> override 保留原有双路径逻辑。
 /// </remarks>
-public class MiniMaxProvider : HttpUsageProviderBase
+public class MiniMaxProvider : WebPluginBase
 {
     /// <summary>CN region API base URL (uses www. subdomain which SPA actually uses)</summary>
     private const string DefaultCnBaseUrl = "https://www.minimaxi.com";
@@ -62,6 +67,20 @@ public class MiniMaxProvider : HttpUsageProviderBase
 
     /// <inheritdoc />
     protected override HttpClient Http => _httpClient;
+
+    // ============== WebPluginBase 抽象属性实现 ==============
+
+    /// <summary>登录入口 URL（MiniMax 控制台）</summary>
+    protected override string LoginUrl => "https://platform.minimaxi.com";
+
+    /// <summary>用量页面 URL（MiniMax 控制台用量页）</summary>
+    protected override string UsageUrl => "https://platform.minimaxi.com/console/usage";
+
+    /// <summary>Cookie 域名过滤列表</summary>
+    protected override string[] CookieDomainFilters => MiniMaxDomains;
+
+    /// <summary>无头模式（MiniMax DOM 提取使用持久化上下文，始终无头）</summary>
+    protected override bool Headless => true;
 
     /// <inheritdoc />
     public override string ProviderId => "MiniMax";
@@ -240,6 +259,12 @@ public class MiniMaxProvider : HttpUsageProviderBase
 
     /// <summary>
     /// Query MiniMax Token Plan usage.
+    /// <para>
+    /// req-086-3.2：override 保留原有双路径逻辑（DOM 提取为主，API 回退）。
+    /// 不使用 <see cref="WebPluginBase"/> 的模板方法，因为 <see cref="MiniMaxDomExtractor"/>
+    /// 使用持久化上下文（LaunchPersistentContextAsync）管理浏览器，与 WebPluginBase 的
+    /// 浏览器生命周期不兼容。
+    /// </para>
     /// </summary>
     public override async Task<UsageInfo> GetUsageAsync(ProviderConfig config, CancellationToken ct = default)
     {
@@ -611,6 +636,22 @@ public class MiniMaxProvider : HttpUsageProviderBase
     /// <summary>ProviderId static accessor (used by internal BuildUsageInfo)</summary>
     private static string ProviderIdStatic => "MiniMax";
 
+    /// <summary>
+    /// req-086-3.2：从 HttpUsageProviderBase 迁移过来的错误响应体脱敏方法。
+    /// 移除敏感信息并截断到指定长度。
+    /// </summary>
+    private static string SanitizeErrorBody(string? body, int maxLen = 200)
+    {
+        if (string.IsNullOrEmpty(body)) return string.Empty;
+        // 脱敏常见敏感模式
+        var sanitized = System.Text.RegularExpressions.Regex.Replace(
+            body,
+            @"(api[_-]?key|authorization|token|secret)[""':\s=]+\S+",
+            "$1=***REDACTED***",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        return sanitized.Length <= maxLen ? sanitized : sanitized.Substring(0, maxLen) + "...";
+    }
+
     /// <inheritdoc />
     public override UsageMonitor.Core.Models.BrowserLoginConfig LoginConfig { get; } = new()
     {
@@ -637,6 +678,25 @@ public class MiniMaxProvider : HttpUsageProviderBase
         // After login, URL path must contain one of these (登录后才有的页面，避免文档站等公开页误判)
         LoggedInPathKeywords = new[] { "/console/", "/user-center/", "/plan", "/usage" },
     };
+
+    /// <summary>
+    /// req-086-3.2：<see cref="WebPluginBase"/> 模板方法——解析用量页面。
+    /// <para>
+    /// MiniMax 的 DOM 提取逻辑由 <see cref="MiniMaxDomExtractor"/> 使用持久化上下文独立完成，
+    /// 此方法作为 <see cref="WebPluginBase"/> 模板方法的占位实现，实际不会被调用
+    /// （因为 <see cref="GetUsageAsync"/> 已 override 为直接调用 <see cref="MiniMaxDomExtractor"/>）。
+    /// </para>
+    /// </summary>
+    /// <param name="page">WebPluginBase 管理的 IPage 实例</param>
+    /// <returns>解析后的 UsageInfo</returns>
+    protected override async Task<UsageInfo> ParseUsagePageAsync(IPage page)
+    {
+        // MiniMax 的 DOM 提取由 MiniMaxDomExtractor 使用持久化上下文独立完成，
+        // 此方法仅作为 WebPluginBase 模板方法的占位实现。
+        // 实际调用路径：GetUsageAsync → MiniMaxDomExtractor.ExtractAsync
+        await Task.CompletedTask;
+        return CreateError("MiniMax 使用 MiniMaxDomExtractor 独立提取，此方法不应被直接调用");
+    }
 
     /// <inheritdoc />
     public override async Task<bool> ValidateConfigAsync(ProviderConfig config, CancellationToken ct = default)

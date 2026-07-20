@@ -34,6 +34,14 @@ public class ProviderConfig
     }
 
     /// <summary>
+    /// 移除指定键的配置值（req-086）
+    /// </summary>
+    public bool RemoveValue(string key)
+    {
+        return Values.TryRemove(key, out _);
+    }
+
+    /// <summary>
     /// 验证必填配置项是否已填写
     /// </summary>
     public bool Validate(IReadOnlyList<ConfigField> fields)
