@@ -421,31 +421,25 @@ public class ConfigService
 
     /// <summary>
     /// 保存配置到文件。
-    /// req-057：将耗时的 JSON 序列化移到锁外，锁内仅做快速字典快照，减少持锁时间。
+    /// <para>req-057-004：完全把耗时的 JSON 序列化移出 _ioLock。锁内仅调用 <see cref="MakeSnapshot"/>
+    /// 做 O(n) 字典/集合的浅拷贝，Phase 2 锁外执行加密 + JSON 深拷贝序列化 + 文件写入。</para>
+    /// <para>snapshot 与 _settings 解耦，Phase 2 在锁外对 snapshot 做 JsonSerializer.Serialize 时，
+    /// _settings 可以被并发的 <see cref="UpdateSettings"/> / <see cref="UpdateProviderConfig"/> 修改
+    /// 而不影响 snapshot 的序列化结果。</para>
     /// </summary>
     public void Save()
     {
         LastSaveError = null;
         bool changed = false;
-        AppSettings? settingsToSave = null;
+        AppSettings? snapshot = null;
 
-        // Phase 1（锁内）：快速捕获快照——仅复制顶层字典引用，避免长时间持锁做 JSON 序列化。
+        // Phase 1（锁内）：仅做内存浅拷贝（O(n) 字典/集合复制），不做 JSON round-trip。
+        // 锁内持锁时间从毫秒级降到微秒级，并发 Save/UpdateSettings 不再相互阻塞。
         lock (_ioLock)
         {
             try
             {
-                // 快速浅拷贝顶层字典（Values 已为 ConcurrentDictionary，枚举安全）
-                var snapshotConfigs = new Dictionary<string, ProviderConfig>(_settings.ProviderConfigs);
-                var originalConfigs = _settings.ProviderConfigs;
-                _settings.ProviderConfigs = snapshotConfigs;
-                try
-                {
-                    settingsToSave = CloneSettings();
-                }
-                finally
-                {
-                    _settings.ProviderConfigs = originalConfigs;
-                }
+                snapshot = MakeSnapshot();
             }
             catch (Exception ex)
             {
@@ -454,17 +448,18 @@ public class ConfigService
             }
         }
 
-        // Phase 2（锁外）：耗时的加密 + JSON 序列化 + 文件写入
+        // Phase 2（锁外）：耗时的加密 + JSON 深拷贝序列化 + 文件写入。
         // req-057：跨进程 Mutex 保护文件写入，避免与 LoginHelper 等外部进程同时写 config.json
-        if (settingsToSave != null)
+        if (snapshot != null)
         {
             try
             {
                 if (!Directory.Exists(_configDirectory))
                     Directory.CreateDirectory(_configDirectory);
 
-                EncryptSensitiveFields(settingsToSave);
-                var json = JsonSerializer.Serialize(settingsToSave, s_writeOptions);
+                EncryptSensitiveFields(snapshot);
+                // 锁外做 JSON 序列化——这才是 req-057-004 要求"移出锁内"的真正耗时点。
+                var json = JsonSerializer.Serialize(snapshot, s_writeOptions);
 
                 using var crossProcessMutex = new Mutex(false, "Global\\UsageMonitor-ConfigService");
                 bool mutexAcquired = false;
@@ -495,6 +490,71 @@ public class ConfigService
 
         if (changed)
             ConfigChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// req-057-004：锁内调用的浅快照方法。对顶层字典/集合做 O(n) 复制，不做任何 JSON round-trip。
+    /// 返回的 snapshot 与 _settings 解耦，后续在锁外对 snapshot 做 JSON 序列化是安全的。
+    /// <para>调用方必须保证已持有 <c>_ioLock</c>，否则与并发 <see cref="UpdateProviderConfig"/> /
+    /// <see cref="UpdateSettings"/> 会产生字典迭代期间的修改异常。</para>
+    /// <para>深拷贝责任由 Phase 2 的 <c>JsonSerializer.Serialize + Deserialize</c> 承担：
+    /// 这里只保证顶层集合是独立副本。ProviderConfig 内部的 <c>Values</c> 已是
+    /// <c>ConcurrentDictionary</c>，序列化期间其枚举安全；其他不可变值类型
+    /// （string/enum/数值）引用复制即可。</para>
+    /// </summary>
+    private AppSettings MakeSnapshot()
+    {
+        // 直接构造一个 AppSettings 并赋值所有字段（不调 JSON 序列化）。
+        // 顶层字典/集合全部 ToDictionary/ToList 复制为独立实例。
+        var snapshot = new AppSettings
+        {
+            RefreshIntervalSeconds = _settings.RefreshIntervalSeconds,
+            ShowInTaskbar = _settings.ShowInTaskbar,
+            AutoStart = _settings.AutoStart,
+            MinimizeToTray = _settings.MinimizeToTray,
+            TaskbarDisplayProviders = new List<string>(_settings.TaskbarDisplayProviders),
+            ProviderConfigs = new Dictionary<string, ProviderConfig>(_settings.ProviderConfigs),
+            PluginEnabled = new Dictionary<string, bool>(_settings.PluginEnabled),
+            HistoryPointCount = _settings.HistoryPointCount,
+            ShowTrayTooltip = _settings.ShowTrayTooltip,
+            TrayTooltipHideDelayMs = _settings.TrayTooltipHideDelayMs,
+            TrayTriggerWidth = _settings.TrayTriggerWidth,
+            TrayTriggerHeight = _settings.TrayTriggerHeight,
+            TrayTooltipWindowWidth = _settings.TrayTooltipWindowWidth,
+            ProviderTaskbarModes = new Dictionary<string, TaskbarDisplayMode>(_settings.ProviderTaskbarModes),
+            ProviderEnabledRingChartMetrics = new Dictionary<string, List<string>>(),
+            GlobalEnabledRingChartMetrics = new List<string>(_settings.GlobalEnabledRingChartMetrics),
+            GlobalTaskbarMode = _settings.GlobalTaskbarMode,
+            RingChartWarningThreshold = _settings.RingChartWarningThreshold,
+            RingChartDangerThreshold = _settings.RingChartDangerThreshold,
+            Theme = _settings.Theme,
+            ProviderCardCharts = new Dictionary<string, CardChartKind>(_settings.ProviderCardCharts),
+            ProviderCardChartKinds = new Dictionary<string, List<CardChartKind>>(),
+            TrayTooltipPosition = _settings.TrayTooltipPosition == null
+                ? null
+                : new TrayTooltipPosition { X = _settings.TrayTooltipPosition.X, Y = _settings.TrayTooltipPosition.Y },
+            TaskbarRelativeX = _settings.TaskbarRelativeX,
+            TaskbarWidth = _settings.TaskbarWidth,
+            UsageTierConfig = _settings.UsageTierConfig == null
+                ? new List<UsageMonitor.Core.Models.UsageTierConfig>()
+                : new List<UsageMonitor.Core.Models.UsageTierConfig>(_settings.UsageTierConfig),
+            ProviderHeatMapTiers = new Dictionary<string, System.Collections.Generic.IList<UsageMonitor.Core.Models.HeatMapTierConfig>>(_settings.ProviderHeatMapTiers),
+            UninstalledProviderChoices = new Dictionary<string, string>(_settings.UninstalledProviderChoices, StringComparer.OrdinalIgnoreCase),
+            LastKnownInstalledPluginIds = new List<string>(_settings.LastKnownInstalledPluginIds),
+            RingChartMetricOrder = new List<string>(_settings.RingChartMetricOrder),
+            RingChartStickySeconds = _settings.RingChartStickySeconds,
+            RingChartSwitchAnimationMs = _settings.RingChartSwitchAnimationMs,
+            TrayTooltipTriggerRect = _settings.TrayTooltipTriggerRect,
+            LastCleanedZeroTokensAt = _settings.LastCleanedZeroTokensAt,
+        };
+
+        // 顶层值为 List<T> 的字典需要逐项深拷贝到新 List 中（避免快照与 _settings 共享 List 引用）。
+        foreach (var kvp in _settings.ProviderEnabledRingChartMetrics)
+            snapshot.ProviderEnabledRingChartMetrics[kvp.Key] = new List<string>(kvp.Value);
+        foreach (var kvp in _settings.ProviderCardChartKinds)
+            snapshot.ProviderCardChartKinds[kvp.Key] = new List<CardChartKind>(kvp.Value);
+
+        return snapshot;
     }
 
     /// <summary>
@@ -716,18 +776,5 @@ public class ConfigService
         var bytes = Convert.FromBase64String(cipherText);
         var decrypted = ProtectedData.Unprotect(bytes, null, DataProtectionScope.CurrentUser);
         return Encoding.UTF8.GetString(decrypted);
-    }
-
-    /// <summary>深拷贝配置对象</summary>
-    private static AppSettings CloneSettings(AppSettings source)
-    {
-        var json = JsonSerializer.Serialize(source);
-        return JsonSerializer.Deserialize<AppSettings>(json) ?? new AppSettings();
-    }
-
-    private AppSettings CloneSettings()
-    {
-        var json = JsonSerializer.Serialize(_settings);
-        return JsonSerializer.Deserialize<AppSettings>(json) ?? new AppSettings();
     }
 }

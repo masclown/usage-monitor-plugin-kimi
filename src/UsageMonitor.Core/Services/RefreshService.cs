@@ -238,6 +238,9 @@ public class RefreshService : IDisposable
                 plugin.LastQuerySuccess = false;
                 // 异常同样记失败点。
                 _historyStore.AddErrorPoint(providerId);
+                // req-058-004：重新抛出以让 RefreshPluginWithTimeoutAsync 调用 RecordFailure（CircuitBreaker 计费）。
+                // 不重新抛出会导致熔断器永远不触发（5 次连续失败也不会进入熔断）。
+                throw;
             }
         }
         finally

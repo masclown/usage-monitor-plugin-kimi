@@ -1,0 +1,47 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!--
+      req-059-001: 测试项目独立 targetFramework，与 Core 项目保持一致 (net8.0-windows)。
+      测试项目不需要 WPF/WinForms 依赖，但因 Core 项目是 net8.0-windows 强类型约定，
+      这里跟随以保证 Core 的 internal 成员（如 s_readOptions）可见（测试用反射或 InternalsVisibleTo）。
+    -->
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <RootNamespace>UsageMonitor.Core.Tests</RootNamespace>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <!-- req-059-003: coverlet 收集器配置；与 dotnet test 配合 collect:"XPlat Code Coverage" 协同。 -->
+    <CollectCoverage>true</CollectCoverage>
+    <CoverletOutputFormat>cobertura</CoverletOutputFormat>
+    <CoverletOutput>./TestResults/</CoverletOutput>
+    <!-- 排除明显不需要覆盖的目录：自动生成/IDE 临时文件。 -->
+    <ExcludeByFile>**/bin/**,**/obj/**</ExcludeByFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+    <PackageReference Include="Moq" Version="4.20.72" />
+    <PackageReference Include="FluentAssertions" Version="6.12.2" />
+    <!-- req-059-003: coverlet collector 提供 Cobertura 格式覆盖率输出，便于 ReportGenerator 解析。 -->
+    <PackageReference Include="coverlet.collector" Version="6.0.2">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\UsageMonitor.Core\UsageMonitor.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 标记测试文件夹为私有，确保 _TestSupport 等基础设施仅供测试编译使用。 -->
+    <Compile Update="_TestSupport\**\*.cs">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Compile>
+  </ItemGroup>
+
+</Project>
