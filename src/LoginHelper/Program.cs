@@ -35,48 +35,61 @@ public class Program
 
         try
         {
-            // req-065 B4：BrowserLoginService 去静态化，创建独立实例（不传 ConfigService，由下方手动保存）
-            var loginService = new BrowserLoginService();
-            var data = await loginService.LoginAndExtractCookieAsync(
-                new MiniMaxProvider().LoginConfig, cts.Token);
-            var cookie = data?.Cookie;
-
-            if (string.IsNullOrEmpty(cookie))
+            // req-057：跨进程 Mutex 互斥——与主程序 ConfigService 共用同一命名 Mutex，避免同时写 config.json
+            using var configMutex = new Mutex(false, "Global\\UsageMonitor-ConfigService");
+            bool acquired = false;
+            try
             {
+                acquired = configMutex.WaitOne(TimeSpan.FromSeconds(10));
+                if (!acquired)
+                {
+                    Console.WriteLine("X 无法获取配置写入锁（主程序可能正在保存配置），请稍后重试。");
+                    return 1;
+                }
+
+                // req-065 B4：BrowserLoginService 去静态化，创建独立实例（不传 ConfigService，由下方手动保存）
+                var loginService = new BrowserLoginService();
+                var data = await loginService.LoginAndExtractCookieAsync(
+                    new MiniMaxProvider().LoginConfig, cts.Token);
+                var cookie = data?.Cookie;
+
+                if (string.IsNullOrEmpty(cookie))
+                {
+                    Console.WriteLine();
+                    Console.WriteLine("X Login failed or cancelled");
+                    Console.WriteLine("Last error: " + loginService.LastError);
+                    Console.WriteLine("Please retry, or check if Edge can access platform.minimaxi.com");
+                    return 1;
+                }
+
                 Console.WriteLine();
-                Console.WriteLine("X Login failed or cancelled");
-                Console.WriteLine("Last error: " + loginService.LastError);
-                Console.WriteLine("Please retry, or check if Edge can access platform.minimaxi.com");
-                return 1;
+                Console.WriteLine("V Login successful! Cookie obtained.");
+                Console.WriteLine($"  Cookie length: {cookie.Length} chars");
+
+                var configService = new UsageMonitor.Core.Services.ConfigService();
+                configService.Load();
+                var miniCfg = configService.GetProviderConfig("MiniMax", new MiniMaxProvider());
+                miniCfg.SetValue("Cookie", cookie);
+                miniCfg.SetValue("_userAgent", data?.UserAgent ?? "UsageMonitor");
+                configService.UpdateProviderConfig("MiniMax", miniCfg);
+                Console.WriteLine();
+                Console.WriteLine($"V Cookie saved (encrypted) to %AppData%/UsageMonitor/config.json");
+                Console.WriteLine();
+                Console.WriteLine("Now you can:");
+                Console.WriteLine("  1. Open UsageMonitor main program");
+                Console.WriteLine("  2. Right-click tray -> Refresh Now");
+                Console.WriteLine("  3. See MiniMax usage data");
+                Console.WriteLine();
+
+                Console.WriteLine("Press any key to exit...");
+                try { Console.ReadKey(); } catch { }
+
+                return 0;
             }
-
-            Console.WriteLine();
-            Console.WriteLine("V Login successful! Cookie obtained.");
-            Console.WriteLine($"  Cookie length: {cookie.Length} chars");
-
-            // Hand the new cookie to ConfigService so it's stored in the encrypted
-            // config.json path (with sensitive-field encryption) instead of being
-            // written in plaintext by the original code below.
-            var configService = new UsageMonitor.Core.Services.ConfigService();
-            configService.Load();
-            var miniCfg = configService.GetProviderConfig("MiniMax", new MiniMaxProvider());
-            miniCfg.SetValue("Cookie", cookie);
-            // _userAgent used by MiniMaxDomExtractor.ExtractAsync
-            miniCfg.SetValue("_userAgent", data?.UserAgent ?? "UsageMonitor");
-            configService.UpdateProviderConfig("MiniMax", miniCfg); // persists & encrypts
-            Console.WriteLine();
-            Console.WriteLine($"V Cookie saved (encrypted) to %AppData%/UsageMonitor/config.json");
-            Console.WriteLine();
-            Console.WriteLine("Now you can:");
-            Console.WriteLine("  1. Open UsageMonitor main program");
-            Console.WriteLine("  2. Right-click tray -> Refresh Now");
-            Console.WriteLine("  3. See MiniMax usage data");
-            Console.WriteLine();
-
-            Console.WriteLine("Press any key to exit...");
-            try { Console.ReadKey(); } catch { }
-
-            return 0;
+            finally
+            {
+                if (acquired) configMutex.ReleaseMutex();
+            }
         }
         catch (Exception ex)
         {

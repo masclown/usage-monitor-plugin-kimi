@@ -70,19 +70,22 @@ public class HistoryLineChartControl : FrameworkElement
         new FrameworkPropertyMetadata(2.4, FrameworkPropertyMetadataOptions.AffectsRender));
 
     /// <summary>轴线颜色</summary>
+    /// <summary>req-074：坐标轴色，默认主题 ChartAxisBrush。</summary>
     public static readonly DependencyProperty AxisBrushProperty = DependencyProperty.Register(
         nameof(AxisBrush), typeof(Brush), typeof(HistoryLineChartControl),
-        new FrameworkPropertyMetadata(Brushes.Gray, FrameworkPropertyMetadataOptions.AffectsRender));
+        new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
 
     /// <summary>网格线颜色</summary>
+    /// <summary>req-074：网格线色，默认主题 ChartGridBrush。</summary>
     public static readonly DependencyProperty GridLineBrushProperty = DependencyProperty.Register(
         nameof(GridLineBrush), typeof(Brush), typeof(HistoryLineChartControl),
-        new FrameworkPropertyMetadata(Brushes.DimGray, FrameworkPropertyMetadataOptions.AffectsRender));
+        new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
 
     /// <summary>轴文本颜色</summary>
+    /// <summary>req-074：文本色，默认主题 TextSecondaryBrush。</summary>
     public static readonly DependencyProperty TextBrushProperty = DependencyProperty.Register(
         nameof(TextBrush), typeof(Brush), typeof(HistoryLineChartControl),
-        new FrameworkPropertyMetadata(Brushes.LightGray, FrameworkPropertyMetadataOptions.AffectsRender));
+        new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
 
     /// <summary>单序列面积填充画笔（一般传主题 ChartAreaGradientBrush）</summary>
     public static readonly DependencyProperty AreaBrushProperty = DependencyProperty.Register(
@@ -163,10 +166,22 @@ public class HistoryLineChartControl : FrameworkElement
     private INotifyCollectionChanged? _subscribed;
 
     /// <summary>req-063 B9：构造函数中订阅 Unloaded 事件，控件卸载时解绑 CollectionChanged。</summary>
+    /// <summary>
+    /// 构造函数。req-074：从主题资源解析 Brush 默认值。
+    /// </summary>
     public HistoryLineChartControl()
     {
         MinHeight = 200;
         MinWidth = 300;
+
+        // req-074：从主题资源解析 Brush 默认值
+        if (AxisBrush == null)
+            SetValue(AxisBrushProperty, TryFindResource("ChartAxisBrush") as Brush ?? Brushes.Gray);
+        if (GridLineBrush == null)
+            SetValue(GridLineBrushProperty, TryFindResource("ChartGridBrush") as Brush ?? Brushes.DimGray);
+        if (TextBrush == null)
+            SetValue(TextBrushProperty, TryFindResource("TextSecondaryBrush") as Brush ?? Brushes.LightGray);
+
         Unloaded += OnControlUnloaded;
     }
 

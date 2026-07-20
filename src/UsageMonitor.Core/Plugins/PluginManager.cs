@@ -10,11 +10,16 @@ namespace UsageMonitor.Core.Plugins;
 /// </summary>
 public class PluginManager
 {
+    /// <summary>req-057：插件列表读写保护锁，避免 ReloadPlugins 与 GetEnabledPlugins/GetPlugin 并发竞态。</summary>
+    private readonly object _pluginsLock = new();
     private readonly List<LoadedPlugin> _plugins = new();
     private readonly string _pluginDirectory;
 
-    /// <summary>已加载的插件列表</summary>
-    public IReadOnlyList<LoadedPlugin> Plugins => _plugins.AsReadOnly();
+    /// <summary>已加载的插件列表（线程安全快照）</summary>
+    public IReadOnlyList<LoadedPlugin> Plugins
+    {
+        get { lock (_pluginsLock) { return _plugins.ToList().AsReadOnly(); } }
+    }
 
     /// <summary>插件加载完成事件</summary>
     public event EventHandler? PluginsLoaded;
@@ -54,10 +59,14 @@ public class PluginManager
     /// 扫描并加载plugins目录下的所有插件DLL。
     /// 默认禁用外部DLL扫描（安全考虑），需显式设置 <see cref="AllowExternalPlugins"/> = true。
     /// 启用时，仅加载 <see cref="AllowedPluginHashes"/> 白名单中的DLL。
+    /// req-057：加锁保护避免与并发枚举竞态。
     /// </summary>
     public void LoadPlugins()
     {
-        _plugins.Clear();
+        lock (_pluginsLock)
+        {
+            _plugins.Clear();
+        }
 
         if (!AllowExternalPlugins)
         {
@@ -94,14 +103,13 @@ public class PluginManager
     /// <summary>
     /// 从指定DLL文件加载插件。
     /// 计算DLL的SHA256哈希并与白名单比对，拒绝未授权DLL。
+    /// req-057：加锁保护 _plugins 写入。
     /// </summary>
     private void LoadPluginFromAssembly(string dllPath)
     {
-        // 计算DLL文件SHA256哈希
         var fileHash = ComputeFileSha256(dllPath);
         FileLogger.Info("PluginManager", $"插件DLL: {Path.GetFileName(dllPath)}, SHA256={fileHash}");
 
-        // 白名单校验
         if (AllowedPluginHashes.Count > 0 && !AllowedPluginHashes.Contains(fileHash))
         {
             FileLogger.Warn("PluginManager", $"插件DLL哈希不在白名单中，拒绝加载: {dllPath}");
@@ -116,16 +124,18 @@ public class PluginManager
         {
             if (Activator.CreateInstance(type) is IUsageProvider provider)
             {
-                // 检查是否已存在相同ProviderId的插件
-                if (_plugins.Any(p => p.Provider.ProviderId == provider.ProviderId))
+                lock (_pluginsLock)
                 {
-                    FileLogger.Warn("PluginManager", $"跳过重复插件: {provider.ProviderId}");
-                    continue;
-                }
+                    if (_plugins.Any(p => p.Provider.ProviderId == provider.ProviderId))
+                    {
+                        FileLogger.Warn("PluginManager", $"跳过重复插件: {provider.ProviderId}");
+                        continue;
+                    }
 
-                var loadedPlugin = new LoadedPlugin(provider, assembly, dllPath);
-                _plugins.Add(loadedPlugin);
-                FileLogger.Info("PluginManager", $"已加载插件: {provider.DisplayName} v{provider.Version} from {Path.GetFileName(dllPath)}");
+                    var loadedPlugin = new LoadedPlugin(provider, assembly, dllPath);
+                    _plugins.Add(loadedPlugin);
+                    FileLogger.Info("PluginManager", $"已加载插件: {provider.DisplayName} v{provider.Version} from {Path.GetFileName(dllPath)}");
+                }
             }
         }
     }
@@ -142,43 +152,55 @@ public class PluginManager
     }
 
     /// <summary>
-    /// 注册一个内置插件（不通过DLL加载）
+    /// 注册一个内置插件（不通过DLL加载）。req-057：加锁保护。
     /// </summary>
     public void RegisterPlugin(IUsageProvider provider)
     {
-        if (_plugins.Any(p => p.Provider.ProviderId == provider.ProviderId))
-            return;
+        lock (_pluginsLock)
+        {
+            if (_plugins.Any(p => p.Provider.ProviderId == provider.ProviderId))
+                return;
 
-        var loadedPlugin = new LoadedPlugin(provider, provider.GetType().Assembly, string.Empty);
-        _plugins.Add(loadedPlugin);
+            var loadedPlugin = new LoadedPlugin(provider, provider.GetType().Assembly, string.Empty);
+            _plugins.Add(loadedPlugin);
+        }
     }
 
     /// <summary>
-    /// 根据ProviderId获取已加载的插件
+    /// 根据ProviderId获取已加载的插件。req-057：加锁保护。
     /// </summary>
     public LoadedPlugin? GetPlugin(string providerId)
     {
-        return _plugins.FirstOrDefault(p => p.Provider.ProviderId == providerId);
+        lock (_pluginsLock)
+        {
+            return _plugins.FirstOrDefault(p => p.Provider.ProviderId == providerId);
+        }
     }
 
     /// <summary>
-    /// 获取所有已启用的插件
+    /// 获取所有已启用的插件。req-057：加锁保护并返回快照，避免枚举期间被修改。
     /// </summary>
     public IEnumerable<LoadedPlugin> GetEnabledPlugins()
     {
-        return _plugins.Where(p => p.IsEnabled);
+        lock (_pluginsLock)
+        {
+            return _plugins.Where(p => p.IsEnabled).ToList();
+        }
     }
 
     /// <summary>
-    /// 卸载指定插件
+    /// 卸载指定插件。req-057：加锁保护。
     /// </summary>
     public bool UnloadPlugin(string providerId)
     {
-        var plugin = _plugins.FirstOrDefault(p => p.Provider.ProviderId == providerId);
-        if (plugin == null) return false;
+        lock (_pluginsLock)
+        {
+            var plugin = _plugins.FirstOrDefault(p => p.Provider.ProviderId == providerId);
+            if (plugin == null) return false;
 
-        _plugins.Remove(plugin);
-        return true;
+            _plugins.Remove(plugin);
+            return true;
+        }
     }
 
     /// <summary>

@@ -187,19 +187,22 @@ public class MiniLineChartControl : FrameworkElement, IHoverTooltipProvider
     private double _plotHeight;
 
     /// <summary>低用量颜色（&lt; 60%）</summary>
+    /// <summary>req-074：低用量线条色，默认主题 UsageLowBrush。</summary>
     public static readonly DependencyProperty LowBrushProperty = DependencyProperty.Register(
         nameof(LowBrush), typeof(Brush), typeof(MiniLineChartControl),
-        new FrameworkPropertyMetadata(Brushes.LimeGreen, FrameworkPropertyMetadataOptions.AffectsRender));
+        new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
 
     /// <summary>中用量颜色（60-85%）</summary>
+    /// <summary>req-074：中用量线条色，默认主题 UsageMidBrush。</summary>
     public static readonly DependencyProperty MidBrushProperty = DependencyProperty.Register(
         nameof(MidBrush), typeof(Brush), typeof(MiniLineChartControl),
-        new FrameworkPropertyMetadata(Brushes.Goldenrod, FrameworkPropertyMetadataOptions.AffectsRender));
+        new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
 
     /// <summary>高用量颜色（&gt; 85%）</summary>
+    /// <summary>req-074：高用量线条色，默认主题 UsageHighBrush。</summary>
     public static readonly DependencyProperty HighBrushProperty = DependencyProperty.Register(
         nameof(HighBrush), typeof(Brush), typeof(MiniLineChartControl),
-        new FrameworkPropertyMetadata(Brushes.OrangeRed, FrameworkPropertyMetadataOptions.AffectsRender));
+        new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
 
     /// <summary>数据点集合</summary>
     public IReadOnlyList<double> Values
@@ -286,9 +289,21 @@ public class MiniLineChartControl : FrameworkElement, IHoverTooltipProvider
     private static int _tierChangedSubscribed;
 
     /// <summary>控件构造：启用鼠标与键盘焦点，以便通过 Tab 和方向键浏览数据点。</summary>
+    /// <summary>
+    /// 构造函数。req-074：从主题资源解析 Brush 默认值。
+    /// </summary>
     public MiniLineChartControl()
     {
         Focusable = true;
+
+        // req-074：从主题资源解析 Brush 默认值
+        if (LowBrush == null)
+            SetValue(LowBrushProperty, TryFindResource("UsageLowBrush") as Brush ?? Brushes.LimeGreen);
+        if (MidBrush == null)
+            SetValue(MidBrushProperty, TryFindResource("UsageMidBrush") as Brush ?? Brushes.Goldenrod);
+        if (HighBrush == null)
+            SetValue(HighBrushProperty, TryFindResource("UsageHighBrush") as Brush ?? Brushes.OrangeRed);
+
         // req-063 B9：订阅 Unloaded 事件，控件卸载时解绑 CollectionChanged
         Unloaded += OnControlUnloaded;
         if (System.Threading.Interlocked.Exchange(ref _tierChangedSubscribed, 1) == 0)

@@ -34,19 +34,22 @@ public class DayNightArcControl : FrameworkElement
             FrameworkPropertyMetadataOptions.AffectsRender, OnActivityChanged));
 
     /// <summary>曲线 / 非活跃点颜色（一般传主题 TextTertiaryBrush / DividerBrush）</summary>
+    /// <summary>req-074：轨道色，默认主题 TrackBrush。</summary>
     public static readonly DependencyProperty TrackBrushProperty = DependencyProperty.Register(
         nameof(TrackBrush), typeof(Brush), typeof(DayNightArcControl),
-        new FrameworkPropertyMetadata(Brushes.Gray, FrameworkPropertyMetadataOptions.AffectsRender));
+        new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
 
     /// <summary>强调色（太阳/高活跃点，一般传主题 AccentBrush）</summary>
+    /// <summary>req-074：强调色，默认主题 AccentBrush。</summary>
     public static readonly DependencyProperty AccentBrushProperty = DependencyProperty.Register(
         nameof(AccentBrush), typeof(Brush), typeof(DayNightArcControl),
-        new FrameworkPropertyMetadata(Brushes.OrangeRed, FrameworkPropertyMetadataOptions.AffectsRender));
+        new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
 
     /// <summary>刻度文本颜色</summary>
+    /// <summary>req-074：文本色，默认主题 TextSecondaryBrush。</summary>
     public static readonly DependencyProperty TextBrushProperty = DependencyProperty.Register(
         nameof(TextBrush), typeof(Brush), typeof(DayNightArcControl),
-        new FrameworkPropertyMetadata(Brushes.Gray, FrameworkPropertyMetadataOptions.AffectsRender));
+        new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
 
     public IReadOnlyList<double> HourlyActivity
     {
@@ -72,10 +75,22 @@ public class DayNightArcControl : FrameworkElement
         set => SetValue(TextBrushProperty, value);
     }
 
+    /// <summary>
+    /// 构造函数。req-074：从主题资源解析 Brush 默认值。
+    /// </summary>
     public DayNightArcControl()
     {
         MinHeight = 120;
         MinWidth = 240;
+
+        // req-074：从主题资源解析 Brush 默认值
+        if (TrackBrush == null)
+            SetValue(TrackBrushProperty, TryFindResource("TrackBrush") as Brush ?? Brushes.Gray);
+        if (AccentBrush == null)
+            SetValue(AccentBrushProperty, TryFindResource("AccentBrush") as Brush ?? Brushes.OrangeRed);
+        if (TextBrush == null)
+            SetValue(TextBrushProperty, TryFindResource("TextSecondaryBrush") as Brush ?? Brushes.Gray);
+
         // req-063 B9：订阅 Unloaded 事件，控件卸载时解绑 CollectionChanged
         Unloaded += OnControlUnloaded;
     }

@@ -32,9 +32,18 @@ internal static class MiniMaxDomExtractor
     // req-067 B22：Regex 编译为 static readonly，避免每次调用都重新编译
     private static readonly Regex PercentRegex = new(@"(\d+(?:\.\d+)?)\s*%", RegexOptions.Compiled);
 
+    /// <summary>req-058：限制最大并发浏览器实例数，避免手动刷新+定时刷新同时启动两个 Edge。</summary>
+    private static readonly SemaphoreSlim BrowserSemaphore = new(1, 1);
+
+    /// <summary>req-058：DOM 抽取结果缓存（3 分钟内不重复抽取）。</summary>
+    private static UsageInfo? _cachedResult;
+    private static DateTime _cacheExpiry = DateTime.MinValue;
+    private static readonly object CacheLock = new();
+
     /// <summary>
     /// Build a UsageInfo by reading the logged-in MiniMax usage page via Playwright.
     /// Returns null on failure (cookie invalid, page unreachable, browser error).
+    /// req-058：加入并发限制（SemaphoreSlim）和 3 分钟结果缓存。
     /// </summary>
     /// <param name="cookie">Cookie string from %AppData%\UsageMonitor\cookies\MiniMax.json</param>
     /// <param name="userAgent">Browser User-Agent for replay</param>
@@ -49,6 +58,62 @@ internal static class MiniMaxDomExtractor
             FileLogger.Warn(LogSource, "Cookie is empty, aborting");
             return null;
         }
+
+        // req-058：检查缓存（3 分钟内不重复抽取）
+        lock (CacheLock)
+        {
+            if (_cachedResult != null && DateTime.Now < _cacheExpiry)
+            {
+                FileLogger.Info(LogSource, "Returning cached DOM result (within 3-min window)");
+                return _cachedResult;
+            }
+        }
+
+        // req-058：并发限制——等待浏览器槽位（最多等 30 秒）
+        if (!await BrowserSemaphore.WaitAsync(TimeSpan.FromSeconds(30), ct))
+        {
+            FileLogger.Warn(LogSource, "Browser semaphore timeout (another extraction in progress), skip");
+            return null;
+        }
+
+        try
+        {
+            // 双重检查：等待期间可能已有另一个线程完成抽取并填充缓存
+            lock (CacheLock)
+            {
+                if (_cachedResult != null && DateTime.Now < _cacheExpiry)
+                {
+                    FileLogger.Info(LogSource, "Cache filled while waiting for semaphore, returning cached");
+                    return _cachedResult;
+                }
+            }
+
+            var result = await ExtractCoreAsync(cookie, userAgent, region, ct);
+
+            // 成功时填充缓存
+            if (result != null && result.IsSuccess)
+            {
+                lock (CacheLock)
+                {
+                    _cachedResult = result;
+                    _cacheExpiry = DateTime.Now.AddMinutes(3);
+                }
+            }
+
+            return result;
+        }
+        finally
+        {
+            BrowserSemaphore.Release();
+        }
+    }
+
+    /// <summary>
+    /// req-058：实际的 Playwright DOM 抽取核心逻辑（从原 ExtractAsync 拆分）。
+    /// </summary>
+    private static async Task<UsageInfo?> ExtractCoreAsync(
+        string cookie, string userAgent, string region, CancellationToken ct)
+    {
 
         var tempProfile = Path.Combine(Path.GetTempPath(),
             $"UsageMonitor_DomExtract_{Guid.NewGuid():N}");

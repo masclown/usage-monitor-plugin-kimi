@@ -72,14 +72,16 @@ public class YearHeatMapControl : FrameworkElement, IHoverTooltipProvider
         new FrameworkPropertyMetadata(3.0, FrameworkPropertyMetadataOptions.AffectsRender));
 
     /// <summary>空格子颜色</summary>
+    /// <summary>req-074：空单元格色，默认主题 TrackBrush。</summary>
     public static readonly DependencyProperty EmptyCellBrushProperty = DependencyProperty.Register(
         nameof(EmptyCellBrush), typeof(Brush), typeof(YearHeatMapControl),
-        new FrameworkPropertyMetadata(Brushes.Transparent, FrameworkPropertyMetadataOptions.AffectsRender));
+        new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
 
     /// <summary>文字颜色（行/月份/图例标签）</summary>
+    /// <summary>req-074：文本色，默认主题 TextSecondaryBrush。</summary>
     public static readonly DependencyProperty TextBrushProperty = DependencyProperty.Register(
         nameof(TextBrush), typeof(Brush), typeof(YearHeatMapControl),
-        new FrameworkPropertyMetadata(Brushes.LightGray, FrameworkPropertyMetadataOptions.AffectsRender));
+        new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
 
     public IEnumerable Cells
     {
@@ -118,15 +120,24 @@ public class YearHeatMapControl : FrameworkElement, IHoverTooltipProvider
     private HoverTooltipData? _pendingTooltipData;
 
     /// <summary>热力图控件构造：启用 Tab 聚焦和键盘浏览。</summary>
+    /// <summary>
+    /// 构造函数。req-074：从主题资源解析 Brush 默认值。
+    /// </summary>
     public YearHeatMapControl()
     {
         MinHeight = 150;
         MinWidth = 320;
         Focusable = true;
+
+        // req-074：从主题资源解析 Brush 默认值
+        if (EmptyCellBrush == null)
+            SetValue(EmptyCellBrushProperty, TryFindResource("TrackBrush") as Brush ?? Brushes.Transparent);
+        if (TextBrush == null)
+            SetValue(TextBrushProperty, TryFindResource("TextSecondaryBrush") as Brush ?? Brushes.LightGray);
+
         // req-063 B9：订阅 Unloaded 事件，控件卸载时解绑 CollectionChanged
         Unloaded += OnControlUnloaded;
         // req-018：订阅 HeatMapTierScale（6 档 Token 绝对值色阶）替代旧的 UsageTierScale（4 档百分比色阶）。
-        // 两个订阅用同一个 _tierSubscribed 静态互斥锁保护，避免双重订阅。
         if (System.Threading.Interlocked.Exchange(ref _tierSubscribed, 1) == 0)
             UsageMonitor.App.Helpers.HeatMapTierScale.TierChanged += OnHeatMapTierChangedStatic;
     }

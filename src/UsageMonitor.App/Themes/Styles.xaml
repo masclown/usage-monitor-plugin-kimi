@@ -605,4 +605,14 @@
         </Setter>
     </Style>
 
+    <!-- req-077 U-24：只读 TextBox 样式（背景浅化 + CaretBrush 透明 + Focusable False） -->
+    <Style x:Key="ReadOnlyTextBoxStyle" TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+        <Setter Property="Background" Value="{DynamicResource SurfaceAltBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
+        <Setter Property="CaretBrush" Value="Transparent" />
+        <Setter Property="Focusable" Value="False" />
+        <Setter Property="Cursor" Value="Arrow" />
+        <Setter Property="IsReadOnly" Value="True" />
+    </Style>
+
 </ResourceDictionary>

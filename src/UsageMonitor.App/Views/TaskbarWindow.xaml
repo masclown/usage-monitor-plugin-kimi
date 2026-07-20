@@ -5,7 +5,7 @@
         xmlns:views="clr-namespace:UsageMonitor.App.Views"
         Title="UsageMonitor Taskbar"
         Icon="{Binding CurrentLogoSource}"
-        Height="44" Width="500"
+        Height="48" Width="500"
         WindowStyle="None"
         AllowsTransparency="True"
         Background="Transparent"
@@ -55,12 +55,13 @@
                            RenderOptions.BitmapScalingMode="HighQuality"
                            Visibility="{Binding IconPath, Converter={StaticResource StringToVisibility}}"
                            DockPanel.Dock="Left" />
-                    <TextBlock FontSize="11" FontWeight="SemiBold"
+                    <!-- req-079 U-32：字号统一至 12pt -->
+                    <TextBlock FontSize="12" FontWeight="SemiBold"
                                Foreground="{DynamicResource TextPrimaryBrush}"
                                DockPanel.Dock="Left" VerticalAlignment="Center">
                         <Run Text="{Binding DisplayName, Mode=OneWay}" />
                     </TextBlock>
-                    <TextBlock FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
+                    <TextBlock FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}"
                                DockPanel.Dock="Right" VerticalAlignment="Center" Margin="6,0,0,0"
                                Text="{Binding UsagePercentage, Mode=OneWay, StringFormat={}{0:F0}%}" />
                 </DockPanel>
@@ -73,9 +74,9 @@
             </Grid>
         </DataTemplate>
 
-        <!-- 圆环图模式模板：req-051 重构 - 半圆环样式 -->
+        <!-- 圆环图模式模板：req-051 重构 - 半圆环样式。req-079 U-31：尺寸 38→44px -->
         <DataTemplate x:Key="TaskbarRingChartTemplate">
-            <Grid Width="38" Height="38" Margin="0,0,8,0"
+            <Grid Width="44" Height="44" Margin="0,0,8,0"
                   Background="Transparent"
                   ToolTip="{Binding TaskbarToolTipText, Mode=OneWay}"
                   ToolTipService.Placement="Top"
@@ -83,9 +84,9 @@
                   ToolTipService.HorizontalOffset="0"
                   PreviewMouseWheel="OnRingChartPreviewMouseWheel">
                 <!-- 半圆环图（0% 在 8 点钟，100% 在 4 点钟），中心数字点击可刷新，禁用内置 tooltip -->
-                <controls:RingChartControl Width="38" Height="38"
+                <controls:RingChartControl Width="44" Height="44"
                                             Percent="{Binding UsagePercentage, Mode=OneWay}"
-                                            Size="38" StrokeThickness="4"
+                                            Size="44" StrokeThickness="4"
                                             TrackBrush="{DynamicResource TrackBrush}"
                                             ProgressBrush="{DynamicResource AccentBrush}"
                                             WarningBrush="{DynamicResource WarningBrush}"
@@ -100,6 +101,18 @@
                                             CenterClick="OnRingChartCenterClick"
                                             MetricKeyChanged="OnRingChartMetricKeyChanged" />
             </Grid>
+        </DataTemplate>
+
+        <!-- req-079 U-33：加载骨架屏模板（刷新中显示） -->
+        <DataTemplate x:Key="TaskbarLoadingTemplate">
+            <Border Width="80" Height="36" Margin="0,0,8,0">
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <Border Width="14" Height="14" CornerRadius="3" Margin="0,0,6,0"
+                            Background="{DynamicResource TrackBrush}" />
+                    <Border Width="40" Height="8" CornerRadius="4"
+                            Background="{DynamicResource TrackBrush}" />
+                </StackPanel>
+            </Border>
         </DataTemplate>
 
         <!-- 模板选择器，绑定到上面三种模板 -->

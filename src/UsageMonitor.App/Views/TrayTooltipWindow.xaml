@@ -16,9 +16,20 @@
         TextElement.FontFamily="{DynamicResource AppFontFamily}"
         Cursor="SizeAll">
     <Grid>
-        <!-- req-036：右侧透明拖拽条，用于鼠标调整窗口宽度 -->
-        <Rectangle x:Name="RightResizeGrip" Width="6" HorizontalAlignment="Right"
-                   Fill="Transparent" Cursor="SizeWE" />
+        <!-- req-036：右侧透明拖拽条。req-079 U-34：宽度 6→12px，hover 显示半透明色 -->
+        <Rectangle x:Name="RightResizeGrip" Width="12" HorizontalAlignment="Right"
+                   Fill="Transparent" Cursor="SizeWE"
+                   ToolTip="拖动调整宽度">
+            <Rectangle.Style>
+                <Style TargetType="Rectangle">
+                    <Style.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter Property="Fill" Value="#22FFFFFF" />
+                        </Trigger>
+                    </Style.Triggers>
+                </Style>
+            </Rectangle.Style>
+        </Rectangle>
         <Border Background="{DynamicResource OverlayBackgroundBrush}" CornerRadius="10" Padding="0,4"
                 BorderBrush="{DynamicResource OverlayBorderBrush}" BorderThickness="1"
                 Cursor="SizeAll">
@@ -59,26 +70,26 @@
                                     </Border>
                                 </Grid>
 
-                                <!-- 详细信息 -->
+                                <!-- 详细信息。req-079 U-35：标签字号 10→11，数值字号 12→13 -->
                                 <UniformGrid Columns="3">
                                     <StackPanel>
-                                        <TextBlock Text="已使用" FontSize="10"
+                                        <TextBlock Text="已使用" FontSize="11"
                                                    Foreground="{DynamicResource TextTertiaryBrush}" />
-                                        <TextBlock Text="{Binding UsedText}" FontSize="12"
+                                        <TextBlock Text="{Binding UsedText}" FontSize="13"
                                                    Foreground="{DynamicResource TextPrimaryBrush}"
                                                    FontWeight="Medium" />
                                     </StackPanel>
                                     <StackPanel>
-                                        <TextBlock Text="总额度" FontSize="10"
+                                        <TextBlock Text="总额度" FontSize="11"
                                                    Foreground="{DynamicResource TextTertiaryBrush}" />
-                                        <TextBlock Text="{Binding TotalText}" FontSize="12"
+                                        <TextBlock Text="{Binding TotalText}" FontSize="13"
                                                    Foreground="{DynamicResource TextPrimaryBrush}"
                                                    FontWeight="Medium" />
                                     </StackPanel>
                                     <StackPanel>
-                                        <TextBlock Text="剩余额度" FontSize="10"
+                                        <TextBlock Text="剩余额度" FontSize="11"
                                                    Foreground="{DynamicResource TextTertiaryBrush}" />
-                                        <TextBlock Text="{Binding RemainingText}" FontSize="12"
+                                        <TextBlock Text="{Binding RemainingText}" FontSize="13"
                                                    Foreground="{DynamicResource SuccessBrush}"
                                                    FontWeight="Medium" />
                                     </StackPanel>

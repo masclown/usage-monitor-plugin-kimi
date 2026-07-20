@@ -21,7 +21,7 @@
 
         <!-- 顶部标题 -->
         <StackPanel Grid.Row="0" Margin="0,0,0,14">
-            <TextBlock Text="历史用量" FontSize="22" FontWeight="Bold"
+            <TextBlock Text="历史用量" FontSize="{DynamicResource FontSizeHeading}" FontWeight="Bold"
                        Foreground="{DynamicResource TextPrimaryBrush}" />
             <TextBlock Text="按 Provider、时间范围与图表类型回看用量趋势" FontSize="12"
                        Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,2,0,0" />
@@ -84,16 +84,17 @@
             </Grid>
         </Border>
 
-        <!-- 主图区 -->
+        <!-- 主图区。req-078 U-27：右侧摘要卡改比例宽度 -->
         <Grid Grid.Row="2">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="3*" />
+                <ColumnDefinition Width="1*" MinWidth="200" MaxWidth="260" />
             </Grid.ColumnDefinitions>
 
             <Border Grid.Column="0" Background="{DynamicResource SurfaceBrush}"
                     CornerRadius="{DynamicResource RadiusCard}" Padding="16">
                 <Grid>
+                    <!-- req-078 U-28：图表切换加 200ms 淡入动画 -->
                     <controls:HistoryLineChartControl x:Name="LineChart"
                                                       Series="{Binding LineSeries}"
                                                       Dates="{Binding LineDates}"
@@ -101,7 +102,24 @@
                                                       GridLineBrush="{DynamicResource ChartGridBrush}"
                                                       TextBrush="{DynamicResource TextSecondaryBrush}"
                                                       AreaBrush="{DynamicResource ChartAreaGradientBrush}"
-                                                      Visibility="{Binding IsLineChart, Converter={StaticResource BoolToVisibility}}" />
+                                                      Visibility="{Binding IsLineChart, Converter={StaticResource BoolToVisibility}}">
+                        <controls:HistoryLineChartControl.Style>
+                            <Style TargetType="controls:HistoryLineChartControl">
+                                <Style.Triggers>
+                                    <Trigger Property="Visibility" Value="Visible">
+                                        <Trigger.EnterActions>
+                                            <BeginStoryboard>
+                                                <Storyboard>
+                                                    <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                                                                     From="0" To="1" Duration="0:0:0.2" />
+                                                </Storyboard>
+                                            </BeginStoryboard>
+                                        </Trigger.EnterActions>
+                                    </Trigger>
+                                </Style.Triggers>
+                            </Style>
+                        </controls:HistoryLineChartControl.Style>
+                    </controls:HistoryLineChartControl>
 
                     <controls:BarChartControl x:Name="BarChart"
                                               Values="{Binding BarValues}"
@@ -123,15 +141,25 @@
                                                  TextBrush="{DynamicResource TextSecondaryBrush}"
                                                  Visibility="{Binding IsDayNightArc, Converter={StaticResource BoolToVisibility}}" />
 
-                    <TextBlock Text="暂无历史数据" FontSize="16"
-                               Foreground="{DynamicResource TextSecondaryBrush}"
-                               HorizontalAlignment="Center" VerticalAlignment="Center"
-                               Visibility="{Binding NoDataWarning, Converter={StaticResource BoolToVisibility}}" />
+                    <!-- req-078 U-29：空状态升级为插画 + 操作按钮 -->
+                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center"
+                                Visibility="{Binding NoDataWarning, Converter={StaticResource BoolToVisibility}}">
+                        <TextBlock Text="📈" FontSize="48" HorizontalAlignment="Center" Margin="0,0,0,12" />
+                        <TextBlock Text="暂无历史数据" FontSize="16"
+                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                   HorizontalAlignment="Center" Margin="0,0,0,8" />
+                        <TextBlock Text="请先刷新数据或调整时间范围" FontSize="12"
+                                   Foreground="{DynamicResource TextTertiaryBrush}"
+                                   HorizontalAlignment="Center" Margin="0,0,0,16" />
+                        <Button Content="去刷新数据" Click="OnRefreshClick"
+                                Style="{StaticResource PrimaryButtonStyle}"
+                                HorizontalAlignment="Center" Padding="20,8" />
+                    </StackPanel>
                 </Grid>
             </Border>
 
-            <!-- 右侧摘要：单 Provider 圆环 / 热力图统计卡（req-023：摘要卡整体垂直拉伸 + 内部 StackPanel 居中） -->
-            <StackPanel Grid.Column="1" Width="188" Margin="14,0,0,0">
+            <!-- 右侧摘要。req-078 U-27：比例宽度 -->
+            <StackPanel Grid.Column="1" Margin="14,0,0,0">
                 <Border Background="{DynamicResource SurfaceBrush}"
                         CornerRadius="{DynamicResource RadiusCard}" Padding="16"
                         VerticalAlignment="Stretch"
@@ -163,7 +191,7 @@
                     <Border Background="{DynamicResource SurfaceBrush}" CornerRadius="{DynamicResource RadiusCard}"
                             Padding="16,14" Margin="0,0,0,10">
                         <StackPanel>
-                            <TextBlock Text="{Binding ActiveDaysText}" FontSize="24" FontWeight="Bold"
+                            <TextBlock Text="{Binding ActiveDaysText}" FontSize="{DynamicResource FontSizeDisplay}" FontWeight="Bold"
                                        Foreground="{DynamicResource TextPrimaryBrush}" />
                             <TextBlock Text="活跃天数" FontSize="12"
                                        Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,2,0,0" />
@@ -172,7 +200,7 @@
                     <Border Background="{DynamicResource SurfaceBrush}" CornerRadius="{DynamicResource RadiusCard}"
                             Padding="16,14" Margin="0,0,0,10">
                         <StackPanel>
-                            <TextBlock Text="{Binding PeakUsageText}" FontSize="24" FontWeight="Bold"
+                            <TextBlock Text="{Binding PeakUsageText}" FontSize="{DynamicResource FontSizeDisplay}" FontWeight="Bold"
                                        Foreground="{DynamicResource AccentBrush}" />
                             <TextBlock Text="单日峰值用量" FontSize="12"
                                        Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,2,0,0" />
@@ -181,7 +209,7 @@
                     <Border Background="{DynamicResource SurfaceBrush}" CornerRadius="{DynamicResource RadiusCard}"
                             Padding="16,14">
                         <StackPanel>
-                            <TextBlock Text="{Binding AvgUsageText}" FontSize="24" FontWeight="Bold"
+                            <TextBlock Text="{Binding AvgUsageText}" FontSize="{DynamicResource FontSizeDisplay}" FontWeight="Bold"
                                        Foreground="{DynamicResource TextPrimaryBrush}" />
                             <TextBlock Text="平均用量" FontSize="12"
                                        Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,2,0,0" />
@@ -233,19 +261,50 @@
                     </StackPanel>
                 </Border>
 
+                <!-- req-078 U-26：DataGrid 列宽改比例 + 数值列右对齐 -->
                 <DataGrid x:Name="DetailGrid" Grid.Row="1" ItemsSource="{Binding DetailRows}"
                           AutoGenerateColumns="False" CanUserAddRows="False"
                           IsReadOnly="True" CanUserSortColumns="True"
                           Sorting="OnDataGridSorting">
                     <DataGrid.Columns>
-                        <DataGridTextColumn Header="Provider" Binding="{Binding ProviderName}" Width="*" SortMemberPath="ProviderName" />
-                        <DataGridTextColumn Header="日期" Binding="{Binding Day}" Width="100" SortMemberPath="Day" />
-                        <DataGridTextColumn Header="刷新时间" Binding="{Binding RefreshedAtText}" Width="90" SortMemberPath="RefreshedAtText" />
-                        <DataGridTextColumn Header="最高%" Binding="{Binding MaxPercent}" Width="70" SortMemberPath="MaxPercent" />
-                        <DataGridTextColumn Header="最低%" Binding="{Binding MinPercent}" Width="70" SortMemberPath="MinPercent" />
-                        <DataGridTextColumn Header="结束%" Binding="{Binding EndPercent}" Width="70" SortMemberPath="EndPercent" />
-                        <DataGridTextColumn Header="平均%" Binding="{Binding AvgPercent}" Width="70" SortMemberPath="AvgPercent" />
-                        <DataGridTextColumn Header="采样数" Binding="{Binding Snapshots}" Width="70" SortMemberPath="Snapshots" />
+                        <DataGridTextColumn Header="Provider" Binding="{Binding ProviderName}" Width="*" MinWidth="100" SortMemberPath="ProviderName" />
+                        <DataGridTextColumn Header="日期" Binding="{Binding Day}" Width="Auto" MinWidth="80" SortMemberPath="Day" />
+                        <DataGridTextColumn Header="刷新时间" Binding="{Binding RefreshedAtText}" Width="Auto" MinWidth="80" SortMemberPath="RefreshedAtText" />
+                        <DataGridTextColumn Header="最高%" Binding="{Binding MaxPercent, StringFormat={}{0:0.0}}" Width="60" SortMemberPath="MaxPercent">
+                            <DataGridTextColumn.ElementStyle>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="HorizontalAlignment" Value="Right" />
+                                </Style>
+                            </DataGridTextColumn.ElementStyle>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Header="最低%" Binding="{Binding MinPercent, StringFormat={}{0:0.0}}" Width="60" SortMemberPath="MinPercent">
+                            <DataGridTextColumn.ElementStyle>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="HorizontalAlignment" Value="Right" />
+                                </Style>
+                            </DataGridTextColumn.ElementStyle>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Header="结束%" Binding="{Binding EndPercent, StringFormat={}{0:0.0}}" Width="60" SortMemberPath="EndPercent">
+                            <DataGridTextColumn.ElementStyle>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="HorizontalAlignment" Value="Right" />
+                                </Style>
+                            </DataGridTextColumn.ElementStyle>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Header="平均%" Binding="{Binding AvgPercent, StringFormat={}{0:0.0}}" Width="60" SortMemberPath="AvgPercent">
+                            <DataGridTextColumn.ElementStyle>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="HorizontalAlignment" Value="Right" />
+                                </Style>
+                            </DataGridTextColumn.ElementStyle>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Header="采样数" Binding="{Binding Snapshots}" Width="60" SortMemberPath="Snapshots">
+                            <DataGridTextColumn.ElementStyle>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="HorizontalAlignment" Value="Right" />
+                                </Style>
+                            </DataGridTextColumn.ElementStyle>
+                        </DataGridTextColumn>
                     </DataGrid.Columns>
                 </DataGrid>
             </Grid>

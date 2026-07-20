@@ -267,8 +267,21 @@ public class ConfigService
     /// <summary>配置文件读写互斥锁：保证多线程下 Save/Load/UpdateProviderConfig/ReloadProviderConfigsFromDisk 的原子性，避免相互覆盖或写坏文件。</summary>
     private readonly object _ioLock = new();
 
-    /// <summary>当前应用配置</summary>
+    /// <summary>当前应用配置（注意：直接修改字段不经过 _ioLock，并发场景应使用 <see cref="UpdateSettings"/>）</summary>
     public AppSettings Settings => _settings;
+
+    /// <summary>
+    /// req-057：线程安全的配置修改 API。在 _ioLock 内执行 mutator，避免与并发 Save/Load 产生竞态。
+    /// 修改后不自动持久化，调用方需显式调用 <see cref="Save"/> 持久化。
+    /// </summary>
+    /// <param name="mutator">在锁内执行的修改委托</param>
+    public void UpdateSettings(Action<AppSettings> mutator)
+    {
+        lock (_ioLock)
+        {
+            mutator(_settings);
+        }
+    }
 
     /// <summary>配置变更事件</summary>
     public event EventHandler? ConfigChanged;
@@ -407,43 +420,76 @@ public class ConfigService
     }
 
     /// <summary>
-    /// 保存配置到文件
+    /// 保存配置到文件。
+    /// req-057：将耗时的 JSON 序列化移到锁外，锁内仅做快速字典快照，减少持锁时间。
     /// </summary>
     public void Save()
     {
         LastSaveError = null;
         bool changed = false;
-        // 写文件主体加锁，保证原子写入；事件在锁外触发，避免订阅方回调在持锁期间引发长时间持锁/重入。
+        AppSettings? settingsToSave = null;
+
+        // Phase 1（锁内）：快速捕获快照——仅复制顶层字典引用，避免长时间持锁做 JSON 序列化。
         lock (_ioLock)
+        {
+            try
+            {
+                // 快速浅拷贝顶层字典（Values 已为 ConcurrentDictionary，枚举安全）
+                var snapshotConfigs = new Dictionary<string, ProviderConfig>(_settings.ProviderConfigs);
+                var originalConfigs = _settings.ProviderConfigs;
+                _settings.ProviderConfigs = snapshotConfigs;
+                try
+                {
+                    settingsToSave = CloneSettings();
+                }
+                finally
+                {
+                    _settings.ProviderConfigs = originalConfigs;
+                }
+            }
+            catch (Exception ex)
+            {
+                LastSaveError = $"{ex.GetType().Name}: {ex.Message}";
+                System.Diagnostics.Debug.WriteLine($"保存配置失败(快照阶段): {ex.Message}");
+            }
+        }
+
+        // Phase 2（锁外）：耗时的加密 + JSON 序列化 + 文件写入
+        // req-057：跨进程 Mutex 保护文件写入，避免与 LoginHelper 等外部进程同时写 config.json
+        if (settingsToSave != null)
         {
             try
             {
                 if (!Directory.Exists(_configDirectory))
                     Directory.CreateDirectory(_configDirectory);
 
-                // 加密敏感字段后保存
-                var settingsToSave = CloneSettings();
                 EncryptSensitiveFields(settingsToSave);
-
                 var json = JsonSerializer.Serialize(settingsToSave, s_writeOptions);
-                // 原子写入：先写临时文件，校验非空后用 File.Replace 原子替换，并保留 .bak 备份。
-                // 直接 File.WriteAllText 若在写入中途被中断（进程退出/断电），会留下空或半截的 config.json，
-                // 下次启动反序列化失败即导致配置被重置（插件启用状态、Cookie 等全部丢失）。
-                var tmpPath = _configFilePath + ".tmp";
-                File.WriteAllText(tmpPath, json, Encoding.UTF8);
-                if (new FileInfo(tmpPath).Length <= 0)
-                    throw new IOException("写入临时配置文件后大小为 0，放弃替换以保护原配置。");
-                if (File.Exists(_configFilePath))
-                    File.Replace(tmpPath, _configFilePath, _configFilePath + ".bak", ignoreMetadataErrors: true);
-                else
-                    File.Move(tmpPath, _configFilePath);
-                changed = true;
+
+                using var crossProcessMutex = new Mutex(false, "Global\\UsageMonitor-ConfigService");
+                bool mutexAcquired = false;
+                try
+                {
+                    mutexAcquired = crossProcessMutex.WaitOne(TimeSpan.FromSeconds(5));
+                    var tmpPath = _configFilePath + ".tmp";
+                    File.WriteAllText(tmpPath, json, Encoding.UTF8);
+                    if (new FileInfo(tmpPath).Length <= 0)
+                        throw new IOException("写入临时配置文件后大小为 0，放弃替换以保护原配置。");
+                    if (File.Exists(_configFilePath))
+                        File.Replace(tmpPath, _configFilePath, _configFilePath + ".bak", ignoreMetadataErrors: true);
+                    else
+                        File.Move(tmpPath, _configFilePath);
+                    changed = true;
+                }
+                finally
+                {
+                    if (mutexAcquired) crossProcessMutex.ReleaseMutex();
+                }
             }
             catch (Exception ex)
             {
-                // 重要：记录真实错误信息，让 UI 能提示用户（磁盘满/权限不足/文件被占用）
                 LastSaveError = $"{ex.GetType().Name}: {ex.Message}";
-                System.Diagnostics.Debug.WriteLine($"保存配置失败: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"保存配置失败(写入阶段): {ex.Message}");
             }
         }
 

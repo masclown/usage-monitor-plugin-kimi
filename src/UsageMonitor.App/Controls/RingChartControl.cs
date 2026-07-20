@@ -64,28 +64,28 @@ public class RingChartControl : FrameworkElement, IHoverTooltipProvider
         nameof(StrokeThickness), typeof(double), typeof(RingChartControl),
         new FrameworkPropertyMetadata(5.0, FrameworkPropertyMetadataOptions.AffectsRender));
 
-    /// <summary>背景轨道颜色</summary>
+    /// <summary>背景轨道颜色。req-074：默认值改为主题资源 TrackBrush。</summary>
     public static readonly DependencyProperty TrackBrushProperty = DependencyProperty.Register(
         nameof(TrackBrush), typeof(Brush), typeof(RingChartControl),
-        new FrameworkPropertyMetadata(new SolidColorBrush(Color.FromRgb(0x2D, 0x2D, 0x3F)),
+        new FrameworkPropertyMetadata(null,
             FrameworkPropertyMetadataOptions.AffectsRender));
 
-    /// <summary>进度条颜色（深色主色，低于警告阈值时使用）</summary>
+    /// <summary>进度条颜色。req-074：默认值改为主题资源 TextPrimaryBrush。</summary>
     public static readonly DependencyProperty ProgressBrushProperty = DependencyProperty.Register(
         nameof(ProgressBrush), typeof(Brush), typeof(RingChartControl),
-        new FrameworkPropertyMetadata(new SolidColorBrush(Color.FromRgb(0xE2, 0xE8, 0xF0)),
+        new FrameworkPropertyMetadata(null,
             FrameworkPropertyMetadataOptions.AffectsRender));
 
-    /// <summary>警告色（达到 WarningThreshold 时使用）</summary>
+    /// <summary>警告色。req-074：默认值改为主题资源 WarningBrush。</summary>
     public static readonly DependencyProperty WarningBrushProperty = DependencyProperty.Register(
         nameof(WarningBrush), typeof(Brush), typeof(RingChartControl),
-        new FrameworkPropertyMetadata(new SolidColorBrush(Color.FromRgb(0xF5, 0x9E, 0x0B)),
+        new FrameworkPropertyMetadata(null,
             FrameworkPropertyMetadataOptions.AffectsRender));
 
-    /// <summary>危险色（达到 DangerThreshold 时使用）</summary>
+    /// <summary>危险色。req-074：默认值改为主题资源 DangerBrush。</summary>
     public static readonly DependencyProperty DangerBrushProperty = DependencyProperty.Register(
         nameof(DangerBrush), typeof(Brush), typeof(RingChartControl),
-        new FrameworkPropertyMetadata(new SolidColorBrush(Color.FromRgb(0xEF, 0x44, 0x44)),
+        new FrameworkPropertyMetadata(null,
             FrameworkPropertyMetadataOptions.AffectsRender));
 
     /// <summary>警告阈值（默认 60）</summary>
@@ -144,11 +144,10 @@ public class RingChartControl : FrameworkElement, IHoverTooltipProvider
         nameof(EnabledMetrics), typeof(IReadOnlyList<string>), typeof(RingChartControl),
         new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
 
-    /// <summary>req-026：当前 metric 被关闭时中心数字显示的画笔（浅灰）。
-    /// 默认 <c>#CCCCCC</c>；UI 端可整体覆盖（如深色主题用更亮的浅灰）。</summary>
+    /// <summary>req-026：当前 metric 被关闭时中心数字显示的画笔。req-074：默认改主题资源 TextTertiaryBrush。</summary>
     public static readonly DependencyProperty DisabledBrushProperty = DependencyProperty.Register(
         nameof(DisabledBrush), typeof(Brush), typeof(RingChartControl),
-        new FrameworkPropertyMetadata(new SolidColorBrush(Color.FromRgb(0xCC, 0xCC, 0xCC)),
+        new FrameworkPropertyMetadata(null,
             FrameworkPropertyMetadataOptions.AffectsRender));
 
     /// <summary>Provider 短名称</summary>
@@ -363,13 +362,28 @@ public class RingChartControl : FrameworkElement, IHoverTooltipProvider
     // =========================
 
     /// <summary>控件构造：启用鼠标 hover、键盘聚焦、捕获鼠标离开事件以驱动 sticky timer。</summary>
+    /// <summary>
+    /// 构造函数。req-074：从主题资源解析 Brush 默认值，回退硬编码值。
+    /// </summary>
     public RingChartControl()
     {
         Focusable = true;
         Cursor = System.Windows.Input.Cursors.Hand;
+
+        // req-074：从主题资源解析 Brush 默认值，确保主题切换时跟随更新
+        if (TrackBrush == null)
+            SetValue(TrackBrushProperty, TryFindResource("TrackBrush") as Brush ?? new SolidColorBrush(Color.FromRgb(0x2A, 0x30, 0x40)));
+        if (ProgressBrush == null)
+            SetValue(ProgressBrushProperty, TryFindResource("TextPrimaryBrush") as Brush ?? new SolidColorBrush(Color.FromRgb(0xE2, 0xE8, 0xF0)));
+        if (WarningBrush == null)
+            SetValue(WarningBrushProperty, TryFindResource("WarningBrush") as Brush ?? new SolidColorBrush(Color.FromRgb(0xF5, 0x9E, 0x0B)));
+        if (DangerBrush == null)
+            SetValue(DangerBrushProperty, TryFindResource("DangerBrush") as Brush ?? new SolidColorBrush(Color.FromRgb(0xEF, 0x44, 0x44)));
+        if (DisabledBrush == null)
+            SetValue(DisabledBrushProperty, TryFindResource("TextTertiaryBrush") as Brush ?? new SolidColorBrush(Color.FromRgb(0xCC, 0xCC, 0xCC)));
+
         // REQ-003：当使用方卡 DataTemplate 装入本控件且未设置 MetricProviders 时，
         // 根据 DataContext 是否为 ProviderUsageViewModel 自动构造 5 个内置 IRingMetricProvider。
-        // 让 TaskbarRingChartTemplate 不必额外指定 XAML binding。
         DataContextChanged += OnDataContextChanged;
         // req-063 B10：订阅 Unloaded 事件，控件卸载时停止内部计时器
         Unloaded += OnControlUnloaded;

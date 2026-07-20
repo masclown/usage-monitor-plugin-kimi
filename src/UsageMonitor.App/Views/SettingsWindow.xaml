@@ -15,7 +15,7 @@
         <TabItem Header="常规设置">
             <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,6,0">
                 <StackPanel Margin="16">
-                    <TextBlock Text="常规设置" FontSize="20" FontWeight="Bold"
+                    <TextBlock Text="常规设置" FontSize="{DynamicResource FontSizeTitle}" FontWeight="Bold"
                                Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,20" />
 
                     <!-- 外观主题 -->
@@ -33,11 +33,20 @@
                         </StackPanel>
                     </Border>
 
-                    <!-- 刷新间隔 -->
+                    <!-- 刷新间隔。req-077 U-20：加单位后缀 + 范围提示 -->
                     <StackPanel Margin="0,0,0,16">
-                        <TextBlock Text="刷新间隔（秒）" FontSize="13"
+                        <TextBlock Text="刷新间隔" FontSize="13"
                                    Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,4" />
-                        <TextBox Text="{Binding RefreshInterval}" Width="120" HorizontalAlignment="Left" />
+                        <Grid HorizontalAlignment="Left" Width="180">
+                            <TextBox Text="{Binding RefreshInterval, UpdateSourceTrigger=PropertyChanged}"
+                                     Margin="0,0,40,0" />
+                            <TextBlock Text="秒" HorizontalAlignment="Right" VerticalAlignment="Center"
+                                       Margin="0,0,12,0" FontSize="{DynamicResource FontSizeCaption}"
+                                       Foreground="{DynamicResource TextTertiaryBrush}" IsHitTestVisible="False" />
+                        </Grid>
+                        <TextBlock Text="建议 60-3600 秒（1 分钟至 1 小时）"
+                                   FontSize="{DynamicResource FontSizeCaption}"
+                                   Foreground="{DynamicResource TextTertiaryBrush}" Margin="0,4,0,0" />
                     </StackPanel>
 
                     <CheckBox Content="开机自动启动" IsChecked="{Binding AutoStart}" Margin="0,0,0,12" />
@@ -77,12 +86,19 @@
                     <Separator Margin="0,4,0,16" />
 
                     <!-- REQ-003 环形图增强设置：metric 启用/禁用 + 切换顺序 + sticky + 动画 -->
+                    <!-- req-077 U-21：环形图中心数字提示文字拆为要点列表 -->
                     <TextBlock Text="环形图中心数字（单击启用/禁用，滚轮切换顺序）" FontSize="15" FontWeight="SemiBold"
                                Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,12" />
-                    <TextBlock TextWrapping="Wrap" FontSize="12"
-                               Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,8">
-                        <Run Text="单击可开启或关闭，关闭后字颜色变为灰色。修改后点击保存设置。离开鼠标后 sticky 秒数后回默认。" />
-                    </TextBlock>
+                    <ItemsControl Margin="0,0,0,8">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate><StackPanel /></ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <sys:String>• 单击：开启或关闭该 metric</sys:String>
+                        <sys:String>• 关闭后：中心数字变灰色</sys:String>
+                        <sys:String>• 滚轮：循环切换显示顺序</sys:String>
+                        <sys:String>• 鼠标离开 sticky 秒后：回默认 metric</sys:String>
+                        <sys:String>• 修改后请点击“保存设置”生效</sys:String>
+                    </ItemsControl>
                     <ItemsControl x:Name="RingMetricOrderList" ItemsSource="{Binding RingChartMetricOrder}" Margin="0,0,0,8">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
@@ -144,7 +160,7 @@
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
 
-                <TextBlock Grid.Row="0" Text="已安装插件" FontSize="20" FontWeight="Bold"
+                <TextBlock Grid.Row="0" Text="已安装插件" FontSize="{DynamicResource FontSizeTitle}" FontWeight="Bold"
                            Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,16" />
 
                 <ListView Grid.Row="1" ItemsSource="{Binding PluginItems}"
@@ -220,7 +236,7 @@
         <TabItem Header="任务栏显示">
             <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,6,0">
                 <StackPanel Margin="16">
-                    <TextBlock Text="任务栏显示模式" FontSize="20" FontWeight="Bold"
+                    <TextBlock Text="任务栏显示模式" FontSize="{DynamicResource FontSizeTitle}" FontWeight="Bold"
                                Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,8" />
                     <TextBlock TextWrapping="Wrap" FontSize="12" Margin="0,0,0,16"
                                Foreground="{DynamicResource TextSecondaryBrush}" LineHeight="18">
@@ -239,49 +255,33 @@
                               SelectedValue="{Binding GlobalTaskbarMode, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                               Width="180" HorizontalAlignment="Left" Margin="0,0,0,20" />
 
-                    <!-- 每 Provider 覆盖 -->
+                    <!-- 每 Provider 覆盖。req-077 U-22：改 ScrollViewer+ItemsControl 避免滚动嵌套 -->
                     <Separator Margin="0,4,0,16" />
                     <TextBlock Text="每 Provider 覆盖" FontSize="14" FontWeight="SemiBold"
                                Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,8" />
-                    <ListView ItemsSource="{Binding PluginItems}"
-                              Background="Transparent" BorderThickness="0"
-                              MaxHeight="240"
-                              ScrollViewer.HorizontalScrollBarVisibility="Disabled">
-                        <ListView.ItemContainerStyle>
-                            <Style TargetType="ListViewItem">
-                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                                <Setter Property="Background" Value="Transparent" />
-                                <Setter Property="Margin" Value="0,0,0,6" />
-                                <Setter Property="Padding" Value="0" />
-                                <Setter Property="Template">
-                                    <Setter.Value>
-                                        <ControlTemplate TargetType="ListViewItem">
-                                            <Border Background="{DynamicResource SurfaceBrush}"
-                                                    CornerRadius="{DynamicResource RadiusSmall}" Padding="10,6">
-                                                <ContentPresenter />
-                                            </Border>
-                                        </ControlTemplate>
-                                    </Setter.Value>
-                                </Setter>
-                            </Style>
-                        </ListView.ItemContainerStyle>
-                        <ListView.ItemTemplate>
-                            <DataTemplate>
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Text="{Binding DisplayName}" FontSize="13"
-                                               VerticalAlignment="Center" />
-                                    <ComboBox Grid.Column="1" Width="140"
-                                              ItemsSource="{Binding AvailableDisplayModes}"
-                                              DisplayMemberPath="Value" SelectedValuePath="Key"
-                                              SelectedValue="{Binding DisplayMode, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                                </Grid>
-                            </DataTemplate>
-                        </ListView.ItemTemplate>
-                    </ListView>
+                    <ScrollViewer MaxHeight="240" VerticalScrollBarVisibility="Auto">
+                        <ItemsControl ItemsSource="{Binding PluginItems}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Background="{DynamicResource SurfaceBrush}"
+                                            CornerRadius="{DynamicResource RadiusSmall}" Padding="10,6" Margin="0,0,0,6">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="{Binding DisplayName}" FontSize="13"
+                                                       VerticalAlignment="Center" />
+                                            <ComboBox Grid.Column="1" Width="140"
+                                                      ItemsSource="{Binding AvailableDisplayModes}"
+                                                      DisplayMemberPath="Value" SelectedValuePath="Key"
+                                                      SelectedValue="{Binding DisplayMode, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
 
                     <!-- req-042：环形图中心数字设置（从独立 Tab 移入） -->
                     <Separator Margin="0,16,0,16" />
@@ -328,7 +328,7 @@
         <TabItem Header="悬浮窗">
             <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,6,0">
                 <StackPanel Margin="16">
-                    <TextBlock Text="悬浮窗设置" FontSize="20" FontWeight="Bold"
+                    <TextBlock Text="悬浮窗设置" FontSize="{DynamicResource FontSizeTitle}" FontWeight="Bold"
                                Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,16" />
 
                     <!-- 悬浮窗开关 + 延迟 -->
@@ -392,7 +392,7 @@
         <TabItem Header="色阶">
             <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,6,0">
                 <StackPanel Margin="16" DataContext="{Binding TierEditor}">
-                    <TextBlock Text="用量色阶" FontSize="20" FontWeight="Bold"
+                    <TextBlock Text="用量色阶" FontSize="{DynamicResource FontSizeTitle}" FontWeight="Bold"
                                Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,8" />
                     <TextBlock TextWrapping="Wrap" FontSize="12" Margin="0,0,0,16"
                                Foreground="{DynamicResource TextSecondaryBrush}" LineHeight="18">
@@ -458,17 +458,18 @@
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
 
-                    <!-- 操作行 -->
+                    <!-- 操作行。req-077 U-23：按钮分三级（Primary + AccentSoft + Ghost） -->
                     <StackPanel Orientation="Horizontal" Margin="0,8,0,16">
                         <Button Content="添加档位" Margin="0,0,8,0" Padding="14,6"
                                 Command="{Binding AddTierCommand}"
-                                Style="{StaticResource AccentSoftButtonStyle}" />
-                        <Button Content="恢复默认" Margin="0,0,8,0" Padding="14,6"
-                                Command="{Binding ResetTierCommand}"
-                                Style="{StaticResource GhostButtonStyle}" />
+                                Style="{StaticResource PrimaryButtonStyle}" />
                         <Button Content="应用预览" Margin="0,0,8,0" Padding="14,6"
                                 Command="{Binding ApplyPreviewCommand}"
-                                Style="{StaticResource GhostButtonStyle}" />
+                                Style="{StaticResource AccentSoftButtonStyle}" />
+                        <Button Content="恢复默认" Padding="14,6"
+                                Command="{Binding ResetTierCommand}"
+                                Style="{StaticResource GhostButtonStyle}"
+                                Margin="24,0,0,0" />
                     </StackPanel>
 
                     <Separator Margin="0,4,0,16" />
@@ -484,7 +485,7 @@
 
                     <!-- req-043：热力图色阶分节（从独立 Tab 合并入） -->
                     <Separator Margin="0,20,0,20" />
-                    <TextBlock Text="热力图色阶" FontSize="20" FontWeight="Bold"
+                    <TextBlock Text="热力图色阶" FontSize="{DynamicResource FontSizeTitle}" FontWeight="Bold"
                                Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,8" />
                     <TextBlock TextWrapping="Wrap" FontSize="12" Margin="0,0,0,16"
                                Foreground="{DynamicResource TextSecondaryBrush}" LineHeight="18">
@@ -565,7 +566,7 @@
         <TabItem Header="诊断 / 日志">
             <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,6,0">
                 <StackPanel Margin="16">
-                    <TextBlock Text="诊断与运行日志" FontSize="20" FontWeight="Bold"
+                    <TextBlock Text="诊断与运行日志" FontSize="{DynamicResource FontSizeTitle}" FontWeight="Bold"
                                Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,20" />
 
                     <TextBlock Text="运行日志路径" FontSize="13" FontWeight="SemiBold"

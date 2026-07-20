@@ -20,11 +20,16 @@
     <Thickness x:Key="CardPadding">20</Thickness>
     <Thickness x:Key="CardMargin">0,0,0,14</Thickness>
 
-    <!-- 字体族：中文优先 YaHei UI，回退到 Segoe，覆盖中英文 -->
-    <FontFamily x:Key="AppFontFamily">Microsoft YaHei UI, Segoe UI Variable Text, Segoe UI</FontFamily>
+    <!-- 字体族：中文优先 YaHei UI，回退到 Segoe。req-075 U-11：扩展回退链覆盖 macOS/Linux -->
+    <FontFamily x:Key="AppFontFamily">
+        Microsoft YaHei UI, Segoe UI Variable Text, Segoe UI,
+        PingFang SC, Hiragino Sans GB, Source Han Sans SC,
+        -apple-system, BlinkMacSystemFont, sans-serif
+    </FontFamily>
 
     <!-- 字号阶梯 -->
     <sys:Double x:Key="FontSizeDisplay">25</sys:Double>
+    <sys:Double x:Key="FontSizeHeading">22</sys:Double>
     <sys:Double x:Key="FontSizeTitle">18</sys:Double>
     <sys:Double x:Key="FontSizeSubtitle">15</sys:Double>
     <sys:Double x:Key="FontSizeBody">13</sys:Double>
@@ -47,5 +52,28 @@
     <SolidColorBrush x:Key="UsageNoticeBrush" Color="{StaticResource UsageNoticeColor}" />
     <SolidColorBrush x:Key="UsageMidBrush" Color="{StaticResource UsageMidColor}" />
     <SolidColorBrush x:Key="UsageHighBrush" Color="{StaticResource UsageHighColor}" />
+
+    <!-- req-075 U-09：间距阶梯（4px 基准） -->
+    <Thickness x:Key="SpaceXxs">4</Thickness>
+    <Thickness x:Key="SpaceXs">8</Thickness>
+    <Thickness x:Key="SpaceSm">12</Thickness>
+    <Thickness x:Key="SpaceMd">16</Thickness>
+    <Thickness x:Key="SpaceLg">24</Thickness>
+    <Thickness x:Key="SpaceXl">32</Thickness>
+
+    <!-- req-075 U-09：交互状态透明度 -->
+    <sys:Double x:Key="OpacityHover">0.85</sys:Double>
+    <sys:Double x:Key="OpacityPressed">0.7</sys:Double>
+    <sys:Double x:Key="OpacityDisabled">0.4</sys:Double>
+
+    <!-- req-075 U-09：动画时长（毫秒） -->
+    <sys:Double x:Key="DurationFast">120</sys:Double>
+    <sys:Double x:Key="DurationNormal">200</sys:Double>
+    <sys:Double x:Key="DurationSlow">320</sys:Double>
+
+    <!-- req-075 U-09：Elevation 阶梯（阴影） -->
+    <DropShadowEffect x:Key="Elevation1" Color="#FF000000" BlurRadius="6" ShadowDepth="1" Direction="270" Opacity="0.20" />
+    <DropShadowEffect x:Key="Elevation2" Color="#FF000000" BlurRadius="10" ShadowDepth="2" Direction="270" Opacity="0.35" />
+    <DropShadowEffect x:Key="Elevation3" Color="#FF000000" BlurRadius="14" ShadowDepth="4" Direction="270" Opacity="0.45" />
 
 </ResourceDictionary>

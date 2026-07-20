@@ -301,7 +301,7 @@
                                         <TextBlock Grid.Row="0" Text="{Binding Label}" FontSize="12"
                                                    HorizontalAlignment="Center" VerticalAlignment="Center"
                                                    Foreground="{DynamicResource TextSecondaryBrush}" />
-                                        <TextBlock Grid.Row="1" Text="{Binding Value}" FontSize="26" FontWeight="Bold"
+                                        <TextBlock Grid.Row="1" Text="{Binding Value}" FontSize="{DynamicResource FontSizeDisplay}" FontWeight="Bold"
                                                    HorizontalAlignment="Center" VerticalAlignment="Center"
                                                    Foreground="{DynamicResource AccentBrush}"
                                                    TextTrimming="CharacterEllipsis" />

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 
 namespace UsageMonitor.Core.Models;
@@ -13,8 +14,8 @@ public class ProviderConfig
     /// <summary>是否启用此服务商</summary>
     public bool IsEnabled { get; set; } = true;
 
-    /// <summary>配置键值对（如 ApiKey=xxx）</summary>
-    public Dictionary<string, string> Values { get; set; } = new();
+    /// <summary>配置键值对（如 ApiKey=xxx）。req-057：改用 ConcurrentDictionary 保证跨线程读写安全。</summary>
+    public ConcurrentDictionary<string, string> Values { get; set; } = new();
 
     /// <summary>
     /// 获取指定键的配置值

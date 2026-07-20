@@ -19,7 +19,7 @@
 
         <!-- 标题 -->
         <TextBlock x:Name="TitleText" Grid.Row="0"
-                   FontSize="20" FontWeight="Bold"
+                   FontSize="{DynamicResource FontSizeTitle}" FontWeight="Bold"
                    Foreground="{DynamicResource TextPrimaryBrush}"
                    Margin="0,0,0,18" />
 
@@ -47,7 +47,8 @@
 
         <!-- 底部按钮 -->
         <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">
-            <Button x:Name="GetCookieButton" Content="🌐 获取登录态"
+            <!-- req-079 U-30：emoji 按钮改为纯文字 + ToolTip -->
+            <Button x:Name="GetCookieButton" Content="获取登录态"
                     Margin="0,0,12,0" Click="OnGetCookieClick"
                     Style="{StaticResource GhostButtonStyle}"
                     Visibility="Collapsed"

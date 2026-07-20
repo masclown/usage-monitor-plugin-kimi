@@ -64,25 +64,25 @@ public class BarChartControl : FrameworkElement, IHoverTooltipProvider
         nameof(MaxValue), typeof(double), typeof(BarChartControl),
         new FrameworkPropertyMetadata(0.0, FrameworkPropertyMetadataOptions.AffectsRender));
 
-    /// <summary>柱体画笔（渐变，建议 {DynamicResource AccentGradientBrush}）</summary>
+    /// <summary>柱体画笔。req-074：默认改主题资源 AccentBrush。</summary>
     public static readonly DependencyProperty BarBrushProperty = DependencyProperty.Register(
         nameof(BarBrush), typeof(Brush), typeof(BarChartControl),
-        new FrameworkPropertyMetadata(Brushes.OrangeRed, FrameworkPropertyMetadataOptions.AffectsRender));
+        new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
 
     /// <summary>强调高亮的柱索引（-1 表示无）</summary>
     public static readonly DependencyProperty HighlightIndexProperty = DependencyProperty.Register(
         nameof(HighlightIndex), typeof(int), typeof(BarChartControl),
         new FrameworkPropertyMetadata(-1, FrameworkPropertyMetadataOptions.AffectsRender));
 
-    /// <summary>网格线颜色</summary>
+    /// <summary>网格线颜色。req-074：默认改主题资源 ChartGridBrush。</summary>
     public static readonly DependencyProperty GridLineBrushProperty = DependencyProperty.Register(
         nameof(GridLineBrush), typeof(Brush), typeof(BarChartControl),
-        new FrameworkPropertyMetadata(Brushes.DimGray, FrameworkPropertyMetadataOptions.AffectsRender));
+        new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
 
-    /// <summary>轴/文本颜色</summary>
+    /// <summary>轴/文本颜色。req-074：默认改主题资源 TextSecondaryBrush。</summary>
     public static readonly DependencyProperty TextBrushProperty = DependencyProperty.Register(
         nameof(TextBrush), typeof(Brush), typeof(BarChartControl),
-        new FrameworkPropertyMetadata(Brushes.Gray, FrameworkPropertyMetadataOptions.AffectsRender));
+        new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
 
     public IReadOnlyList<double> Values
     {
@@ -127,11 +127,23 @@ public class BarChartControl : FrameworkElement, IHoverTooltipProvider
     /// <summary>req-063 B9：跟踪当前订阅的集合，用于 OnUnloaded 时解绑。</summary>
     private INotifyCollectionChanged? _subscribed;
 
+    /// <summary>
+    /// 构造函数。req-074：从主题资源解析 Brush 默认值。
+    /// </summary>
     public BarChartControl()
     {
         MinHeight = 90;
         MinWidth = 160;
         Focusable = true;
+
+        // req-074：从主题资源解析 Brush 默认值
+        if (BarBrush == null)
+            SetValue(BarBrushProperty, TryFindResource("AccentBrush") as Brush ?? Brushes.OrangeRed);
+        if (GridLineBrush == null)
+            SetValue(GridLineBrushProperty, TryFindResource("ChartGridBrush") as Brush ?? Brushes.DimGray);
+        if (TextBrush == null)
+            SetValue(TextBrushProperty, TryFindResource("TextSecondaryBrush") as Brush ?? Brushes.Gray);
+
         // req-063 B9：订阅 Unloaded 事件，控件卸载时解绑 CollectionChanged
         Unloaded += OnControlUnloaded;
     }

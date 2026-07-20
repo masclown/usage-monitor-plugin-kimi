@@ -15,10 +15,29 @@ public class RefreshService : IDisposable
     private readonly UsageHistoryStore _historyStore;
     private readonly UsageHistoryRepository? _historyRepository;
     private Timer? _timer;
-    private bool _isRefreshing;
+    /// <summary>req-057：刷新中标记（0=空闲，1=刷新中），使用 Interlocked 保证线程安全。</summary>
+    private int _isRefreshing;
 
     /// <summary>每个 provider 的刷新互斥锁：同一 provider 的全量刷新与单卡片刷新互斥，不同 provider 仍可并行。</summary>
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _providerLocks = new();
+
+    /// <summary>req-058：每个 Provider 的连续失败计数（用于熔断器）。</summary>
+    private readonly ConcurrentDictionary<string, int> _consecutiveFailures = new();
+
+    /// <summary>req-058：每个 Provider 的熔断到期时间（UTC），在此之前跳过刷新。</summary>
+    private readonly ConcurrentDictionary<string, DateTime> _circuitOpenUntil = new();
+
+    /// <summary>req-058：连续失败多少次后触发熔断。</summary>
+    private const int CircuitBreakerThreshold = 5;
+
+    /// <summary>req-058：熔断时长（分钟）。</summary>
+    private const int CircuitBreakerDurationMinutes = 5;
+
+    /// <summary>req-058：单个 Provider 刷新超时（秒）。</summary>
+    private const int PerProviderTimeoutSeconds = 60;
+
+    /// <summary>req-058：全量刷新整体超时（秒）。</summary>
+    private const int OverallTimeoutSeconds = 120;
 
     /// <summary>
     /// 用量数据更新事件
@@ -74,23 +93,28 @@ public class RefreshService : IDisposable
     }
 
     /// <summary>
-    /// 立即刷新所有已启用的插件
+    /// 立即刷新所有已启用的插件。
+    /// req-057：使用 Interlocked.CompareExchange 保证多线程下仅一个线程进入刷新逻辑。
+    /// req-058：加入整体超时 + 单 Provider 超时 + 熔断器。
     /// </summary>
     /// <param name="triggerKind">触发类型（"manual" / "auto"），传给 req-013 刷新聚合</param>
     public async Task RefreshAllAsync(string triggerKind = "manual")
     {
-        if (_isRefreshing) return;
-        _isRefreshing = true;
+        // req-057 P0：原子 CAS 替代普通 bool，避免 ThreadPool 与 UI 线程同时进入刷新
+        if (Interlocked.CompareExchange(ref _isRefreshing, 1, 0) != 0) return;
 
         RefreshStarted?.Invoke(this, EventArgs.Empty);
 
         try
         {
+            // req-058：整体超时 CTS
+            using var overallCts = new CancellationTokenSource(TimeSpan.FromSeconds(OverallTimeoutSeconds));
+
             var enabledPlugins = _pluginManager.GetEnabledPlugins()
                 .Where(p => p.IsEnabled && _configService.Settings.PluginEnabled.GetValueOrDefault(p.Provider.ProviderId, true))
                 .ToList();
 
-            var tasks = enabledPlugins.Select(p => RefreshPluginAsync(p, triggerKind));
+            var tasks = enabledPlugins.Select(p => RefreshPluginWithTimeoutAsync(p, triggerKind, overallCts.Token));
             await Task.WhenAll(tasks);
 
             // 触发数据更新事件
@@ -103,7 +127,70 @@ public class RefreshService : IDisposable
         }
         finally
         {
-            _isRefreshing = false;
+            Interlocked.Exchange(ref _isRefreshing, 0);
+        }
+    }
+
+    /// <summary>
+    /// req-058：带单 Provider 超时和熔断器的刷新包装。
+    /// 单个 Provider 超时不影响其他 Provider。
+    /// </summary>
+    private async Task RefreshPluginWithTimeoutAsync(LoadedPlugin plugin, string triggerKind, CancellationToken overallToken)
+    {
+        var providerId = plugin.Provider.ProviderId;
+
+        // req-058：熔断器检查——连续失败超过阈值后临时跳过
+        if (_circuitOpenUntil.TryGetValue(providerId, out var openUntil))
+        {
+            if (DateTime.UtcNow < openUntil)
+            {
+                FileLogger.Info("RefreshService",
+                    $"Circuit breaker OPEN for {providerId}, skipping until {openUntil:HH:mm:ss} UTC");
+                return;
+            }
+            // 熔断到期，半开状态——允许一次尝试
+            _circuitOpenUntil.TryRemove(providerId, out _);
+        }
+
+        // req-058：单 Provider 超时（与整体超时取较小值）
+        using var perCts = CancellationTokenSource.CreateLinkedTokenSource(overallToken);
+        perCts.CancelAfter(TimeSpan.FromSeconds(PerProviderTimeoutSeconds));
+
+        try
+        {
+            await RefreshPluginAsync(plugin, triggerKind, perCts.Token);
+
+            // 成功：重置连续失败计数
+            _consecutiveFailures[providerId] = 0;
+        }
+        catch (OperationCanceledException) when (!overallToken.IsCancellationRequested)
+        {
+            // 单 Provider 超时（不是整体取消）
+            FileLogger.Warn("RefreshService",
+                $"Provider {providerId} timed out after {PerProviderTimeoutSeconds}s");
+            RecordFailure(providerId);
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Error("RefreshService",
+                $"Provider {providerId} refresh failed: {ex.Message}", ex);
+            RecordFailure(providerId);
+        }
+    }
+
+    /// <summary>
+    /// req-058：记录失败并检查是否触发熔断。
+    /// </summary>
+    private void RecordFailure(string providerId)
+    {
+        var count = _consecutiveFailures.AddOrUpdate(providerId, 1, (_, c) => c + 1);
+        if (count >= CircuitBreakerThreshold)
+        {
+            var openUntil = DateTime.UtcNow.AddMinutes(CircuitBreakerDurationMinutes);
+            _circuitOpenUntil[providerId] = openUntil;
+            FileLogger.Warn("RefreshService",
+                $"Circuit breaker OPEN for {providerId} after {count} consecutive failures. " +
+                $"Will retry after {CircuitBreakerDurationMinutes} min.");
         }
     }
 
@@ -180,11 +267,15 @@ public class RefreshService : IDisposable
     }
 
     /// <summary>
-    /// 定时器回调
+    /// 定时器回调。req-058：加 faulted 回调避免 unobserved task exception。
     /// </summary>
     private void OnTimerTick(object? state)
     {
-        _ = RefreshAllAsync("auto");
+        _ = RefreshAllAsync("auto").ContinueWith(
+            t => FileLogger.Error("RefreshService",
+                $"Auto refresh unhandled exception: {t.Exception?.GetBaseException().Message}",
+                t.Exception?.GetBaseException()),
+            TaskContinuationOptions.OnlyOnFaulted);
     }
 
     /// <summary>
