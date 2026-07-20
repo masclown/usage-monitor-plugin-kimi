@@ -205,10 +205,15 @@ public class Program
         PluginManager.AllowExternalPlugins = false; // 仅内置插件
         var pm = new PluginManager();
         // 注册内置插件（与 App.xaml.cs RegisterBuiltinPlugins 保持一致）
-        pm.RegisterPlugin(new Plugin.Deepseek.DeepseekProvider());
+        // req-084：Deepseek 使用双模式插件（API + 网页）
+        // req-085：Kimi 使用双模式插件（API + 网页）
+        // req-087：Qoder 使用纯网页模式插件
+        pm.RegisterPlugin(new Plugin.Deepseek.DeepseekDualModeProvider());
         pm.RegisterPlugin(new Plugin.MiMo.MiMoProvider());
         pm.RegisterPlugin(new Plugin.OpenAI.OpenAIProvider());
         pm.RegisterPlugin(new Plugin.MiniMax.MiniMaxProvider());
+        pm.RegisterPlugin(new Plugin.Kimi.KimiDualModeProvider());
+        pm.RegisterPlugin(new Plugin.Qoder.QoderProvider());
         return pm;
     }
 }

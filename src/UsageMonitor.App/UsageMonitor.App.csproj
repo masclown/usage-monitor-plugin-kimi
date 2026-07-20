@@ -9,13 +9,13 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
 
-    <!-- 项目版本号（0.20.0）：完整插件架构(PluginBase/WebPluginBase/IPluginLifecycle/PluginLifecycleManager) / 插件模板项目(Template.Api/Web) / 插件配置模型(IPluginSettings/PluginSettingsBase/StandardWebConfigFields) / 安全模块(ConfigDirAccessControl/CookieDirAccessControl/CookieProtection/CookieAuditLog/CookieCleanupService) / 3篇开发指南文档；用于程序集元数据 + 文件属性。 -->
+    <!-- 项目版本号（0.21.0）：新增Kimi插件项目(KimiApiProvider/KimiWebProvider/KimiDualModeProvider/KimiConfig) / 新增Qoder插件项目(QoderProvider/QoderWebProvider/QoderChartAdapter/QoderTableParser/CreditsFieldParser) / Deepseek双模式重构(DeepseekDualModeProvider/DeepseekWebProvider/DeepseekConfig) / MiniMaxDomExtractor增强；用于程序集元数据 + 文件属性。 -->
     <!-- 显式设置 5 个属性，避免被 SDK 衍生规则变动影响。 -->
-    <Version>0.20.0</Version>
-    <AssemblyVersion>0.20.0.0</AssemblyVersion>
-    <FileVersion>0.20.0.0</FileVersion>
-    <InformationalVersion>0.20.0</InformationalVersion>
-    <ProductVersion>0.20.0</ProductVersion>
+    <Version>0.21.0</Version>
+    <AssemblyVersion>0.21.0.0</AssemblyVersion>
+    <FileVersion>0.21.0.0</FileVersion>
+    <InformationalVersion>0.21.0</InformationalVersion>
+    <ProductVersion>0.21.0</ProductVersion>
     <AssemblyTitle>UsageMonitor</AssemblyTitle>
     <Product>UsageMonitor</Product>
     <Company>UsageMonitor</Company>
@@ -32,6 +32,8 @@
     <ProjectReference Include="..\Plugins\UsageMonitor.Plugin.MiMo\UsageMonitor.Plugin.MiMo.csproj" />
     <ProjectReference Include="..\Plugins\UsageMonitor.Plugin.OpenAI\UsageMonitor.Plugin.OpenAI.csproj" />
     <ProjectReference Include="..\Plugins\UsageMonitor.Plugin.MiniMax\UsageMonitor.Plugin.MiniMax.csproj" />
+    <ProjectReference Include="..\Plugins\UsageMonitor.Plugin.Kimi\UsageMonitor.Plugin.Kimi.csproj" />
+    <ProjectReference Include="..\Plugins\UsageMonitor.Plugin.Qoder\UsageMonitor.Plugin.Qoder.csproj" />
   </ItemGroup>
 
   <ItemGroup>

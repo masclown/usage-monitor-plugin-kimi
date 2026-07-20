@@ -302,14 +302,19 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// 注册内置插件（Deepseek、MiMo、OpenAI、MiniMax）
+    /// 注册内置插件（Deepseek、MiMo、OpenAI、MiniMax、Kimi、Qoder）
+    /// req-084：Deepseek 使用双模式插件（API + 网页）
+    /// req-085：Kimi 使用双模式插件（API + 网页）
+    /// req-087：Qoder 使用纯网页模式插件
     /// </summary>
     private void RegisterBuiltinPlugins()
     {
-        _pluginManager.RegisterPlugin(new Plugin.Deepseek.DeepseekProvider());
+        _pluginManager.RegisterPlugin(new Plugin.Deepseek.DeepseekDualModeProvider());
         _pluginManager.RegisterPlugin(new Plugin.MiMo.MiMoProvider());
         _pluginManager.RegisterPlugin(new Plugin.OpenAI.OpenAIProvider());
         _pluginManager.RegisterPlugin(new Plugin.MiniMax.MiniMaxProvider());
+        _pluginManager.RegisterPlugin(new Plugin.Kimi.KimiDualModeProvider());
+        _pluginManager.RegisterPlugin(new Plugin.Qoder.QoderProvider());
     }
 
     /// <summary>

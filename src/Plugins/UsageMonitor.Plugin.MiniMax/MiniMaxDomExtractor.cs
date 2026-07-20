@@ -305,35 +305,60 @@ internal static class MiniMaxDomExtractor
     }
 
     /// <summary>
-    /// Read percentages/counts/times from DOM aria-labels.
+    /// Read percentages/counts/times from DOM using stable selectors.
     /// Returns a Metrics record. Returned values may be null when missing.
+    /// 使用多语言兼容的稳定选择器策略：优先按 DOM 结构路径，兜底按 aria-label 关键词匹配。
     /// </summary>
     private static async Task<DomMetrics> ExtractDomMetricsAsync(IPage page)
     {
         // Run all DOM lookups in the browser using `evaluate`.
         var raw = await page.EvaluateAsync<string>(@"() => {
-            const get = (label) => {
-                const el = document.querySelector(`div[aria-label^=""${label}""]`);
+            // 稳定选择器策略：优先按 DOM 结构路径定位，兜底按 aria-label 关键词匹配（支持多语言）
+            const findByStructure = (index) => {
+                // 策略1：按 DOM 结构路径 - 查找所有带 aria-label 的 div，按文档顺序取第 N 个
+                const divs = Array.from(document.querySelectorAll('div[aria-label]'));
+                if (divs.length > index) return divs[index];
+                return null;
+            };
+            
+            const findByAriaLabel = (patterns) => {
+                // 策略2：按 aria-label 关键词匹配（支持多语言）
+                const divs = Array.from(document.querySelectorAll('div[aria-label]'));
+                for (const pattern of patterns) {
+                    const el = divs.find(x => {
+                        const label = x.getAttribute('aria-label') || '';
+                        return label.toLowerCase().includes(pattern.toLowerCase());
+                    });
+                    if (el) return el;
+                }
+                return null;
+            };
+            
+            const get = (el) => {
                 if (!el) return null;
                 // First <span> inside the el is the percent number (e.g. ""66%"")
                 const span = el.querySelector('span');
                 return span ? span.textContent.trim() : el.textContent.trim();
             };
-            const getAll = (label) => {
-                const el = document.querySelector(`div[aria-label^=""${label}""]`);
+            
+            const getAll = (el) => {
                 if (!el) return null;
                 return el.innerText;
             };
-            // For '视频赠送': it's `0 / 3` in the right column
-            const getText = (label) => {
-                const el = Array.from(document.querySelectorAll('div[aria-label]'))
-                    .find(x => (x.getAttribute('aria-label') || '').startsWith(label));
-                return el ? el.innerText.trim() : null;
-            };
+            
+            // 5h 限额：优先按结构（第1个带 aria-label 的 div），兜底按关键词匹配
+            const interval5hEl = findByStructure(0) || findByAriaLabel(['5h', '5小时', 'interval', '限额']);
+            
+            // 周限额：优先按结构（第2个带 aria-label 的 div），兜底按关键词匹配
+            const weeklyEl = findByStructure(1) || findByAriaLabel(['周', 'week', 'weekly', '限额']);
+            
+            // 视频赠送：按关键词匹配（多语言）
+            const videoEl = findByAriaLabel(['视频', 'video', '赠送', 'gift']);
+            
             return JSON.stringify({
-                interval5h: get('5h 限额'),
-                weekly:    get('周限额'),
-                video:     getText('视频赠送'),
+                interval5h: get(interval5hEl),
+                weekly:    get(weeklyEl),
+                video:     getAll(videoEl),
                 credit:    document.body.innerText.match(/\u79ef\u5206[\s\S]{0,50}/)?.[0] || null,
                 pageTitle: document.title
             });
@@ -456,14 +481,20 @@ internal static class MiniMaxDomExtractor
                             {
                                 // req-062 B20: Fix field semantics - current_*_used_count is actually REMAINING count
                                 // (per OpenClaw Issue #81156: current_*_usage_count means "remaining count", not used)
-                                // We store as "remaining" and calculate used = total - remaining in UI layer if needed
-                                extras["mm_videoIntervalRemaining"] = GetLong(m, "current_interval_used_count");
-                                extras["mm_videoIntervalTotal"] = GetLong(m, "current_interval_total_count");
-                                extras["mm_videoWeeklyRemaining"] = GetLong(m, "current_weekly_used_count");
-                                extras["mm_videoWeeklyTotal"] = GetLong(m, "current_weekly_total_count");
-                                // Keep legacy keys for backward compatibility (deprecated, will be removed)
-                                extras["mm_videoIntervalUsed"] = GetLong(m, "current_interval_used_count");
-                                extras["mm_videoWeeklyUsed"] = GetLong(m, "current_weekly_used_count");
+                                // We store as "remaining" and calculate used = total - remaining
+                                var videoIntervalRemaining = GetLong(m, "current_interval_used_count");
+                                var videoIntervalTotal = GetLong(m, "current_interval_total_count");
+                                var videoWeeklyRemaining = GetLong(m, "current_weekly_used_count");
+                                var videoWeeklyTotal = GetLong(m, "current_weekly_total_count");
+                                
+                                extras["mm_videoIntervalRemaining"] = videoIntervalRemaining;
+                                extras["mm_videoIntervalTotal"] = videoIntervalTotal;
+                                extras["mm_videoWeeklyRemaining"] = videoWeeklyRemaining;
+                                extras["mm_videoWeeklyTotal"] = videoWeeklyTotal;
+                                
+                                // Legacy keys: calculate used = total - remaining (fix semantic inversion)
+                                extras["mm_videoIntervalUsed"] = videoIntervalTotal - videoIntervalRemaining;
+                                extras["mm_videoWeeklyUsed"] = videoWeeklyTotal - videoWeeklyRemaining;
                             }
                         }
                     }

@@ -42,6 +42,14 @@ public class DeepseekProvider : HttpUsageProviderBase
         StandardConfigFields.BaseUrl("Deepseek", "https://api.deepseek.com")
     };
 
+    /// <inheritdoc />
+    public override IReadOnlyList<BalanceItem> BalanceItems => new[]
+    {
+        new BalanceItem { Label = "总余额", Value = "--", Detail = null },
+        new BalanceItem { Label = "赠送余额", Value = "--", Detail = null },
+        new BalanceItem { Label = "充值余额", Value = "--", Detail = null }
+    };
+
     /// <summary>
     /// 查询 Deepseek API 的用量信息
     /// 调用 /user/balance 接口获取账户余额
@@ -105,11 +113,34 @@ public class DeepseekProvider : HttpUsageProviderBase
         {
             var primary = balanceResponse.BalanceInfos[0];
 
-            // 已用和总额
-            // req-060：加 InvariantCulture 避免不同区域设置下解析失败
-            if (decimal.TryParse(primary.TotalGranted, NumberStyles.Any, CultureInfo.InvariantCulture, out var totalGranted))
-                usageInfo.TotalAmount = totalGranted;
+            // req-084：解析总余额、赠送余额、充值余额
+            decimal totalBalance = 0;
+            decimal grantedBalance = 0;
+            decimal toppedUpBalance = 0;
 
+            // 优先使用 total_balance 字段
+            if (decimal.TryParse(primary.TotalBalance, NumberStyles.Any, CultureInfo.InvariantCulture, out var tb))
+            {
+                totalBalance = tb;
+            }
+
+            if (decimal.TryParse(primary.TotalGranted, NumberStyles.Any, CultureInfo.InvariantCulture, out var gb))
+            {
+                grantedBalance = gb;
+            }
+
+            if (decimal.TryParse(primary.ToppedUpBalance, NumberStyles.Any, CultureInfo.InvariantCulture, out var tub))
+            {
+                toppedUpBalance = tub;
+            }
+
+            // 如果没有 total_balance，尝试计算
+            if (totalBalance == 0 && (grantedBalance > 0 || toppedUpBalance > 0))
+            {
+                totalBalance = grantedBalance + toppedUpBalance;
+            }
+
+            // 兼容旧字段：已用和总额
             if (decimal.TryParse(primary.TotalUsed, NumberStyles.Any, CultureInfo.InvariantCulture, out var totalUsed))
                 usageInfo.UsedAmount = totalUsed;
 
@@ -120,11 +151,22 @@ public class DeepseekProvider : HttpUsageProviderBase
                     usageInfo.TotalAmount = totalUsed + totalLeft;
             }
 
+            // 设置总余额
+            if (totalBalance > 0)
+            {
+                usageInfo.TotalAmount = totalBalance;
+            }
+
             usageInfo.Unit = "CNY"; // Deepseek 默认人民币计价
 
             // 额外信息
             if (!string.IsNullOrEmpty(primary.Currency))
                 usageInfo.Unit = primary.Currency;
+
+            // req-084：存储余额明细到 Extra 供卡片显示
+            usageInfo.Extra["total_balance"] = totalBalance.ToString("F2", CultureInfo.InvariantCulture);
+            usageInfo.Extra["granted_balance"] = grantedBalance.ToString("F2", CultureInfo.InvariantCulture);
+            usageInfo.Extra["topped_up_balance"] = toppedUpBalance.ToString("F2", CultureInfo.InvariantCulture);
         }
 
         // 是否已认证
@@ -156,6 +198,12 @@ internal class DeepseekBalanceInfo
 
     [JsonPropertyName("total_balance")]
     public string? TotalBalance { get; set; }
+
+    [JsonPropertyName("granted_balance")]
+    public string? GrantedBalance { get; set; }
+
+    [JsonPropertyName("topped_up_balance")]
+    public string? ToppedUpBalance { get; set; }
 
     [JsonPropertyName("total_granted")]
     public string? TotalGranted { get; set; }
