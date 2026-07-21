@@ -31,27 +31,63 @@ public class KimiDualModeProvider : IUsageProvider
     /// <inheritdoc />
     public string? IconPath => null;
 
-    /// <inheritdoc />
+    /// <summary>
+    /// req-fix-Kimi ConfigFields 按模式动态返回字段。
+    /// <para>
+    /// 原实现静态合并 API 模式（ApiKey/BaseUrl）和 Web 模式（Cookie/Region/AutoRefresh）的所有字段，
+    /// 导致 Web 模式下用户用 Cookie 登录后保存时，ApiKey 必填校验失败。
+    /// </para>
+    /// <para>改为根据当前 config 的 QueryMode 字段动态返回：</para>
+    /// <list type="bullet">
+    ///   <item><description>api 模式：Mode + ApiKey + BaseUrl</description></item>
+    ///   <item><description>web 模式：Mode + Cookie + Region + AutoRefresh</description></item>
+    /// </list>
+    /// <para>注意：<see cref="IUsageProvider.ConfigFields"/> 是无参属性，配置切换时通过 ConfigService
+    /// 持久化触发下次读取。运行时切换需要重新打开 PluginConfigWindow 才能看到对应字段。</para>
+    /// </summary>
     public IReadOnlyList<ConfigField> ConfigFields
     {
         get
         {
+            var mode = KimiConfig.GetQueryMode(_currentConfigSnapshot);
             var fields = new List<ConfigField>
             {
-                // 模式选择字段
+                // 模式选择字段（始终显示，便于切换模式）
                 KimiConfig.CreateModeField(ProviderId)
             };
 
-            // 添加 API 模式字段
-            fields.AddRange(_apiProvider.ConfigFields);
-
-            // 添加网页模式字段（Cookie 等）
-            fields.Add(StandardWebConfigFields.Cookie(ProviderId));
-            fields.Add(StandardWebConfigFields.Region(ProviderId, "CN", "CN", "Global"));
-            fields.Add(StandardWebConfigFields.AutoRefresh(ProviderId, true));
+            if (mode == KimiConfig.ModeWeb)
+            {
+                // Web 模式：仅显示 Cookie + Region + AutoRefresh（无 ApiKey）
+                fields.Add(StandardWebConfigFields.Cookie(ProviderId));
+                fields.Add(StandardWebConfigFields.Region(ProviderId, "CN", "CN", "Global"));
+                fields.Add(StandardWebConfigFields.AutoRefresh(ProviderId, true));
+            }
+            else
+            {
+                // API 模式：仅显示 ApiKey + BaseUrl
+                fields.AddRange(_apiProvider.ConfigFields);
+            }
 
             return fields;
         }
+    }
+
+    /// <summary>
+    /// req-fix-Kimi ConfigFields 动态返回所需快照：MainViewModel 在装配时通过
+    /// <see cref="SetCurrentConfigSnapshot"/> 注入当前 config。
+    /// <para>未注入时（默认）按 API 模式返回字段（兜底）。</para>
+    /// </summary>
+    private ProviderConfig? _currentConfigSnapshot;
+
+    /// <summary>
+    /// req-fix-Kimi ConfigFields 动态返回所需 setter：MainViewModel 在装配 PluginItemViewModel
+    /// 时调用，传入当前 config 快照供 ConfigFields getter 按模式返回字段。
+    /// <para>建议仅在 MainViewModel 装配 plugin 列表时调用一次，运行时切换模式需重新调用。</para>
+    /// </summary>
+    public void SetCurrentConfigSnapshot(ProviderConfig? config)
+    {
+        _currentConfigSnapshot = config;
     }
 
     /// <inheritdoc />

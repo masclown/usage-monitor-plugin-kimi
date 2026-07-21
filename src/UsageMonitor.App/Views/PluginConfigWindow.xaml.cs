@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using UsageMonitor.Core.Models;
+using UsageMonitor.Core.Plugins;
 using UsageMonitor.Core.Services;
 using UsageMonitor.App.Controls;
 using UsageMonitor.App.Helpers;
@@ -30,11 +31,20 @@ namespace UsageMonitor.App.Views;
 /// </summary>
 public partial class PluginConfigWindow : Window
 {
-    private readonly IReadOnlyList<ConfigField> _configFields;
+    // req-fix-Kimi-ConfigFields 动态模式：去掉 readonly，Mode 切换时 RebuildFormForModeChange 重新赋值。
+    private IReadOnlyList<ConfigField> _configFields;
     private readonly ProviderConfig _config;
     private readonly BrowserLoginConfig? _loginConfig;
     private readonly Dictionary<string, FrameworkElement> _inputControls = new();
     private readonly ConfigService? _configService;
+
+    /// <summary>
+    /// req-fix-Kimi-ConfigFields 动态模式：保存 <see cref="IUsageProvider"/> 引用，
+    /// 让 Mode 字段 ComboBox 切换时能重新调用 <see cref="IUsageProvider.ConfigFields"/>
+    /// 获取与新模式匹配的字段列表。
+    /// <para>非双模式插件可传 null（仍按原方式使用构造时传入的 _configFields 列表）。</para>
+    /// </summary>
+    private readonly UsageMonitor.Core.Plugins.IUsageProvider? _provider;
 
     /// <summary>插件声明支持的图表类型（用于生成复选框，保持声明顺序）。</summary>
     private readonly IReadOnlyList<CardChartKind> _supportedCardCharts;
@@ -75,6 +85,12 @@ public partial class PluginConfigWindow : Window
     /// <param name="configService">
     /// req-065 B4：可选的 ConfigService，用于 BrowserLoginService 实例化（登录成功后自动重载内存配置）。
     /// </param>
+    /// <param name="provider">
+    /// req-fix-Kimi-ConfigFields 动态模式：可选的插件实例引用。
+    /// 传入后 PluginConfigWindow 会在 Mode ComboBox 切换时自动调用 <c>provider.ConfigFields</c>
+    /// 重新拉取字段列表（如双模式插件根据 mode 字段返回不同字段）。
+    /// 传 null 时按构造时传入的 _configFields 列表使用（向后兼容）。
+    /// </param>
     public PluginConfigWindow(
         string pluginName,
         IReadOnlyList<ConfigField> configFields,
@@ -82,13 +98,15 @@ public partial class PluginConfigWindow : Window
         BrowserLoginConfig? loginConfig = null,
         IReadOnlyList<CardChartKind>? supportedCardCharts = null,
         IReadOnlyList<CardChartKind>? currentCardCharts = null,
-        ConfigService? configService = null)
+        ConfigService? configService = null,
+        UsageMonitor.Core.Plugins.IUsageProvider? provider = null)
     {
         InitializeComponent();
         _configFields = configFields;
         _config = config;
         _loginConfig = loginConfig;
         _configService = configService;
+        _provider = provider;
         _supportedCardCharts = supportedCardCharts ?? System.Array.Empty<CardChartKind>();
         if (currentCardCharts != null)
             foreach (var k in currentCardCharts) _selectedCardCharts.Add(k);
@@ -506,7 +524,130 @@ public partial class PluginConfigWindow : Window
         }
 
         comboBox.SelectedItem = currentValue;
+
+        // req-fix-Kimi-ConfigFields 动态模式：Mode 字段 ComboBox 变化时
+        // 重新调用 provider.ConfigFields 拉取与新模式匹配的字段列表。
+        // 触发重建的字段 key 列表（双模式插件：KimiDualModeProvider/DeepseekDualModeProvider）
+        // 将来新增双模式插件只需把 ModeKey 加入此集合。
+        if (_provider != null && IsModeFieldKey(field.Key))
+        {
+            comboBox.SelectionChanged += (_, _) => RebuildFormForModeChange();
+        }
         return comboBox;
+    }
+
+    /// <summary>
+    /// req-fix-Kimi-ConfigFields 动态模式：判断字段 key 是否为模式选择字段（QueryMode）。
+    /// 集中维护双模式插件的 Mode 字段 key，新增插件时只需扩展此集合。
+    /// </summary>
+    private static bool IsModeFieldKey(string fieldKey)
+        => fieldKey == "QueryMode";
+
+    /// <summary>
+    /// req-fix-Kimi-ConfigFields 动态模式：Mode 字段切换时调用。
+    /// 1. 重新调用 <c>provider.ConfigFields</c> 拉取与新模式匹配的字段列表
+    /// 2. 保留用户已填的字段值（Cookie/ApiKey 等）
+    /// 3. 重新构建整个表单 + 卡片图表区
+    /// </summary>
+    private void RebuildFormForModeChange()
+    {
+        if (_provider == null) return;
+
+        // req-fix-Kimi-ModeRebuildStackOverflow：re-entrancy 保护
+        // 场景：BuildForm 创建新 ComboBox 时 SelectedItem=currentValue 会触发 SelectionChanged，
+        // 如果 currentValue ≠ 旧值（或某些边角情况），会再次调用 RebuildFormForModeChange → BuildForm → 新 ComboBox → ...
+        // 形成无限递归，触发 StackOverflowException 导致程序闪退。
+        // 用实例标志位防止重入（同一时刻只允许一次重建）。
+        if (_isRebuildingForMode) return;
+        _isRebuildingForMode = true;
+        try
+        {
+            // 1. 抓取当前所有输入控件的当前值（保留用户输入）
+            var currentValues = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (key, control) in _inputControls)
+            {
+                if (TryGetControlValue(control, out var v)) currentValues[key] = v;
+            }
+
+            // 2. 立即把 Mode 字段值持久化到 config（只持久化 Mode，不影响其他字段）
+            // 理由：Mode 切换是用户明确的"试切"动作，下次开窗要看到新模式。
+            // 但其他字段（Cookie/ApiKey 等）不持久化——用户可能没填完，避免误保存触发必填校验失败。
+            if (_configService != null && currentValues.TryGetValue("QueryMode", out var newMode))
+            {
+                _config.SetValue("QueryMode", newMode);
+                try
+                {
+                    _configService.UpdateProviderConfig(_provider.ProviderId, _config);
+                }
+                catch (Exception saveEx)
+                {
+                    FileLogger.Warn("PluginConfigWindow",
+                        $"Mode 切换后持久化失败 ({_provider.ProviderId} -> {newMode}): {saveEx.Message}");
+                }
+            }
+
+            // 3. 重新拉取字段列表（KimiDualModeProvider 按 mode 返回不同字段）
+            _configFields = _provider.ConfigFields;
+
+            // 3. 重新构建表单
+            BuildForm();
+
+            // 4. 卡片图表区不依赖 mode，无须重建
+
+            // 5. 把之前抓取的值填回新控件
+            foreach (var (key, value) in currentValues)
+            {
+                if (_inputControls.TryGetValue(key, out var control) && value != null)
+                {
+                    TrySetControlValue(control, value);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Error("PluginConfigWindow",
+                $"RebuildFormForModeChange failed: {ex.Message}", ex);
+        }
+        finally
+        {
+            _isRebuildingForMode = false;
+        }
+    }
+
+    /// <summary>req-fix-Kimi-ModeRebuildStackOverflow：re-entrancy 保护标志。</summary>
+    private bool _isRebuildingForMode;
+
+    /// <summary>从已有控件读取当前值（支持 TextBox/PasswordBox/CheckBox/ComboBox）。</summary>
+    private static bool TryGetControlValue(FrameworkElement control, out string value)
+    {
+        switch (control)
+        {
+            case WpfTextBox tb: value = tb.Text; return true;
+            case WpfPasswordBox pb: value = pb.Password; return true;
+            case WpfCheckBox cb: value = cb.IsChecked == true ? "true" : "false"; return true;
+            case WpfComboBox combo:
+                value = combo.SelectedItem?.ToString() ?? "";
+                return !string.IsNullOrEmpty(value);
+            default:
+                value = "";
+                return false;
+        }
+    }
+
+    /// <summary>把值写回控件（用于 Mode 切换后保留字段值）。</summary>
+    private static bool TrySetControlValue(FrameworkElement control, string value)
+    {
+        switch (control)
+        {
+            case WpfTextBox tb: tb.Text = value; return true;
+            case WpfPasswordBox pb: pb.Password = value; return true;
+            case WpfCheckBox cb: cb.IsChecked = bool.TryParse(value, out var b) && b; return true;
+            case WpfComboBox combo:
+                if (combo.Items.Contains(value)) { combo.SelectedItem = value; return true; }
+                return false;
+            default:
+                return false;
+        }
     }
 
     /// <summary>

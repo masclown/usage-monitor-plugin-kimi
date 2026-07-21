@@ -159,10 +159,14 @@ public class PluginManager
         lock (_pluginsLock)
         {
             if (_plugins.Any(p => p.Provider.ProviderId == provider.ProviderId))
+            {
+                FileLogger.Warn("PluginManager", $"跳过重复插件: {provider.ProviderId} ({provider.DisplayName})");
                 return;
+            }
 
             var loadedPlugin = new LoadedPlugin(provider, provider.GetType().Assembly, string.Empty);
             _plugins.Add(loadedPlugin);
+            FileLogger.Info("PluginManager", $"已注册内置插件: {provider.DisplayName} v{provider.Version} (ProviderId={provider.ProviderId})");
         }
     }
 

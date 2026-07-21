@@ -10,10 +10,20 @@ namespace UsageMonitor.Core.Services;
 /// </summary>
 public class RefreshService : IDisposable
 {
+    /// <summary>
+    /// req-091-002：单 Provider 刷新失败事件（携带 <see cref="FailureKind"/> 分类）。
+    /// <para>
+    /// App 层订阅此事件：<see cref="FailureKind.LoginExpired"/> 时触发 Cookie 失效确认弹窗，
+    /// <see cref="FailureKind.NetworkError"/> / <see cref="FailureKind.Unknown"/> 仅日志记录。
+    /// </para>
+    /// </summary>
+    public event EventHandler<RefreshFailedEventArgs>? RefreshFailed;
+
     private readonly PluginManager _pluginManager;
     private readonly ConfigService _configService;
     private readonly UsageHistoryStore _historyStore;
     private readonly UsageHistoryRepository? _historyRepository;
+    private readonly CookieHealthDetector _cookieHealthDetector;
     private Timer? _timer;
     /// <summary>req-057：刷新中标记（0=空闲，1=刷新中），使用 Interlocked 保证线程安全。</summary>
     private int _isRefreshing;
@@ -21,8 +31,40 @@ public class RefreshService : IDisposable
     /// <summary>每个 provider 的刷新互斥锁：同一 provider 的全量刷新与单卡片刷新互斥，不同 provider 仍可并行。</summary>
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _providerLocks = new();
 
-    /// <summary>req-058：每个 Provider 的连续失败计数（用于熔断器）。</summary>
-    private readonly ConcurrentDictionary<string, int> _consecutiveFailures = new();
+    /// <summary>
+/// req-091-002：单 Provider 刷新失败事件参数。
+/// <para>App 层通过 <see cref="FailureKind"/> 判定是否触发自动重新登录弹窗。</para>
+/// </summary>
+public sealed class RefreshFailedEventArgs : EventArgs
+{
+    /// <summary>失败的 Provider ID（如 "MiniMax"）。</summary>
+    public string ProviderId { get; }
+
+    /// <summary>失败的 Provider 显示名称。</summary>
+    public string ProviderDisplayName { get; }
+
+    /// <summary>失败原因分类（Cookie 失效 / 网络错误 / 未知错误）。</summary>
+    public FailureKind FailureKind { get; }
+
+    /// <summary>触发的异常（成功时为 null，Cookie 失效但无异常时为 null）。</summary>
+    public Exception? Exception { get; }
+
+    /// <summary>错误消息摘要（用于日志 / 弹窗展示）。</summary>
+    public string ErrorMessage { get; }
+
+    public RefreshFailedEventArgs(string providerId, string providerDisplayName,
+        FailureKind failureKind, Exception? exception, string errorMessage)
+    {
+        ProviderId = providerId;
+        ProviderDisplayName = providerDisplayName;
+        FailureKind = failureKind;
+        Exception = exception;
+        ErrorMessage = errorMessage;
+    }
+}
+
+/// <summary>req-058：每个 Provider 的连续失败计数（用于熔断器）。</summary>
+private readonly ConcurrentDictionary<string, int> _consecutiveFailures = new();
 
     /// <summary>req-058：每个 Provider 的熔断到期时间（UTC），在此之前跳过刷新。</summary>
     private readonly ConcurrentDictionary<string, DateTime> _circuitOpenUntil = new();
@@ -62,12 +104,14 @@ public class RefreshService : IDisposable
         PluginManager pluginManager,
         ConfigService configService,
         UsageHistoryStore? historyStore = null,
-        UsageHistoryRepository? historyRepository = null)
+        UsageHistoryRepository? historyRepository = null,
+        CookieHealthDetector? cookieHealthDetector = null)
     {
         _pluginManager = pluginManager;
         _configService = configService;
         _historyStore = historyStore ?? new UsageHistoryStore();
         _historyRepository = historyRepository;
+        _cookieHealthDetector = cookieHealthDetector ?? new CookieHealthDetector();
         _historyStore.MaxPoints = Math.Max(1, _configService.Settings.HistoryPointCount);
     }
 
@@ -179,6 +223,42 @@ public class RefreshService : IDisposable
     }
 
     /// <summary>
+    /// req-091-002：根据 ErrorMessage 关键字兜底判定失败原因（用于 usage.IsSuccess=false 但无异常的场景）。
+    /// <para>
+    /// 关键字集合（中文 + 英文）：覆盖各 Provider 错误消息中常见的"未登录 / cookie 失效 / 401 / 403"等。
+    /// 命中任一关键字 → LoginExpired；否则按字符串特征回退到 NetworkError / Unknown。
+    /// </para>
+    /// </summary>
+    private static FailureKind ClassifyByErrorMessage(string? errorMessage)
+    {
+        if (string.IsNullOrWhiteSpace(errorMessage)) return FailureKind.Unknown;
+
+        var msg = errorMessage.ToLowerInvariant();
+
+        // 登录态关键字（中英文 + 常见错误码）
+        string[] loginKeywords = {
+            "login", "登录", "未登录", "重新登录", "未授权", "cookie", "会话",
+            "401", "403", "unauthorized", "forbidden", "expired", "过期", "失效", "凭证"
+        };
+        foreach (var kw in loginKeywords)
+        {
+            if (msg.Contains(kw)) return FailureKind.LoginExpired;
+        }
+
+        // 网络关键字
+        string[] networkKeywords = {
+            "network", "网络", "timeout", "超时", "unreachable", "无法连接",
+            "dns", "connection", "连接", "abort", "中断"
+        };
+        foreach (var kw in networkKeywords)
+        {
+            if (msg.Contains(kw)) return FailureKind.NetworkError;
+        }
+
+        return FailureKind.Unknown;
+    }
+
+    /// <summary>
     /// req-058：记录失败并检查是否触发熔断。
     /// </summary>
     private void RecordFailure(string providerId)
@@ -220,9 +300,26 @@ public class RefreshService : IDisposable
                 // 成功记有效历史点；失败记一个 IsError 点（避免折线无痕断裂）。
                 // req-015：传完整 usage，Store 内部走 InsertUsagePointIfChangedAsync（业务指纹比对去重）。
                 if (usage.IsSuccess)
+                {
                     _historyStore.AddPoint(providerId, usage);
+                }
                 else
+                {
                     _historyStore.AddErrorPoint(providerId);
+
+                    // req-091-002：usage.IsSuccess=false 但无异常的场景
+                    // （Web 插件 DOM 提取失败 / API 鉴权失效等）
+                    // 按 ErrorMessage 关键字兜底判定（避免漏掉 LoginExpired）
+                    var fallbackKind = ClassifyByErrorMessage(usage.ErrorMessage);
+                    FileLogger.Warn("RefreshService",
+                        $"[req-091] Provider {providerId} returned IsSuccess=false, kind={fallbackKind}: {usage.ErrorMessage}");
+                    RefreshFailed?.Invoke(this, new RefreshFailedEventArgs(
+                        providerId,
+                        plugin.Provider.DisplayName,
+                        fallbackKind,
+                        null,
+                        usage.ErrorMessage ?? "未知错误"));
+                }
 
                 // req-013：成功刷新后异步写入“刷新聚合”记录，供历史窗口展示每次刷新。
                 if (usage.IsSuccess)
@@ -238,6 +335,18 @@ public class RefreshService : IDisposable
                 plugin.LastQuerySuccess = false;
                 // 异常同样记失败点。
                 _historyStore.AddErrorPoint(providerId);
+
+                // req-091-002：使用 CookieHealthDetector 判定失败原因，触发 RefreshFailed 事件
+                var failureKind = _cookieHealthDetector.Classify(ex);
+                FileLogger.Warn("RefreshService",
+                    $"[req-091] Provider {providerId} refresh failed, kind={failureKind}: {ex.Message}");
+                RefreshFailed?.Invoke(this, new RefreshFailedEventArgs(
+                    providerId,
+                    plugin.Provider.DisplayName,
+                    failureKind,
+                    ex,
+                    ex.Message));
+
                 // req-058-004：重新抛出以让 RefreshPluginWithTimeoutAsync 调用 RecordFailure（CircuitBreaker 计费）。
                 // 不重新抛出会导致熔断器永远不触发（5 次连续失败也不会进入熔断）。
                 throw;

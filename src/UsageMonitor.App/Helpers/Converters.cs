@@ -229,6 +229,62 @@ public class MultiVisibilityOrConverter : IMultiValueConverter
 }
 
 /// <summary>
+/// req-折叠插件控制：根据 IsDetailExpanded 与 CollapseVisibleParts 决定可见性。
+/// <para>逻辑：
+/// <list type="number">
+///   <item><description>展开态（IsDetailExpanded=true）→ 总是 Visible</description></item>
+///   <item><description>折叠态（IsDetailExpanded=false）：
+///     <list type="bullet">
+///       <item><description>若第三个 Binding（kind）在 CollapseVisibleParts 集合中 → Visible</description></item>
+///       <item><description>否则 → Collapsed</description></item>
+///     </list>
+///   </description></item>
+/// </list>
+/// </para>
+/// <para>用法：
+/// <code>
+/// &lt;ContentPresenter.Visibility&gt;
+///     &lt;MultiBinding Converter="{StaticResource CollapseVisibilityConverter}"&gt;
+///         &lt;Binding Path="IsDetailExpanded" /&gt;
+///         &lt;Binding Path="CollapseVisibleParts" /&gt;
+///         &lt;Binding Source="primaryBar" /&gt; &lt;!-- 静态 kind 字符串 --&gt;
+///     &lt;/MultiBinding&gt;
+/// &lt;/ContentPresenter.Visibility&gt;
+/// </code>
+/// </para>
+/// </summary>
+public class CollapseVisibilityConverter : IMultiValueConverter
+{
+    public object Convert(object[] values, Type targetType, object parameter, CultureInfo culture)
+    {
+        if (values == null || values.Length < 3)
+            return Visibility.Collapsed;
+
+        // values[0]: IsDetailExpanded (bool)
+        bool isExpanded = values[0] is bool b && b;
+        if (isExpanded) return Visibility.Visible;
+
+        // values[1]: CollapseVisibleParts (IEnumerable<string>)
+        // values[2]: 当前元素的 kind (string)
+        var kind = values[2]?.ToString();
+        if (string.IsNullOrEmpty(kind)) return Visibility.Collapsed;
+
+        if (values[1] is IEnumerable<string> parts)
+        {
+            foreach (var p in parts)
+            {
+                if (string.Equals(p, kind, StringComparison.OrdinalIgnoreCase))
+                    return Visibility.Visible;
+            }
+        }
+        return Visibility.Collapsed;
+    }
+
+    public object[] ConvertBack(object value, Type[] targetTypes, object parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
+/// <summary>
 /// 按已用百分比返回分档画笔（进度条 / 托盘 / 热力图单元格等“按比例选色”）。
 /// 档位（阈值 + 颜色）统一由 <see cref="UsageTierScale"/> 定义——需要增减档位或调整阈值 / 配色时改那里即可，此处无需变动。
 /// ConverterParameter 可显式传 "low|mid|high" 指定语义档位，否则按百分比自动分档。

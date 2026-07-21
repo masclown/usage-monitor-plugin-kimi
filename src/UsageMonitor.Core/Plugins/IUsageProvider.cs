@@ -60,6 +60,20 @@ public interface IUsageProvider
     IReadOnlyList<string> DefaultRenderKinds => System.Array.Empty<string>();
 
     /// <summary>
+    /// req-折叠插件控制：插件声明"卡片折叠状态下仍然保持可见的元素"集合（render_kind key）。
+    /// <para>
+    /// 默认返回 <c>null</c> —— 折叠态下仅保留卡片头部（logo + 名称 + 状态摘要 + 订阅胶囊 + 刷新 + 设置），
+    /// 其余内容（限额进度条 / 余额快照 / 卡片图表）全部隐藏。</para>
+    /// <para>
+    /// 插件可覆盖，例如 MiniMax 可返回 <c>["primaryBar"]</c> 让折叠态也保留 5h 限额进度条；
+    /// 也可返回 <c>["primaryBar", "weeklyBar"]</c> 同时保留 5h + 周限额。
+    /// 渲染 key 与 <see cref="DefaultRenderKinds"/> 复用同一套约定（primaryBar / weeklyBar /
+    /// videoProgress / balanceSnapshot / charts / subscriptionTitle 等）。
+    /// </para>
+    /// </summary>
+    IReadOnlyList<string>? CollapseVisibleParts => null;
+
+    /// <summary>
     /// 插件声明「支持在主窗口卡片中展示的图表类型」集合，供插件配置窗口生成复选框。
     /// <para>
     /// 这是「不同插件支持不同图表」框架的核心契约：配置窗口只为本集合内的图表类型

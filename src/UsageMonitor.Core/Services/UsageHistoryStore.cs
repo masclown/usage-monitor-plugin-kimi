@@ -31,9 +31,23 @@ public class HistoryPoint
 /// </summary>
 public class UsageHistoryStore
 {
-    private readonly ConcurrentDictionary<string, Queue<HistoryPoint>> _histories = new();
+    /// <summary>
+    /// req-069 F-23：改为 <c>(Queue, lastPercent)</c> 元组存储，<see cref="AddErrorPoint"/> O(1) 读取
+    /// 上一次有效百分比（替代原 <c>queue.Last()</c> LINQ 全遍历 O(n)）。
+    /// </summary>
+    private readonly ConcurrentDictionary<string, HistoryEntry> _histories = new();
     private readonly UsageHistoryRepository? _repository;
     private int _maxPoints = 60;
+
+    /// <summary>
+    /// 单个 Provider 的历史数据：内存队列 + 最近一次有效百分比缓存。
+    /// </summary>
+    private sealed class HistoryEntry
+    {
+        public readonly Queue<HistoryPoint> Queue = new();
+        /// <summary>最近一次 <see cref="EnqueueMemoryPoint"/> 入队的 UsagePercent（非错误点）。</summary>
+        public double LastPercent;
+    }
 
     /// <summary>
     /// 每个 Provider 最多保留的历史点数
@@ -51,12 +65,12 @@ public class UsageHistoryStore
             // 裁剪所有已存在数据
             foreach (var key in _histories.Keys.ToList())
             {
-                if (_histories.TryGetValue(key, out var queue))
+                if (_histories.TryGetValue(key, out var entry))
                 {
-                    lock (queue)
+                    lock (entry.Queue)
                     {
-                        while (queue.Count > _maxPoints)
-                            queue.Dequeue();
+                        while (entry.Queue.Count > _maxPoints)
+                            entry.Queue.Dequeue();
                     }
                 }
             }
@@ -147,20 +161,25 @@ public class UsageHistoryStore
 
     /// <summary>
     /// req-015 + 通用：把内存点压入队列 + 触发事件（线程安全）。
+    /// req-069 F-23：同步更新 <c>LastPercent</c> 缓存，供 AddErrorPoint O(1) 读取。
     /// </summary>
     private void EnqueueMemoryPoint(string providerId, double usagePercent, bool isError)
     {
-        var queue = _histories.GetOrAdd(providerId, _ => new Queue<HistoryPoint>());
-        lock (queue)
+        var entry = _histories.GetOrAdd(providerId, _ => new HistoryEntry());
+        lock (entry.Queue)
         {
-            queue.Enqueue(new HistoryPoint
+            entry.Queue.Enqueue(new HistoryPoint
             {
                 UsagePercent = usagePercent,
                 Timestamp = DateTime.Now,
                 IsError = isError
             });
-            while (queue.Count > _maxPoints)
-                queue.Dequeue();
+            while (entry.Queue.Count > _maxPoints)
+                entry.Queue.Dequeue();
+
+            // F-23：非错误点刷新缓存；错误点不更新（保持上一次有效值，便于下次 AddErrorPoint 复用）
+            if (!isError)
+                entry.LastPercent = usagePercent;
         }
 
         ProviderHistoryChanged?.Invoke(this, providerId);
@@ -170,24 +189,28 @@ public class UsageHistoryStore
     /// <summary>
     /// 记录一个“失败/数据缺失”历史点（IsError=true）。仅写内存序列并触发变更事件，不写 SQLite。
     /// UsagePercent 沿用该 provider 上一个有效值（无则 0），供图表在阶段三呈现断点/缺口。
+    /// <para>req-069 F-23：O(1) 直接读 <c>HistoryEntry.LastPercent</c> 缓存，不再调用 LINQ
+    /// <c>queue.Last()</c>（旧实现每次刷新失败 O(n) 全遍历队列）。</para>
     /// </summary>
     /// <param name="providerId">服务商唯一标识</param>
     public void AddErrorPoint(string providerId)
     {
         if (string.IsNullOrEmpty(providerId)) return;
 
-        var queue = _histories.GetOrAdd(providerId, _ => new Queue<HistoryPoint>());
-        lock (queue)
+        var entry = _histories.GetOrAdd(providerId, _ => new HistoryEntry());
+        double lastPercent;
+        lock (entry.Queue)
         {
-            var last = queue.Count > 0 ? queue.Last().UsagePercent : 0;
-            queue.Enqueue(new HistoryPoint
+            // O(1) 读取缓存的上一次有效值
+            lastPercent = entry.LastPercent;
+            entry.Queue.Enqueue(new HistoryPoint
             {
-                UsagePercent = last,
+                UsagePercent = lastPercent,
                 Timestamp = DateTime.Now,
                 IsError = true
             });
-            while (queue.Count > _maxPoints)
-                queue.Dequeue();
+            while (entry.Queue.Count > _maxPoints)
+                entry.Queue.Dequeue();
         }
 
         ProviderHistoryChanged?.Invoke(this, providerId);
@@ -211,17 +234,22 @@ public class UsageHistoryStore
                 var records = await repository.LoadLatestPointsAsync(pid, pointsPerProvider);
                 if (records.Count == 0) continue;
 
-                var queue = _histories.GetOrAdd(pid, _ => new Queue<HistoryPoint>());
-                lock (queue)
+                var entry = _histories.GetOrAdd(pid, _ => new HistoryEntry());
+                lock (entry.Queue)
                 {
                     // 先清空避免与遗留数据混合
-                    queue.Clear();
+                    entry.Queue.Clear();
+                    double lastPercent = 0;
                     foreach (var r in records)
                     {
-                        queue.Enqueue(UsageHistoryRepository.ToInMemoryPoint(r));
+                        var p = UsageHistoryRepository.ToInMemoryPoint(r);
+                        entry.Queue.Enqueue(p);
+                        if (!p.IsError) lastPercent = p.UsagePercent;
                     }
-                    while (queue.Count > _maxPoints)
-                        queue.Dequeue();
+                    while (entry.Queue.Count > _maxPoints)
+                        entry.Queue.Dequeue();
+                    // F-23：刷新 LastPercent 缓存
+                    entry.LastPercent = lastPercent;
                 }
                 ProviderHistoryChanged?.Invoke(this, pid);
             }
@@ -239,11 +267,11 @@ public class UsageHistoryStore
     /// </summary>
     public IReadOnlyList<HistoryPoint> GetHistory(string providerId)
     {
-        if (_histories.TryGetValue(providerId, out var queue))
+        if (_histories.TryGetValue(providerId, out var entry))
         {
-            lock (queue)
+            lock (entry.Queue)
             {
-                return queue.ToArray();
+                return entry.Queue.ToArray();
             }
         }
         return Array.Empty<HistoryPoint>();

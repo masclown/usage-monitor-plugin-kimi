@@ -22,6 +22,8 @@
             <helpers:PercentToBrushConverter x:Key="PercentToBrush" />
             <helpers:MultiVisibilityAndConverter x:Key="MultiVisibilityAnd" />
             <helpers:MultiVisibilityOrConverter x:Key="MultiVisibilityOr" />
+            <!-- req-折叠插件控制：根据 IsDetailExpanded + CollapseVisibleParts 决定卡片子区段可见性 -->
+            <helpers:CollapseVisibilityConverter x:Key="CollapseVisibility" />
             <helpers:RemainingPrefixConverter x:Key="RemainingPrefix" />
             <helpers:EnumToVisibilityConverter x:Key="EnumToVisibility" />
             <helpers:CardChartKindsContainsConverter x:Key="CardChartKindsContains" />

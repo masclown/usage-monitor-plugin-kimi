@@ -25,6 +25,11 @@ public static class KimiConfig
     /// <returns>查询模式字符串</returns>
     public static string GetQueryMode(ProviderConfig config)
     {
+        // req-fix-Kimi-GetQueryModeNull：处理 null config（GetValue 抛 NRE）。
+        // 场景：PluginConfigWindow 打开时调用 KimiConfig.GetQueryMode 检查模式，
+        // 但 ProviderUsageViewModel.ConfigFields 是 instance property，每次访问都重新计算。
+        // 如果 _currentConfigSnapshot 还未注入（装配时序问题）或 GetValue 失败，返回默认 API 模式。
+        if (config == null) return ModeApi;
         var mode = config.GetValue(ModeKey)?.Trim().ToLowerInvariant();
         return mode switch
         {

@@ -7,6 +7,7 @@ using UsageMonitor.Core.Plugins;
 using UsageMonitor.Core.Services;
 using UsageMonitor.Core.Models;
 using UsageMonitor.App.ViewModels;
+using UsageMonitor.App.Services;
 using Application = System.Windows.Application;
 using Cursors = System.Windows.Input.Cursors;
 using Point = System.Windows.Point;
@@ -43,10 +44,29 @@ public partial class App : Application
     private Helpers.TaskbarHelper? _taskbarHelper;
     private Views.TrayTooltipWindow? _trayTooltipWindow;
     private Views.HistoryWindow? _historyWindow;
+    /// <summary>req-088 B6：Taskbar 迷你图注册中心单例，由 PluginContext.MiniChartRegistry 字段暴露给插件。</summary>
+    private TaskbarMiniChartRegistry _miniChartRegistry = null!;
+    /// <summary>req-091：登录会话历史仓库（JSONL 持久化到 %AppData%\UsageMonitor\session-history\）。</summary>
+    private LoginSessionHistoryStore _loginSessionStore = null!;
     private DispatcherTimer? _trayHoverCheckTimer;
     private bool _isCursorOverTrayArea;
     // req-053：托盘 tooltip 节流——Windows NotifyIcon.Text 频繁更新会被系统忽略，限制每秒最多更新一次
     private DateTime _lastTrayTooltipUpdateUtc = DateTime.MinValue;
+
+    /// <summary>
+    /// req-fix-托盘退出文案：标记"用户从托盘菜单选择了真正退出"。
+    /// <c>true</c> 时 MainWindow.OnClosing 跳过「最小化到托盘」提示，直接放行关闭。
+    /// <para>背景：托盘右键「退出」菜单调用 <see cref="Application.Shutdown"/>，
+    /// Shutdown 会逐个关闭所有窗口，触发 MainWindow.OnClosing 弹出「最小化到托盘」提示——
+    /// 这与用户「我要退出」的意图矛盾。本标志让两个关闭入口的提示文案互不干扰。</para>
+    /// </summary>
+    internal static bool _isRealShutdown;
+
+    /// <summary>
+    /// req-091-003：当前正在等待用户响应「Cookie 失效」弹窗的 ProviderId 集合（防重入）。
+    /// <para>同一 Provider 在用户关闭弹窗前不应重复弹出新弹窗。</para>
+    /// </summary>
+    private readonly HashSet<string> _pendingLoginPrompts = new(StringComparer.OrdinalIgnoreCase);
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -189,6 +209,12 @@ public partial class App : Application
         _historyStore = new UsageHistoryStore(_historyRepository);
         _historyStore.MaxPoints = Math.Max(1, _configService.Settings.HistoryPointCount);
 
+        // req-091：创建登录会话历史仓库（JSONL 持久化）。
+        // 每个 Provider 启动时自动迁移老 Cookie 文件为首段，赋值给 ProviderUsageViewModel.SessionDurationDays。
+        _loginSessionStore = new LoginSessionHistoryStore();
+        // req-091-006：老 Cookie 文件迁移——遍历所有 Provider，对每个 Provider 尝试从老 Cookie 文件派生首段起点。
+        MigrateLegacyCookiesForAllProviders();
+
         // 启动时回填最近 N 个点，避免重启后折线图从头画起（同步等待，避免首屏闪空）
         try
         {
@@ -204,8 +230,15 @@ public partial class App : Application
 
         _refreshService = new RefreshService(_pluginManager, _configService, _historyStore, _historyRepository);
 
+        // req-088 B6：创建 Taskbar 迷你图注册中心单例 + 注册 4 个内置 Provider。
+        // 后续可在 TaskbarWindow 渲染层用 ITaskbarMiniChartRegistry.GetAll() 替换硬编码 VM 列表。
+        _miniChartRegistry = new TaskbarMiniChartRegistry();
+        MiniChartRegistryBootstrapper.RegisterBuiltins(_miniChartRegistry);
+
         // 创建ViewModel
         _viewModel = new MainViewModel(_pluginManager, _configService, _refreshService, _historyStore);
+        // req-091-005：注入 App 引用，供卡片 ReLoginCommand 回调触发重新登录
+        _viewModel.HostApp = this;
 
         // REQ-004：把"在屏幕上调整"蒙版打开动作与 MainViewModel.OpenTriggerOverlayAction 绑定。
         // 使用 System.Action 无参委托，避免 RelayCommand 无法接 1 参数（未使用）。
@@ -225,6 +258,9 @@ public partial class App : Application
 
         // 启动定时刷新
         _refreshService.Start();
+
+        // req-091-003：订阅 RefreshFailed 事件，LoginExpired 时弹窗引导用户重新登录
+        _refreshService.RefreshFailed += OnRefreshServiceFailed;
 
         // 按当前配置同步任务栏窗口 + 托盘悬浮窗（运行时勾选/取消会通过 ConfigChanged 回调即时同步）
         SyncOverlayWindowsFromSettings();
@@ -376,9 +412,138 @@ public partial class App : Application
         contextMenu.Items.Add("设置", null, (_, _) => ShowSettingsWindow());
         contextMenu.Items.Add("历史", null, (_, _) => ShowHistoryWindow());
         contextMenu.Items.Add(new ToolStripSeparator());
-        contextMenu.Items.Add("退出", null, (_, _) => Shutdown());
+        // req-fix-托盘退出文案：托盘「退出」菜单先弹「确认完全退出」弹窗（与主窗口关闭的
+        // 「最小化到托盘」提示区分开），用户确认后再设置 _isRealShutdown 并调用 Shutdown。
+        // MainWindow.OnClosing 检测 _isRealShutdown=true 时跳过「最小化到托盘」提示。
+        contextMenu.Items.Add("退出", null, (_, _) => ConfirmExitAndShutdown());
 
         _notifyIcon.ContextMenuStrip = contextMenu;
+    }
+
+    /// <summary>
+    /// req-fix-托盘退出文案：托盘「退出」菜单的二次确认入口。
+    /// 弹出独立的「确认完全退出」弹窗（文案与主窗口关闭的「最小化到托盘」提示明显不同），
+    /// 用户点「是」后设置 <see cref="_isRealShutdown"/> = true 再调用 <see cref="Application.Shutdown"/>，
+    /// 让 MainWindow.OnClosing 能识别这是用户主动退出，跳过「最小化到托盘」提示。
+    /// </summary>
+    private void ConfirmExitAndShutdown()
+    {
+        var result = System.Windows.MessageBox.Show(
+            "确定要完全退出 UsageMonitor 吗？\n\n退出后将停止所有用量监控与定时刷新，需手动重新启动程序才能继续监控。",
+            "确认退出",
+            System.Windows.MessageBoxButton.YesNo,
+            System.Windows.MessageBoxImage.Question);
+        if (result == System.Windows.MessageBoxResult.Yes)
+        {
+            FileLogger.Info("App", "User confirmed exit from tray menu");
+            _isRealShutdown = true;
+            Shutdown();
+        }
+        else
+        {
+            FileLogger.Info("App", "User cancelled exit from tray menu");
+        }
+    }
+
+    /// <summary>
+    /// req-091-003：RefreshFailed 事件处理器。
+    /// <para>
+    /// 仅当 <see cref="FailureKind.LoginExpired"/> 时弹窗引导用户重新登录；
+    /// <see cref="FailureKind.NetworkError"/> / <see cref="FailureKind.Unknown"/> 仅日志记录。
+    /// </para>
+    /// <para>决策已集齐：</para>
+    /// <list type="bullet">
+    ///   <item><description>统一文案：「Cookie 可能已失效，是否启动 Edge 浏览器重新登录？」</description></item>
+    ///   <item><description>拒绝处理：下次继续提醒（不记录"已忽略"状态）</description></item>
+    /// </list>
+    /// </summary>
+    private void OnRefreshServiceFailed(object? sender, RefreshService.RefreshFailedEventArgs e)
+    {
+        if (e.FailureKind != FailureKind.LoginExpired) return;
+
+        // 防重入：同一 Provider 已有弹窗在等用户响应，不再叠加新弹窗
+        if (_pendingLoginPrompts.Contains(e.ProviderId)) return;
+        _pendingLoginPrompts.Add(e.ProviderId);
+
+        try
+        {
+            FileLogger.Info("App",
+                $"[req-091] LoginExpired detected for {e.ProviderId}, prompting user");
+
+            // 切回 UI 线程弹窗（事件可能从 Timer 线程触发）
+            var owner = _mainWindow ?? Application.Current.MainWindow;
+            var result = owner == null
+                ? System.Windows.MessageBox.Show(
+                    $"{e.ProviderDisplayName} 的 Cookie 可能已失效。\n\n是否启动 Edge 浏览器重新登录？",
+                    "Cookie 失效提醒",
+                    System.Windows.MessageBoxButton.YesNo,
+                    System.Windows.MessageBoxImage.Question)
+                : owner.Dispatcher.Invoke(() => System.Windows.MessageBox.Show(
+                    owner,
+                    $"{e.ProviderDisplayName} 的 Cookie 可能已失效。\n\n是否启动 Edge 浏览器重新登录？",
+                    "Cookie 失效提醒",
+                    System.Windows.MessageBoxButton.YesNo,
+                    System.Windows.MessageBoxImage.Question));
+
+            if (result == System.Windows.MessageBoxResult.Yes)
+            {
+                FileLogger.Info("App", $"[req-091] User accepted re-login for {e.ProviderId}");
+                TriggerReLogin(e.ProviderId);
+            }
+            else
+            {
+                // req-091-003 决策：下次继续提醒（不持久化"已忽略"标记）
+                FileLogger.Info("App", $"[req-091] User declined re-login for {e.ProviderId}, will retry on next refresh failure");
+            }
+        }
+        finally
+        {
+            _pendingLoginPrompts.Remove(e.ProviderId);
+        }
+    }
+
+    /// <summary>
+    /// req-091-003/005：触发单个 Provider 的重新登录流程。
+    /// <para>
+    /// 通过 PluginConfigWindow 的 GetCookieButton 路径复用现有 BrowserLoginService 登录逻辑，
+    /// 避免在 App 层重复实现一遍 BrowserLoginService 调用。
+    /// </para>
+    /// </summary>
+    public async void TriggerReLogin(string providerId)
+    {
+        try
+        {
+            var plugin = _pluginManager.GetPlugin(providerId);
+            if (plugin == null)
+            {
+                FileLogger.Warn("App", $"[req-091] Plugin {providerId} not found for re-login");
+                return;
+            }
+
+            // 复用 PluginConfigWindow 的 Cookie 获取流程（异步执行）
+            var configWindow = new Views.PluginConfigWindow(
+                plugin.Provider.DisplayName,
+                plugin.Provider.ConfigFields,
+                _configService.GetProviderConfig(providerId, plugin.Provider),
+                plugin.Provider.LoginConfig,
+                plugin.Provider.SupportedCardCharts,
+                _configService.GetProviderCardChartKinds(providerId),
+                _configService);
+
+            if (_mainWindow != null) configWindow.Owner = _mainWindow;
+            var dialogResult = configWindow.ShowDialog();
+
+            if (dialogResult == true)
+            {
+                // 用户完成登录并保存 → 立即触发一次刷新验证
+                FileLogger.Info("App", $"[req-091] Re-login succeeded for {providerId}, triggering refresh");
+                await _refreshService.RefreshProviderAsync(providerId);
+            }
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Error("App", $"[req-091] TriggerReLogin({providerId}) failed: {ex.Message}", ex);
+        }
     }
 
     /// <summary>
@@ -754,6 +919,57 @@ public partial class App : Application
             FileLogger.Error("App", "ShowHistoryWindow failed", ex);
             MessageBox.Show("打开历史窗口失败：" + ex.Message,
                 "历史", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    /// <summary>
+    /// req-091-006：老 Cookie 文件迁移——遍历所有 Provider，从老 Cookie 文件派生首段起点。
+    /// <para>
+    /// 每个 Provider 的 Cookie 文件路径：<c>%AppData%\UsageMonitor\cookies\&lt;ProviderId&gt;.json</c>。
+    /// 迁移规则：
+    /// <list type="bullet">
+    ///   <item><description>仅在该 Provider 没有任何历史段时调用（幂等性保护，由 Store 内部保证）</description></item>
+    ///   <item><description>把 Cookie 文件的 <c>LastWriteTimeUtc</c> 转为本地日期作为 <c>StartDate</c></description></item>
+    ///   <item><description>迁移完成后异步遍历 <c>_viewModel.Usages</c>，赋值 <c>SessionDurationDays</c> 给 ProviderUsageViewModel</description></item>
+    /// </list>
+    /// </para>
+    /// </summary>
+    private void MigrateLegacyCookiesForAllProviders()
+    {
+        try
+        {
+            var cookieDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "UsageMonitor", "cookies");
+            if (!Directory.Exists(cookieDir)) return;
+
+            var migrated = 0;
+            foreach (var usage in _viewModel?.Usages ?? Enumerable.Empty<ViewModels.ProviderUsageViewModel>())
+            {
+                var providerId = usage.ProviderId;
+                if (string.IsNullOrEmpty(providerId)) continue;
+
+                // ProviderUsageViewModel.DisplayName / ProviderId 对应 cookie 文件名
+                // 老 Cookie 文件名格式：cookies/<providerId>.json
+                var cookiePath = Path.Combine(cookieDir, $"{providerId}.json");
+                if (!File.Exists(cookiePath)) continue;
+
+                var session = _loginSessionStore.MigrateLegacyCookie(providerId, cookiePath);
+                if (session != null)
+                {
+                    usage.SessionDurationDays = session.CalculateDurationDays();
+                    migrated++;
+                }
+            }
+            if (migrated > 0)
+            {
+                FileLogger.Info("App",
+                    $"req-091-006: Migrated {migrated} legacy cookie files to session-history");
+            }
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Warn("App", $"req-091-006: MigrateLegacyCookiesForAllProviders failed: {ex.Message}");
         }
     }
 

@@ -41,8 +41,56 @@ public abstract class WebPluginBase : PluginBase, IUsageProvider
     /// <inheritdoc />
     public abstract IReadOnlyList<ConfigField> ConfigFields { get; }
 
+    /// <summary>
+    /// LoginConfig 懒构造缓存（首次访问时根据 <see cref="LoginUrl"/>/<see cref="UsageUrl"/>/
+    /// <see cref="CookieDomainFilters"/> 自动构建通用 BrowserLoginConfig）。
+    /// 子类若需更精细配置（如 MiniMax 的 RequiredCookieDomain / LoggedInPathKeywords）可 override 此属性。
+    /// </summary>
+    private BrowserLoginConfig? _cachedLoginConfig;
+
     /// <inheritdoc />
-    public virtual BrowserLoginConfig? LoginConfig => null;
+    public virtual BrowserLoginConfig? LoginConfig
+    {
+        get
+        {
+            // 懒加载：首次访问时基于已声明的 LoginUrl/UsageUrl/CookieDomainFilters 构建默认 LoginConfig。
+            // 这样所有继承自 WebPluginBase 的插件（Deepseek/Kimi/Qoder 等）无需各自 override，
+            // 设置界面即可自动显示"🌐 获取登录态"按钮。
+            // 子类若有更精细需求（如 MiniMax 的 RequiredCookieDomain / LoggedInPathKeywords）可 override 此属性。
+            if (_cachedLoginConfig == null && !string.IsNullOrEmpty(LoginUrl))
+            {
+                _cachedLoginConfig = BuildDefaultLoginConfig();
+            }
+            return _cachedLoginConfig;
+        }
+    }
+
+    /// <summary>
+    /// 基于已声明的 <see cref="LoginUrl"/>/<see cref="UsageUrl"/>/<see cref="CookieDomainFilters"/>
+    /// 构建通用 BrowserLoginConfig。子类如有特殊登录判定需求可 override <see cref="LoginConfig"/>。
+    /// <para>
+    /// 默认配置足以覆盖绝大多数 web 插件：登录后导航到 <see cref="UsageUrl"/>，
+    /// 等待 <see cref="CookieDomainFilters"/> 任一域名下的会话 Cookie 出现即视为登录成功。
+    /// </para>
+    /// </summary>
+    private BrowserLoginConfig BuildDefaultLoginConfig()
+    {
+        return new BrowserLoginConfig
+        {
+            ProviderId = ProviderId,
+            LoginUrl = LoginUrl,
+            CookieDomainFilters = CookieDomainFilters,
+            // 默认登录验证页：登录后跳转到用量页面（浏览器自动从 LoginUrl 跟随 redirect）
+            ValidateUrl = UsageUrl,
+            // 按钮文字：默认通用文案，子类可覆盖为更精确描述（如 MiniMax 的 "Get MiniMax login state"）
+            UiButtonText = "🌐 获取登录态",
+            // 登录等待超时：2 分钟，与 MiniMax 默认值对齐
+            LoginTimeout = TimeSpan.FromMinutes(2),
+            // 通用登录页关键字：覆盖绝大多数 web 插件的登录路径
+            // （login/oauth/auth/signin/signup/register/unified-login/passport）
+            LoginUrlKeywords = new[] { "login", "unified-login", "signin", "sign-in", "signup", "register", "auth", "passport", "oauth" }
+        };
+    }
 
     /// <inheritdoc />
     public virtual IReadOnlyList<string> DefaultRenderKinds => Array.Empty<string>();
@@ -83,6 +131,13 @@ public abstract class WebPluginBase : PluginBase, IUsageProvider
     /// <inheritdoc />
     public virtual Func<int, TooltipContent>? LineTooltipProvider => null;
 
+    /// <inheritdoc />
+    /// <remarks>
+    /// req-fix-MiniMaxCollapseVisibleParts 修复：在基类提供 <c>virtual</c> 默认实现（<c>null</c>），
+    /// 让派生类能用 <c>override</c> 关键字（避免 <c>new</c> 隐藏接口默认方法导致多态失效）。
+    /// </remarks>
+    public virtual IReadOnlyList<string>? CollapseVisibleParts => null;
+
     // ============== 抽象属性：子类必须声明 ==============
 
     /// <summary>登录入口 URL（如 https://platform.minimaxi.com）</summary>
@@ -94,8 +149,18 @@ public abstract class WebPluginBase : PluginBase, IUsageProvider
     /// <summary>Cookie 域名过滤列表（用于判定登录态）</summary>
     protected abstract string[] CookieDomainFilters { get; }
 
-    /// <summary>无头模式开关（默认 false，调试用 true）</summary>
-    protected virtual bool Headless => false;
+    /// <summary>
+    /// 无头模式开关（默认 <c>true</c>，与 MiniMax 一致，避免刷新时弹出浏览器窗口打扰用户）。
+    /// <para>
+    /// req-fix-启动时弹空白页：主程序启动后定时刷新器会立即触发一次 <see cref="GetUsageAsync"/>。
+    /// 如果 <c>Headless=false</c>，Playwright 会弹出可见 Edge 窗口显示 about:blank 空白页。
+    /// 默认开启 Headless 后，浏览器仅在后台运行，用户体验与 MiniMax 一致。
+    /// </para>
+    /// <para>
+    /// 调试用可在子类中 override 为 <c>false</c>，或通过 ConfigField 中的 <c>Headless</c> 配置项临时调整。
+    /// </para>
+    /// </summary>
+    protected virtual bool Headless => true;
 
     /// <summary>页面加载超时（默认 60 秒）</summary>
     protected virtual TimeSpan PageTimeout => TimeSpan.FromSeconds(60);
@@ -109,12 +174,26 @@ public abstract class WebPluginBase : PluginBase, IUsageProvider
     /// 默认实现按模板方法流程执行：GetOrCreatePageAsync → EnsureLoginAsync →
     /// NavigateToUsagePageAsync → ParseUsagePageAsync。
     /// </para>
+    /// <para>
+    /// req-fix-启动时弹空白页：在启动 Playwright Edge 之前先检查 Cookie 状态，
+    /// 缺失时直接返回错误，避免主程序启动时弹出 about:blank 空白窗口打扰用户。
+    /// </para>
     /// </summary>
     public virtual async Task<UsageInfo> GetUsageAsync(ProviderConfig config, CancellationToken ct = default)
     {
         try
         {
             LogInfo("GetUsageAsync 开始");
+
+            // req-fix-启动时弹空白页：Cookie 缺失时跳过浏览器启动，直接返回明确错误信息。
+            // 这避免了主程序启动后定时刷新器立即触发 → GetUsageAsync → 启动 Playwright Edge
+            // → 新建 page（默认 about:blank）→ EnsureLoginAsync 才发现无 Cookie 的链路浪费。
+            if (!HasValidCookie(config))
+            {
+                LogInfo("Cookie 未配置，跳过浏览器启动");
+                return CreateError("未配置 Cookie，请在插件设置中点击「🌐 获取登录态」按钮完成登录");
+            }
+
             var page = await GetOrCreatePageAsync(ct);
             if (page == null)
             {
@@ -143,6 +222,27 @@ public abstract class WebPluginBase : PluginBase, IUsageProvider
         {
             LogError("GetUsageAsync 异常", ex);
             return CreateError(ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// req-fix-启动时弹空白页：检查插件是否有可用 Cookie（从 config 或 cookies/*.json 任一来源）。
+    /// 返回 <c>true</c> 时可安全启动浏览器；返回 <c>false</c> 时应跳过浏览器启动直接返回错误，
+    /// 避免弹出 about:blank 空白窗口。
+    /// </summary>
+    private bool HasValidCookie(ProviderConfig config)
+    {
+        var cookie = config.GetValue("Cookie")?.Trim();
+        if (!string.IsNullOrWhiteSpace(cookie)) return true;
+
+        try
+        {
+            var saved = Services.BrowserLoginService.LoadCookieData(ProviderId);
+            return saved != null && !string.IsNullOrWhiteSpace(saved.Cookie);
+        }
+        catch
+        {
+            return false;
         }
     }
 

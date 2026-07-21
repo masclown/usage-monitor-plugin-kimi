@@ -136,6 +136,20 @@ public class MiniMaxProvider : WebPluginBase
     };
 
     /// <summary>
+    /// req-折叠插件控制：MiniMax 卡片折叠时仍保留限额进度条区段（5h/周/视频赠送合并为 limitBars）。
+    /// <para>
+    /// 设计动机：MiniMax 最关键的指标是 5h 限额重置时间，让用户在折叠态也能一目了然。
+    /// 余额快照 / 图表区段默认折叠隐藏，需要时再展开。</para>
+    /// <para>key 约定与 <see cref="MainWindow.xaml"/> 中 CollapseVisibility Converter 的
+    /// "limitBars" / "balanceSnapshot" / "charts" 三类完全对齐。</para>
+    /// <para>
+    /// req-fix-MiniMaxCollapseVisibleParts 修复：基类 <see cref="WebPluginBase"/> 现在提供
+    /// <c>virtual</c> 默认实现，这里用 <c>override</c> 替代原先的 <c>new</c>，恢复多态能力。
+    /// </para>
+    /// </summary>
+    public override IReadOnlyList<string>? CollapseVisibleParts => new[] { "limitBars" };
+
+    /// <summary>
     /// MiniMax 卡片支持的图表类型：折线图（每日 Token 用量趋势）+ 热力图（每日 Token 用量日历）。
     /// <para>
     /// 两者数据均来自 usage_summary 接口：折线图取 daily_token_usage（按日期升序的每日 Token 数），

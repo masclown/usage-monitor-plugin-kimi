@@ -71,9 +71,18 @@ public partial class MainWindow : Window
     /// <summary>
     /// 关闭窗口时隐藏而非退出（最小化到托盘）
     /// req-064 U5：首次关闭弹提示，选"是"最小化、选"否"真退出；第二次起不再弹。
+    /// req-fix-托盘退出文案：如果用户已经通过托盘「退出」菜单确认过退出（App._isRealShutdown=true），
+    /// 这里跳过「最小化到托盘」提示，让 Shutdown 流程顺利关闭所有窗口。
     /// </summary>
     protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
     {
+        // req-fix-托盘退出文案：托盘「退出」已确认过 → 放行关闭，不再弹最小化提示
+        if (App._isRealShutdown)
+        {
+            e.Cancel = false;
+            return;
+        }
+
         if (!_hasShownMinimizeHint)
         {
             _hasShownMinimizeHint = true;

@@ -231,20 +231,24 @@ public class BrowserLoginService
                     detectedUrl = loggedInUrl;
                     FileLogger.Info("BrowserLoginService", $"Left login page. URL: {loggedInUrl}");
 
-                    // User authenticated. Force-navigate the visible tab to /console/usage so
-                    // (a) the user sees real usage data and (b) we confirm the session is valid.
+                    // User authenticated. Force-navigate the visible tab to the protected usage
+                    // page so (a) the user sees real usage data and (b) we confirm the session is valid.
+                    // req-fix-Kimi跳转MiniMax：使用 config.ValidateUrl 替换硬编码的 MiniMax URL。
+                    // 否则从 Kimi/Qoder/DeepSeek 等插件启动的浏览器都会跳转到 MiniMax 的页面，
+                    // 在 MiniMax 服务端看来未登录 → 被重定向到 MiniMax 登录页 → 用户误以为跳转错误。
+                    var postLoginTarget = !string.IsNullOrEmpty(config.ValidateUrl) ? config.ValidateUrl! : config.LoginUrl;
                     try
                     {
                         FileLogger.Info("BrowserLoginService",
-                            "Navigating visible tab to https://platform.minimaxi.com/console/usage");
-                        await page.GotoAsync("https://platform.minimaxi.com/console/usage",
+                            $"Navigating visible tab to {postLoginTarget} (post-login target)");
+                        await page.GotoAsync(postLoginTarget,
                             new PageGotoOptions { WaitUntil = WaitUntilState.Commit, Timeout = 30_000 });
                         await page.WaitForLoadStateAsync(LoadState.DOMContentLoaded,
                             new PageWaitForLoadStateOptions { Timeout = 20_000 });
                     }
                     catch (Exception navEx)
                     {
-                        FileLogger.Warn("BrowserLoginService", $"Navigate to /console/usage failed: {navEx.Message}");
+                        FileLogger.Warn("BrowserLoginService", $"Navigate to {postLoginTarget} failed: {navEx.Message}");
                     }
                     await Task.Delay(2500, cancellationToken);
 
@@ -348,7 +352,7 @@ public class BrowserLoginService
                 catch { }
 
                 LastError = "[Stage CookieExtract] cookies.Count=0。"
-                    + "可能原因：(1) 登录后 MiniMax 未设置 Cookie（如 SSO 失败）；"
+                    + $"可能原因：(1) 登录后 {config.ProviderId} 服务端未设置 Cookie（如 SSO 失败）；"
                     + "(2) Edge profile 未启用 Cookie 存储；(3) Playwright 与 Edge 进程不兼容";
                 return null;
             }

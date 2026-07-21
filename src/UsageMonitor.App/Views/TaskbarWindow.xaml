@@ -75,8 +75,10 @@
         </DataTemplate>
 
         <!-- 圆环图模式模板：req-051 重构 - 半圆环样式。req-079 U-31：尺寸 38→44px -->
+        <!-- req-051-001：不传 IconPath 给 RingChartControl，让 logo 不渲染（数字独占圆心位置） -->
+        <!-- req-051-005：圆环图高度 44 → 38（更紧凑） -->
         <DataTemplate x:Key="TaskbarRingChartTemplate">
-            <Grid Width="44" Height="44" Margin="0,0,8,0"
+            <Grid Width="38" Height="38" Margin="0,0,6,0"
                   Background="Transparent"
                   ToolTip="{Binding TaskbarToolTipText, Mode=OneWay}"
                   ToolTipService.Placement="Top"
@@ -84,9 +86,10 @@
                   ToolTipService.HorizontalOffset="0"
                   PreviewMouseWheel="OnRingChartPreviewMouseWheel">
                 <!-- 半圆环图（0% 在 8 点钟，100% 在 4 点钟），中心数字点击可刷新，禁用内置 tooltip -->
-                <controls:RingChartControl Width="44" Height="44"
+                <!-- req-051-002：刷新按钮移到圆环正中（hover 时显示，覆盖数字）—— 通过 RingChartControl.CenterClick 已实现（点击中心即可触发刷新） -->
+                <controls:RingChartControl Width="38" Height="38"
                                             Percent="{Binding UsagePercentage, Mode=OneWay}"
-                                            Size="44" StrokeThickness="4"
+                                            Size="38" StrokeThickness="3.5"
                                             TrackBrush="{DynamicResource TrackBrush}"
                                             ProgressBrush="{DynamicResource AccentBrush}"
                                             WarningBrush="{DynamicResource WarningBrush}"

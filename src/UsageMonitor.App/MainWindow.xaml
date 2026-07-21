@@ -23,18 +23,96 @@
         <!-- 子模板 1：卡片头部（Provider 名称 + 状态摘要 + 操作按钮） -->
         <DataTemplate x:Key="CardHeaderTemplate">
             <DockPanel Margin="0,0,0,10">
-                <!-- Provider Logo 图标 -->
-                <Image Source="{Binding IconPath}" Width="22" Height="22"
-                       VerticalAlignment="Center" Margin="0,0,8,0"
-                       RenderOptions.BitmapScalingMode="HighQuality"
-                       Visibility="{Binding IconPath, Converter={StaticResource StringToVisibility}}" />
+                <!-- Logo + 折叠按钮 组：固定在 Left，折叠按钮置于 logo 右侧并 hover 才可见 -->
+                <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
+                    <!-- Provider Logo 图标 -->
+                    <Image Source="{Binding IconPath}" Width="22" Height="22"
+                           VerticalAlignment="Center" Margin="0,0,6,0"
+                           RenderOptions.BitmapScalingMode="HighQuality"
+                           Visibility="{Binding IconPath, Converter={StaticResource StringToVisibility}}" />
+
+                    <!-- req-折叠插件控制：折叠按钮位于 logo 右侧，
+                         平常 opacity=0（不占用视觉权重），鼠标 hover 按钮或展开状态时 opacity=1。
+                         点击切换 IsDetailExpanded，进而控制下方限额/余额/图表区段的可见性。 -->
+                    <ToggleButton IsChecked="{Binding IsDetailExpanded, Mode=TwoWay}"
+                                  Margin="0,0,6,0" Width="22" Height="22"
+                                  ToolTip="展开/折叠详细信息"
+                                  AutomationProperties.Name="展开折叠详细信息"
+                                  AutomationProperties.HelpText="点击切换卡片的限额/余额/图表区段是否展开"
+                                  Cursor="Hand">
+                        <ToggleButton.Template>
+                            <ControlTemplate TargetType="ToggleButton">
+                                <Border x:Name="border" Background="Transparent"
+                                        CornerRadius="{DynamicResource RadiusSmall}"
+                                        Padding="2">
+                                    <Path x:Name="arrow" Data="M0,0 L6,0 L3,4 Z"
+                                          Fill="{DynamicResource TextTertiaryBrush}"
+                                          Width="8" Height="5"
+                                          HorizontalAlignment="Center"
+                                          VerticalAlignment="Center"
+                                          RenderTransformOrigin="0.5,0.5">
+                                        <Path.RenderTransform>
+                                            <RotateTransform Angle="0" />
+                                        </Path.RenderTransform>
+                                    </Path>
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsChecked" Value="True">
+                                        <Setter TargetName="arrow" Property="RenderTransform">
+                                            <Setter.Value>
+                                                <RotateTransform Angle="180" />
+                                            </Setter.Value>
+                                        </Setter>
+                                    </Trigger>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter TargetName="arrow" Property="Fill"
+                                                Value="{DynamicResource TextPrimaryBrush}" />
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </ToggleButton.Template>
+                        <ToggleButton.Style>
+                            <!-- 平常隐藏、hover 或展开时可见 -->
+                            <Style TargetType="ToggleButton">
+                                <Setter Property="Opacity" Value="0" />
+                                <Style.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter Property="Opacity" Value="1" />
+                                    </Trigger>
+                                    <Trigger Property="IsChecked" Value="True">
+                                        <Setter Property="Opacity" Value="1" />
+                                    </Trigger>
+                                </Style.Triggers>
+                            </Style>
+                        </ToggleButton.Style>
+                    </ToggleButton>
+                </StackPanel>
+
                 <TextBlock Text="{Binding DisplayName}" FontSize="17" FontWeight="SemiBold"
                            Foreground="{DynamicResource TextPrimaryBrush}"
                            VerticalAlignment="Center" />
 
                 <!-- 右侧区：水平 StackPanel 内子元素严格按声明顺序从左到右排列，末尾（最右）为设置按钮 -->
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
-                    <!-- 订阅档位胶囊（TokenPlan）：位于刷新/设置按钮左侧、可按需隐藏 -->
+                    <!-- req-091：订阅档位胶囊左侧显示「持续 N 天」徽章（持续天数为 0 时自动隐藏） -->
+                                        <TextBlock Text="{Binding SessionDurationText}"
+                                                   FontSize="11" FontWeight="SemiBold"
+                                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                                   VerticalAlignment="Center" Margin="0,0,8,0"
+                                                   Visibility="{Binding SessionDurationText, Converter={StaticResource StringToVisibility}}" />
+                    
+                                        <!-- 订阅档位胶囊（TokenPlan）：位于刷新/设置按钮左侧、可按需隐藏 -->
+                                        
+                                                            <!-- req-091-005：手动重新登录按钮（仅当 SupportsReLogin=true 时可见） -->
+                                                            <Button Command="{Binding ReLoginCommand}"
+                                                                    Margin="8,0,0,0"
+                                                                    Style="{StaticResource IconButtonStyle}"
+                                                                    ToolTip="手动启动浏览器重新登录（Cookie 失效时也可使用）"
+                                                                    AutomationProperties.Name="重新登录"
+                                                                    AutomationProperties.HelpText="手动打开浏览器重新登录并刷新 Cookie"
+                                                                    Visibility="{Binding SupportsReLogin, Converter={StaticResource BoolToVisibility}}">
+                                                                <TextBlock Text="🔑" FontSize="13" VerticalAlignment="Center" />
+                                                            </Button>
                     <Border VerticalAlignment="Center"
                             Style="{StaticResource SubscriptionPillActiveStyle}"
                             Visibility="{Binding RenderKinds, Converter={StaticResource RenderKindToVisibility}, ConverterParameter=subscriptionTitle}">
@@ -644,22 +722,46 @@
                                                   ContentTemplate="{StaticResource CardErrorTemplate}"
                                                   Visibility="{Binding IsError, Converter={StaticResource BoolToVisibility}}" />
             
-                                <!-- 次要信息（Expander 折叠：限额/余额/图表） -->
-                                <Expander IsExpanded="{Binding IsDetailExpanded, Mode=TwoWay}"
-                                          Header="详细信息"
-                                          Margin="0,8,0,0"
-                                          Style="{StaticResource CardExpanderStyle}">
-                                    <StackPanel>
-                                        <!-- 限额进度条：REQ-083 通过 ChartCardTemplateSelector 在 V2 数据非空时自动切换到 MetricBarTemplate -->
-                                        <ContentPresenter Content="{Binding}" ContentTemplateSelector="{StaticResource LimitBarsTemplateSelector}" />
+                                <!-- 次要信息区段：折叠/展开状态由 IsDetailExpanded 控制，
+                                     折叠时进一步根据 CollapseVisibleParts 决定哪些子区段仍可见。
+                                     折叠按钮已移至 logo 右侧（见 CardHeaderTemplate），不再使用 Expander。 -->
+                                <StackPanel Margin="0,8,0,0">
+                                    <!-- 限额进度条：折叠态下仅当 CollapseVisibleParts 包含 "limitBars" 时仍可见 -->
+                                    <ContentPresenter Content="{Binding}"
+                                                      ContentTemplateSelector="{StaticResource LimitBarsTemplateSelector}">
+                                        <ContentPresenter.Visibility>
+                                            <MultiBinding Converter="{StaticResource CollapseVisibility}">
+                                                <Binding Path="IsDetailExpanded" />
+                                                <Binding Path="CollapseVisibleParts" />
+                                                <Binding Source="limitBars" />
+                                            </MultiBinding>
+                                        </ContentPresenter.Visibility>
+                                    </ContentPresenter>
 
-                                        <!-- 余额快照：REQ-083 通过 ChartCardTemplateSelector 在 V2 数据非空时自动切换到 MetricGridTemplate -->
-                                        <ContentPresenter Content="{Binding}" ContentTemplateSelector="{StaticResource BalanceTemplateSelector}" />
-            
-                                        <!-- 卡片图表区 -->
-                                        <ContentPresenter Content="{Binding}" ContentTemplate="{StaticResource CardChartTemplate}" />
-                                    </StackPanel>
-                                </Expander>
+                                    <!-- 余额快照：折叠态下仅当 CollapseVisibleParts 包含 "balanceSnapshot" 时仍可见 -->
+                                    <ContentPresenter Content="{Binding}"
+                                                      ContentTemplateSelector="{StaticResource BalanceTemplateSelector}">
+                                        <ContentPresenter.Visibility>
+                                            <MultiBinding Converter="{StaticResource CollapseVisibility}">
+                                                <Binding Path="IsDetailExpanded" />
+                                                <Binding Path="CollapseVisibleParts" />
+                                                <Binding Source="balanceSnapshot" />
+                                            </MultiBinding>
+                                        </ContentPresenter.Visibility>
+                                    </ContentPresenter>
+
+                                    <!-- 卡片图表区：折叠态下仅当 CollapseVisibleParts 包含 "charts" 时仍可见 -->
+                                    <ContentPresenter Content="{Binding}"
+                                                      ContentTemplate="{StaticResource CardChartTemplate}">
+                                        <ContentPresenter.Visibility>
+                                            <MultiBinding Converter="{StaticResource CollapseVisibility}">
+                                                <Binding Path="IsDetailExpanded" />
+                                                <Binding Path="CollapseVisibleParts" />
+                                                <Binding Source="charts" />
+                                            </MultiBinding>
+                                        </ContentPresenter.Visibility>
+                                    </ContentPresenter>
+                                </StackPanel>
                             </StackPanel>
                         </Border>
                     </DataTemplate>

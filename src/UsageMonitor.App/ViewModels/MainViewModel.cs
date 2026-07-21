@@ -95,13 +95,38 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
     /// 点击卡片右上角"⟳ 刷新"按钮时触发的回调（仅刷新本卡片对应服务商）。
     /// 不传时刷新按钮为禁用态。
     /// </param>
-    public ProviderUsageViewModel(Action? openConfigAction = null, Func<Task>? refreshCardAction = null)
+    /// <param name="reLoginAction">
+    /// req-091-005：点击卡片「🔑 重新登录」按钮时触发的回调。
+    /// 不传时按钮隐藏（用 IUsageProvider.LoginConfig 是否为 null 判定）。
+    /// </param>
+    public ProviderUsageViewModel(Action? openConfigAction = null, Func<Task>? refreshCardAction = null, Action? reLoginAction = null)
     {
         _openConfigAction = openConfigAction;
         _refreshCardAction = refreshCardAction;
+        _reLoginAction = reLoginAction;
         ConfigCommand = new RelayCommand(OpenConfig, () => _openConfigAction != null);
         RefreshCardCommand = new AsyncRelayCommand(RefreshCardAsync, () => _refreshCardAction != null);
+        ReLoginCommand = new RelayCommand(ReLogin, () => _reLoginAction != null);
     }
+
+    /// <summary>req-091-005：手动重新登录回调，由 MainViewModel 装配时注入。</summary>
+    private readonly Action? _reLoginAction;
+
+    /// <summary>
+    /// req-091-005：点击卡片「🔑 重新登录」按钮时执行的命令。
+    /// 委托给 <see cref="_reLoginAction"/>（MainViewModel 在装配时传入），
+    /// 由 MainViewModel 内部调用 App 的 TriggerReLogin 流程。
+    /// </summary>
+    public IRelayCommand ReLoginCommand { get; }
+
+    /// <summary>req-091-005：执行手动重新登录（供 ReLoginCommand 调用）。</summary>
+    private void ReLogin()
+    {
+        _reLoginAction?.Invoke();
+    }
+
+    /// <summary>req-091-005：当前卡片是否支持重新登录（仅当插件声明 LoginConfig 时显示按钮）。</summary>
+    public bool SupportsReLogin => _reLoginAction != null;
 
     /// <summary>
     /// 供 MainViewModel 在创建时注入的 ConfigService。
@@ -190,51 +215,26 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
 
     /// <summary>
     /// 根据 ProviderId 解析对应的图标文件路径。
-    /// 图标文件通过 csproj Content 项复制到输出目录的 Assets/Providers/ 下。
-    /// SVG 格式 WPF 不原生支持，返回 null 跳过。
+    /// <para>
+    /// req-069 F-14：移除硬编码 switch 列表，改为约定优于配置 + 插件 <see cref="IUsageProvider.IconPath"/>
+    /// 优先。扫描 <c>Assets/Providers/{providerId}.{png|ico|jpg}</c> 任一存在的文件。
+    /// </para>
+    /// <para>优点：新增 Provider 只需在 Assets/Providers/ 放下对应图标文件，无需改本方法。
+    /// SVG 暂不原生支持（需 XAML 转 BitmapImage）。</para>
     /// </summary>
     public static string? ResolveIconPath(string providerId)
     {
-        // ProviderId -> 图标文件名（不含扩展名）
-        var name = providerId.ToLowerInvariant() switch
-        {
-            "minimax" => "minimax",
-            "deepseek" => "deepseek",
-            "mimo" => "mimo",
-            "kimi" => "kimi",
-            "volcengine" => "volcengine",
-            "zhipu" => "zhipu",
-            "ollama" => "ollama",
-            "openrouter" => "openrouter",
-            "openai" => "openai",
-            "anthropic" => "anthropic",
-            "step" => null,       // SVG 格式，WPF 不原生支持，暂跳过
-            "siliconflow" => "siliconflow",
-            _ => null
-        };
-        if (name == null) return null;
-
-        // 根据实际文件扩展名构造文件路径
-        var ext = name switch
-        {
-            "minimax" => ".ico",
-            "deepseek" => ".png",
-            "mimo" => ".jpg",
-            "kimi" => ".ico",
-            "volcengine" => ".png",
-            "zhipu" => ".png",
-            "ollama" => ".png",
-            "openrouter" => ".ico",
-            "openai" => ".png",
-            "anthropic" => ".ico",
-            "siliconflow" => ".png",
-            _ => ".png"
-        };
-
-        // 图标文件通过 csproj Content 项复制到输出目录，使用文件路径加载
+        if (string.IsNullOrWhiteSpace(providerId)) return null;
         var basePath = AppDomain.CurrentDomain.BaseDirectory;
-        var filePath = Path.Combine(basePath, "Assets", "Providers", $"{name}{ext}");
-        return File.Exists(filePath) ? filePath : null;
+        var dir = Path.Combine(basePath, "Assets", "Providers");
+        var normalizedId = providerId.ToLowerInvariant();
+        // 按优先级扫描常见扩展名（png > ico > jpg > svg）
+        foreach (var ext in new[] { ".png", ".ico", ".jpg", ".svg" })
+        {
+            var candidate = Path.Combine(dir, normalizedId + ext);
+            if (File.Exists(candidate)) return candidate;
+        }
+        return null;
     }
     public string StatusText { get => _statusText; set { _statusText = value; OnPropertyChanged(); } }
     public double UsagePercentage { get => _usagePercentage; set { _usagePercentage = value; OnPropertyChanged(); } }
@@ -389,6 +389,24 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
     }
 
     /// <summary>
+    /// req-折叠插件控制：插件声明"卡片折叠状态下仍可见的元素"集合（render_kind key）。
+    /// 与 <see cref="RenderKinds"/> 不同的是：本集合控制**折叠态**下哪些元素保持显示，
+    /// 展开态下不受影响（仍按 <see cref="RenderKinds"/> 决定可见性）。
+    /// <para>由 MainViewModel 装配时从 <c>IUsageProvider.CollapseVisibleParts</c> 注入。
+    /// 默认空集合 —— 折叠态下隐藏所有限额/余额/图表。</para>
+    /// </summary>
+    private IReadOnlyList<string> _collapseVisibleParts = Array.Empty<string>();
+    public IReadOnlyList<string> CollapseVisibleParts
+    {
+        get => _collapseVisibleParts;
+        set
+        {
+            _collapseVisibleParts = value ?? Array.Empty<string>();
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
     /// 任务栏显示模式（影响任务栏窗口中的呈现样式）
     /// </summary>
     public TaskbarDisplayMode DisplayMode
@@ -411,6 +429,41 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         TaskbarDisplayMode.RingChart => "圆环图",
         _ => "文字"
     };
+
+    // ============ req-091：登录态持续天数 ============
+
+    private int _sessionDurationDays;
+
+    /// <summary>
+    /// req-091：当前 Provider 登录态持续天数（0 = 首次登录当天，&gt;0 = 持续 N 天）。
+    /// </summary>
+    public int SessionDurationDays
+    {
+        get => _sessionDurationDays;
+        set
+        {
+            if (_sessionDurationDays == value) return;
+            _sessionDurationDays = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(SessionDurationText));
+        }
+    }
+
+    /// <summary>
+    /// req-091：当前登录态持续天数的显示文本。
+    /// <para>
+    /// 王晨 16:57 拍板：持续天数为 0（首次登录当天）显示**空值**——不显示"今天"、不显示"0天"、
+    /// 不显示倒计时、不显示提醒。UI 用 <c>StringToVisibility</c> 转换器自动隐藏空文本。
+    /// </para>
+    /// </summary>
+    public string? SessionDurationText
+    {
+        get
+        {
+            if (_sessionDurationDays <= 0) return null;
+            return $"持续 {_sessionDurationDays} 天";
+        }
+    }
 
     /// <summary>
     /// 主窗口卡片中展示的图表类型（None=仅进度条）。遗留的「单选」属性，仅为向后兼容保留；
@@ -1474,9 +1527,11 @@ public class PluginItemViewModel : INotifyPropertyChanged
         var currentCharts = _configService.GetProviderCardChartKinds(ProviderId);
         // 通用登录配置：只要插件声明了 LoginConfig（不限于 MiniMax），配置窗口就显示"获取登录态"按钮
         // req-065 B4：传递 ConfigService 给 PluginConfigWindow，用于 BrowserLoginService 实例化
+        // req-fix-Kimi-ConfigFields 动态模式：传递 _provider 让 PluginConfigWindow 监听 Mode ComboBox 变化时
+        // 重新调用 provider.ConfigFields 拉取与新模式匹配的字段列表。
         var configWindow = new Views.PluginConfigWindow(
             DisplayName, ConfigFields, config, _provider.LoginConfig,
-            _provider.SupportedCardCharts, currentCharts, _configService);
+            _provider.SupportedCardCharts, currentCharts, _configService, _provider);
         configWindow.Owner = System.Windows.Application.Current.Windows
             .OfType<Window>().FirstOrDefault(w => w.IsActive);
 
@@ -1511,6 +1566,18 @@ public class MainViewModel : INotifyPropertyChanged
     private readonly ConfigService _configService;
     private readonly RefreshService _refreshService;
     private readonly UsageHistoryStore _historyStore;
+    private UsageMonitor.App.App? _hostAppRef;
+
+    /// <summary>
+    /// req-091-005：MainViewModel 暴露 App 引用，用于调用 <c>App.TriggerReLogin</c>。
+    /// 在 <c>App.OnStartup</c> 创建 MainViewModel 后注入。
+    /// </summary>
+    public UsageMonitor.App.App? HostApp
+    {
+        get => _hostAppRef;
+        set => _hostAppRef = value;
+    }
+
     // req-028：每 1s 触发一次的全局 DispatcherTimer，用来刷新各 Provider 卡的 5h 倒计时 + 到时自动刷新。
     // 单例复用；启动时由 MainViewModel 构造函数 Start，资沅销毁由 App.xaml.cs OnExit 调用 Stop。
     private System.Windows.Threading.DispatcherTimer? _fiveHourCountdownTimer;
@@ -2062,7 +2129,21 @@ public class MainViewModel : INotifyPropertyChanged
             var savedMode = UsageMonitor.App.Helpers.TaskbarModeResolver.Resolve(
                 _configService.Settings, plugin.Provider.ProviderId);
             var savedCardCharts = _configService.GetProviderCardChartKinds(plugin.Provider.ProviderId);
-            
+
+            // req-fix-DualModeProvider ConfigFields 动态返回：在装配时把当前 config 注入到双模式 provider，
+            // 让 ConfigFields getter 根据 mode 字段返回对应模式的字段。
+            // 注意双模式 provider（KimiDualModeProvider / DeepseekDualModeProvider）是具体类型，需强制转换。
+            var currentConfig = _configService.GetProviderConfig(plugin.Provider.ProviderId, plugin.Provider);
+            switch (plugin.Provider)
+            {
+                case UsageMonitor.Plugin.Kimi.KimiDualModeProvider kimiProvider:
+                    kimiProvider.SetCurrentConfigSnapshot(currentConfig);
+                    break;
+                case UsageMonitor.Plugin.Deepseek.DeepseekDualModeProvider deepseekProvider:
+                    deepseekProvider.SetCurrentConfigSnapshot(currentConfig);
+                    break;
+            }
+
             var item = new PluginItemViewModel(plugin.Provider, _configService)
             {
                 ProviderId = plugin.Provider.ProviderId,
@@ -2097,10 +2178,16 @@ public class MainViewModel : INotifyPropertyChanged
             PluginItems.Add(item);
             
             // 初始化用量显示（传入打开配置的回调 + ConfigService 让 VM 跟踪"仅 x 个进度条"开关变化）
+            // req-091-005：注入 ReLoginAction（仅当 Provider 声明 LoginConfig 时才启用按钮）
+            Action? reLoginAction = plugin.Provider.LoginConfig != null
+                ? () => TriggerManualReLogin(plugin.Provider.ProviderId)
+                : null;
             var usageVm = new ProviderUsageViewModel(
                 item.OpenConfigDialog,
                 // 卡片右上角"⟳ 刷新"按钮回调：仅刷新当前服务商，复用刷新事件链路更新 UI/托盘。
-                () => _refreshService.RefreshProviderAsync(plugin.Provider.ProviderId))
+                () => _refreshService.RefreshProviderAsync(plugin.Provider.ProviderId),
+                // req-091-005：手动重新登录回调（null 表示隐藏按钮）
+                reLoginAction)
             {
                 ProviderId = plugin.Provider.ProviderId,
                 DisplayName = plugin.Provider.DisplayName,
@@ -2110,6 +2197,9 @@ public class MainViewModel : INotifyPropertyChanged
                 CardChartKinds = savedCardCharts,
                 // 立刻写入插件声明的默认渲染能力，避免首次渲染时被"未声明 render_kind"折叠。
                 RenderKinds = plugin.Provider.DefaultRenderKinds,
+                // req-折叠插件控制：插件声明"折叠态仍可见"的元素（render_kind key），
+                // 主机不硬编码，由插件自己决定哪些限额/余额在折叠态也展示。
+                CollapseVisibleParts = plugin.Provider.CollapseVisibleParts ?? Array.Empty<string>(),
                 // req-007：把当前 provider 注入到 VM，供 PeriodChanged → SetPeriodAsync 调用。
                 Provider = plugin.Provider,
                 // req-007：把"是否支持周期切换"在装配时立即写入，避免首次刷新前 UI 缺位。
@@ -2350,10 +2440,16 @@ public class MainViewModel : INotifyPropertyChanged
     private void RebuildEnabledUsages()
     {
         EnabledUsages.Clear();
-        foreach (var vm in Usages.Where(u => u.IsEnabled))
+        UsageMonitor.Core.Services.FileLogger.Info("MainViewModel", $"RebuildEnabledUsages: Usages总数={Usages.Count}");
+        foreach (var vm in Usages)
         {
-            EnabledUsages.Add(vm);
+            UsageMonitor.Core.Services.FileLogger.Info("MainViewModel", $"  Provider={vm.ProviderId}, DisplayName={vm.DisplayName}, IsEnabled={vm.IsEnabled}");
+            if (vm.IsEnabled)
+            {
+                EnabledUsages.Add(vm);
+            }
         }
+        UsageMonitor.Core.Services.FileLogger.Info("MainViewModel", $"RebuildEnabledUsages完成: EnabledUsages总数={EnabledUsages.Count}");
         OnPropertyChanged(nameof(EnabledUsages));
     }
 
@@ -2510,6 +2606,23 @@ public class MainViewModel : INotifyPropertyChanged
                 vm.EnabledRingChartMetrics = enabledKeys;
             }
         }
+    }
+
+    /// <summary>
+    /// req-091-005：手动触发某个 Provider 的重新登录（供卡片 ReLoginCommand 回调）。
+    /// <para>
+    /// 通过 <see cref="HostApp"/> 转发给 App.TriggerReLogin，复用现有 PluginConfigWindow 的 Cookie 获取流程。
+    /// </para>
+    /// </summary>
+    public void TriggerManualReLogin(string providerId)
+    {
+        if (_hostAppRef == null)
+        {
+            UsageMonitor.Core.Services.FileLogger.Warn("MainViewModel",
+                $"[req-091] TriggerManualReLogin({providerId}) skipped: HostApp not set");
+            return;
+        }
+        _hostAppRef.TriggerReLogin(providerId);
     }
 
     /// <summary>req-053：把全局已启用 metric 集合同步到所有 ProviderUsageViewModel。</summary>

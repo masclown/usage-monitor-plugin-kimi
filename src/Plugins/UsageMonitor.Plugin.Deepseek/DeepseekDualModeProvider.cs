@@ -36,22 +36,42 @@ public class DeepseekDualModeProvider : IUsageProvider
     {
         get
         {
+            var mode = DeepseekConfig.GetQueryMode(_currentConfigSnapshot);
             var fields = new List<ConfigField>
             {
-                // 模式选择字段
+                // 模式选择字段（始终显示，便于切换模式）
                 DeepseekConfig.CreateModeField(ProviderId)
             };
 
-            // 添加 API 模式字段
-            fields.AddRange(_apiProvider.ConfigFields);
-
-            // 添加网页模式字段（Cookie 等）
-            fields.Add(StandardWebConfigFields.Cookie(ProviderId));
-            fields.Add(StandardWebConfigFields.Region(ProviderId, "CN", "CN", "Global"));
-            fields.Add(StandardWebConfigFields.AutoRefresh(ProviderId, true));
+            if (mode == DeepseekConfig.ModeWeb)
+            {
+                // Web 模式：仅显示 Cookie + Region + AutoRefresh（无 ApiKey）
+                fields.Add(StandardWebConfigFields.Cookie(ProviderId));
+                fields.Add(StandardWebConfigFields.Region(ProviderId, "CN", "CN", "Global"));
+                fields.Add(StandardWebConfigFields.AutoRefresh(ProviderId, true));
+            }
+            else
+            {
+                // API 模式：仅显示 ApiKey + BaseUrl
+                fields.AddRange(_apiProvider.ConfigFields);
+            }
 
             return fields;
         }
+    }
+
+    /// <summary>
+    /// req-fix-DeepSeek ConfigFields 动态返回所需快照：MainViewModel 在装配时通过
+    /// <see cref="SetCurrentConfigSnapshot"/> 注入当前 config。
+    /// </summary>
+    private ProviderConfig? _currentConfigSnapshot;
+
+    /// <summary>
+    /// req-fix-DeepSeek ConfigFields 动态返回所需 setter：MainViewModel 在装配时调用。
+    /// </summary>
+    public void SetCurrentConfigSnapshot(ProviderConfig? config)
+    {
+        _currentConfigSnapshot = config;
     }
 
     /// <inheritdoc />

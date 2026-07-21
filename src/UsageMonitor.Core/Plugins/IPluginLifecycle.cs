@@ -39,6 +39,14 @@ public class PluginContext
     /// <summary>插件专属数据目录（%AppData%\UsageMonitor\plugins\{ProviderId}\）</summary>
     public string PluginDataDir { get; }
 
+    /// <summary>
+    /// req-088 B2：Taskbar 迷你图注册中心（可选）。
+    /// 插件在 OnLoad / InitializeAsync 中调用 MiniChartRegistry.Register() 注册自己的迷你图描述符，
+    /// TaskbarWindow 渲染时会自动拉取并按 Kind 选模板渲染。
+    /// <para>App 启动时注入；单元测试场景下可能为 null，调用方需做 null 检查。</para>
+    /// </summary>
+    public MiniChart.ITaskbarMiniChartRegistry? MiniChartRegistry { get; init; }
+
     public PluginContext()
     {
         PluginDataDir = Path.Combine(
