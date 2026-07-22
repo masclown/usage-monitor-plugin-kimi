@@ -9,13 +9,13 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
 
-    <!-- 项目版本号（0.24.2-beta）：MainViewModel大规模重构拆分(partial class提取) / Contracts SDK(CardContract/CardDisplayContract/图表契约/TooltipContract) / ProviderUsageViewModel/PluginItemViewModel / RingChartMetricModels / FieldUsage属性系统；用于程序集元数据 + 文件属性。 -->
+    <!-- 项目版本号（0.24.3-beta）：Provider用量数据参考文档(deepseek/kimi/minimax/qoder/trae/workbuddy) / SDK统一字段参考文档；用于程序集元数据 + 文件属性。 -->
     <!-- 显式设置 5 个属性，避免被 SDK 衍生规则变动影响。 -->
-    <Version>0.24.2-beta</Version>
-    <AssemblyVersion>0.24.2.0</AssemblyVersion>
-    <FileVersion>0.24.2.0</FileVersion>
-    <InformationalVersion>0.24.2-beta</InformationalVersion>
-    <ProductVersion>0.24.2-beta</ProductVersion>
+    <Version>0.24.3-beta</Version>
+    <AssemblyVersion>0.24.3.0</AssemblyVersion>
+    <FileVersion>0.24.3.0</FileVersion>
+    <InformationalVersion>0.24.3-beta</InformationalVersion>
+    <ProductVersion>0.24.3-beta</ProductVersion>
     <AssemblyTitle>UsageMonitor</AssemblyTitle>
     <Product>UsageMonitor</Product>
     <Company>UsageMonitor</Company>
