@@ -102,7 +102,7 @@
 ### 1.8 视频/次数类（Category=Usage/Count）
 | SDK 字段 | 语义 | 来源 |
 |---|---|---|
-| `video_used_count` / `video_total_count` | 视频赠送次数 | MiniMax |
+| `video_used_count` / `video_total_count` | 视频赠送次数（5h + 周两窗口，用 plan_type 区分；已用 = total − remains）| MiniMax |
 
 ### 1.9 缓存命中（Category=Usage，与用量趋势相关）
 | SDK 字段 | 语义 | 来源 |
@@ -116,6 +116,8 @@
 | `error_message` | 错误信息 |
 | `active_days` | 活跃天数 | MiniMax |
 | `usage_ranking_percent` | 用量排名 | MiniMax |
+| `most_active_date` | 单日峰值日期（接口直给 most_active_day.date）| MiniMax |
+| `most_active_token` | 单日峰值 token（存原始数字，如 552,485,135）| MiniMax |
 
 ---
 
@@ -138,7 +140,9 @@
 ### 表 usage_daily_trend（每日趋势，画折线/热力）
 `provider_id, account_id, date, token_total, cache_hit_percent`
 
-- 来源：MiniMax(daily_token_usage 168天) / WorkBuddy(heatmap 365天 score) / TRAE(活跃天数)
+- 来源：MiniMax(**date_model_usage** 168天，按 .date 入库) / WorkBuddy(heatmap 365天 score) / TRAE(活跃天数)
+- ⚠️ MiniMax 实测（2026-07-23）：`daily_token_usage` 相对 `date_model_usage` **错位一天**且网页从未使用，**弃用 daily_token_usage**，折线/热力统一用 date_model_usage（详见 minimax 手册 §3）
+- token_total = day 级 total_token（= input + output）；近7/近30 调用量由本表按 .date 尾窗 SUM 派生，不单独入库
 - 数值含义可配（token/活跃分/次数），支持任意天数
 
 ---
@@ -200,15 +204,17 @@ provider_extra_*      -- Provider 专属（§3）
 | （新增）| `used_tokens` | usage_summary.total_token_consumed |
 | （新增）| `active_days` / `usage_ranking_percent` | usage_summary |
 | （明细）| usage_model_daily | usage_summary.date_model_usage(per-model) |
-| （趋势）| usage_daily_trend | usage_summary.daily_token_usage(168天) |
+| （趋势）| usage_daily_trend | usage_summary.**date_model_usage**(168天，按 .date；daily_token_usage 错位弃用) |
+| （新增）| `most_active_date` / `most_active_token` | usage_summary.most_active_day(date + 原始 token 552,485,135) |
 | 🔴 | 不入库 | token_plan_credit.api_key |
 
-**MiniMax 迁移要点**：
+**MiniMax 迁移要点**（2026-07-23 浏览器实测定稿）：
 1. 去 `mm_` 前缀，用通用字段名
-2. 百分比 "53%" 字符串 → 数字 53
-3. 补 5h/周 重置时间（remains_time 换算）
+2. 百分比 "54%" 字符串 → 数字 54
+3. 补 5h/周 重置时间（end_time / weekly_end_time 直接是重置时刻 UTC，无需换算 remains_time）
 4. per-model 明细进 usage_model_daily（决策⑥）
-5. 折线/热力数据进 usage_daily_trend（注意 daily_token_usage 与 date_model_usage 错位1天的陷阱，见 minimax 手册 §4）
+5. 折线/热力统一用 **date_model_usage**（按 .date）；`daily_token_usage` 实测错位一天且网页从未使用，**整字段弃用**（见 minimax 手册 §3）
+6. 视频补周维度（5h 0/3 + 周 0/21）；单日峰值入库（most_active_date / most_active_token 原始值）；used_tokens 存原始数字
 
 ---
 

@@ -194,6 +194,7 @@ daily_token_usage[7-21 位置] = 254,674,208  ≈  date_model_usage[7-20].total_
 即 **`daily_token_usage[k]` ≈ `date_model_usage[k-1].total_token`**。
 - **原因推测**：daily_token_usage 可能包含"今天未结算的实时值"或时区/口径差，导致比 date_model_usage 多一天/错一位。
 - **教训**：**不要**直接拿 `daily_token_usage` 最后一项当"今天"，日期必须以 `date_model_usage[].date` 为准。折线图渲染应优先用带日期的 `date_model_usage`。
+- **✅ 2026-07-23 浏览器复测定论**：去掉零值天后，37 个活跃天**同索引对齐命中 = 0**、错位命中为主 → **错位一天确认成立**。更关键的是，网页汇总数字实测全部来自 `date_model_usage`：「近7天 = 1.28B」= `date_model` 求和(07-17…07-22) = 1,283,555,106 ✅（用 daily 算 = 1.37B ❌）、「近30天 = 5.22B」= `date_model`(06-24…07-22) = 5,224,372,858 ✅。**即网页折线/热力/汇总全部使用 `date_model_usage`，`daily_token_usage` 未被任何图表或汇总使用** → SDK **整字段弃用 `daily_token_usage`**，趋势统一用 `date_model_usage`（按 .date）。这也解释了"折线图与热力图看起来一样"（两图同源 date_model + 131/168 天为零）。
 
 ### 3.2 切片器"近7天/近30天"语义
 - 折线图右上角"近7天/近30天"**只改显示窗口**，不重新请求接口。
@@ -232,7 +233,7 @@ daily_token_usage[7-21 位置] = 254,674,208  ≈  date_model_usage[7-20].total_
 
 ## 5. 对 SDK 字段设计的启示（待汇总）
 
-1. **"当日调用量"需区分口径**：`daily_line_token`（折线，daily_token_usage）、`daily_total_token`（热力/顶部，date_model_usage.total_token = input+output）不能合并为一个字段。
+1. **趋势统一用 `date_model_usage`**（2026-07-23 实测定论）：`daily_token_usage` 相对 date_model 错位一天且网页从未使用，**整字段弃用**；折线/热力/近7近30 汇总全部基于 `date_model_usage.total_token`(= input + output) 按 `.date` 计算。
 2. **每日明细单独建数据表**（用户要求）：`date` + 5 种 token（input/output/cache_read/cache_create/total）+ cache_hit_percent + per-model 展开。带 ProviderId/AccountId 系统列，支持去重覆盖。
 3. **敏感字段隔离**：`api_key` 必须标 Sensitive，禁止入库/日志。
 4. **格式化字符串还原**：入库存原始数字。
