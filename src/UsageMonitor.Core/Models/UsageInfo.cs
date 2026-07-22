@@ -160,6 +160,29 @@ public class UsageInfo
     }
 
     /// <summary>
+    /// req-005-011：由旧字段（<see cref="UsedAmount"/> + <see cref="Unit"/>）派生强类型 <see cref="Quantity"/>，
+    /// 供各 Provider 在构建 UsageInfo 末尾统一调用，完成“输出写 Quantity”的过渡（旧字段仍保留）。
+    /// <para>
+    /// 单位映射刻意避开 <see cref="TokenUnit"/>（Token 计数走 <see cref="UsedTokens"/> / <see cref="GetRemainingTokens"/>），
+    /// 且 Quantity.Value 恒等于 UsedAmount，保证 <see cref="GetUsagePercentage"/> 的 UsedAmount/TotalAmount 数学
+    /// 与 <see cref="GetRemainingTokens"/> 分支均不变（零回归）。
+    /// </para>
+    /// </summary>
+    public void PopulateQuantityFromLegacy()
+    {
+#pragma warning disable CS0618 // 过渡期读取旧字段
+        UnitBase unit = Unit switch
+        {
+            "%" => new PercentUnit(),
+            "USD" or "CNY" or "EUR" or "JPY" or "GBP" or "HKD" => new CurrencyUnit(Unit),
+            null or "" => new UnknownUnit(),
+            _ => new CreditUnit(Unit)   // "Credits" / "次" / "Tokens"(旧标签) / 其它自定义计数
+        };
+        Quantity = new Quantity(UsedAmount, unit);
+#pragma warning restore CS0618
+    }
+
+    /// <summary>
     /// 创建一个错误状态的UsageInfo（旧签名，保留向后兼容）
     /// </summary>
     public static UsageInfo CreateError(string providerId, string providerName, string errorMessage)

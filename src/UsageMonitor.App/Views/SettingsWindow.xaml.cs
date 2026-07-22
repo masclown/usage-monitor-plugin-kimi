@@ -24,19 +24,85 @@ public partial class SettingsWindow : Window
         InitializeComponent();
         DataContext = viewModel;
         Loaded += OnLoaded;
+
+        // req-073：订阅 ViewModel 的关闭请求（保存/取消按钮触发）
+        viewModel.RequestCloseSettings += OnRequestCloseSettings;
+    }
+
+    /// <summary>
+    /// req-073：ViewModel 请求关闭设置窗口（保存成功或取消）。
+    /// </summary>
+    private void OnRequestCloseSettings(object? sender, bool saved)
+    {
+        // 保存失败时不关闭（LastSaveError 已由 SaveAllSettingsCommand 检查）
+        if (saved && !string.IsNullOrEmpty(_configService.LastSaveError))
+        {
+            System.Windows.MessageBox.Show(
+                $"配置保存失败：\n{_configService.LastSaveError}\n\n窗口已保持打开，请修改后重试。",
+                "保存失败",
+                System.Windows.MessageBoxButton.OK,
+                System.Windows.MessageBoxImage.Error);
+            return;
+        }
+        Close();
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
-        // Display the live log file path so users can copy it for diagnostics.
-        if (LogPathTextBox != null)
-            LogPathTextBox.Text = FileLogger.GetCurrentLogPath();
+        // req-073：DataTemplate 内的 x:Name 元素需在模板加载后通过 VisualTree 查找
+        // 延迟到 ContentControl 实际渲染后再初始化
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            InitializeTemplateElements();
+        }), System.Windows.Threading.DispatcherPriority.Loaded);
+    }
 
-        // req-053：初始化环形图中心数字项的颜色（启用=白色，禁用=灰色）
-        UpdateRingMetricItemColors();
+    /// <summary>
+    /// req-073：初始化 DataTemplate 内的命名元素（LogPathTextBox / CookieDirAclStatus / ConfigDirAclStatus / RingMetricOrderList）。
+    /// </summary>
+    private void InitializeTemplateElements()
+    {
+        // 查找 LogPathTextBox 并设置日志路径
+        var logPathTextBox = FindVisualChildByName<System.Windows.Controls.TextBox>(this, "LogPathTextBox");
+        if (logPathTextBox != null)
+            logPathTextBox.Text = FileLogger.GetCurrentLogPath();
 
-        // req-089：加载安全页 ACL 状态
+        // 查找 RingMetricOrderList 并更新颜色
+        var ringMetricOrderList = FindVisualChildByName<ItemsControl>(this, "RingMetricOrderList");
+        if (ringMetricOrderList != null)
+            UpdateRingMetricItemColors(ringMetricOrderList);
+
+        // 加载安全页 ACL 状态
         LoadSecurityTabStatus();
+
+        // req-103：初始化卡片排序列表
+        RefreshCardOrderIfNeeded();
+
+        // req-104：初始化多进度条字段列表
+        RefreshMultiProgressFieldItemsIfNeeded();
+
+        // req-097：初始化图表顺序列表
+        RefreshChartOrderItemsIfNeeded();
+
+        // req-098：初始化任务栏迷你图表配置项
+        RefreshTaskbarMiniChartOptionsIfNeeded();
+    }
+
+    /// <summary>
+    /// 按名称查找可视化树中的子元素。
+    /// </summary>
+    private static T? FindVisualChildByName<T>(DependencyObject parent, string name) where T : FrameworkElement
+    {
+        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, i);
+            if (child is T element && element.Name == name)
+                return element;
+            var found = FindVisualChildByName<T>(child, name);
+            if (found != null)
+                return found;
+        }
+        return null;
     }
 
     /// <summary>
@@ -51,16 +117,20 @@ public partial class SettingsWindow : Window
                 "UsageMonitor");
             var cookieDir = Path.Combine(appDataDir, "cookies");
 
-            if (CookieDirAclStatus != null)
+            // req-073：从 VisualTree 查找 DataTemplate 内的元素
+            var cookieDirAclStatus = FindVisualChildByName<TextBlock>(this, "CookieDirAclStatus");
+            var configDirAclStatus = FindVisualChildByName<TextBlock>(this, "ConfigDirAclStatus");
+
+            if (cookieDirAclStatus != null)
             {
                 var tightened = UsageMonitor.Core.Security.CookieDirAccessControl.IsTightened(cookieDir);
-                CookieDirAclStatus.Text = tightened ? "✅ 已收紧" : "⚠️ 默认（未收紧）";
+                cookieDirAclStatus.Text = tightened ? "✅ 已收紧" : "⚠️ 默认（未收紧）";
             }
 
-            if (ConfigDirAclStatus != null)
+            if (configDirAclStatus != null)
             {
                 var tightened = UsageMonitor.Core.Security.ConfigDirAccessControl.IsTightened(_configService.ConfigFilePath);
-                ConfigDirAclStatus.Text = tightened ? "✅ 已收紧" : "⚠️ 默认（未收紧）";
+                configDirAclStatus.Text = tightened ? "✅ 已收紧" : "⚠️ 默认（未收紧）";
             }
         }
         catch (Exception ex)
@@ -103,11 +173,11 @@ public partial class SettingsWindow : Window
 
     /// <summary>
     /// req-053：根据 GlobalEnabledRingChartMetrics 更新环形图中心数字项的颜色。
+    /// req-073：改为接收 ItemsControl 参数（从 VisualTree 查找后传入）。
     /// </summary>
-    private void UpdateRingMetricItemColors()
+    private void UpdateRingMetricItemColors(ItemsControl ringMetricOrderList)
     {
-        // 找到 ItemsControl 中的 TextBlock 元素
-        if (RingMetricOrderList == null) return;
+        if (ringMetricOrderList == null) return;
         var enabled = _configService.Settings.GlobalEnabledRingChartMetrics;
 
         // 获取主题感知的画刷
@@ -116,9 +186,9 @@ public partial class SettingsWindow : Window
         var disabledBrush = TryFindResource("TextTertiaryBrush") as System.Windows.Media.Brush
                            ?? System.Windows.Media.Brushes.Gray;
 
-        foreach (var item in RingMetricOrderList.Items)
+        foreach (var item in ringMetricOrderList.Items)
         {
-            var container = RingMetricOrderList.ItemContainerGenerator.ContainerFromItem(item) as ContentPresenter;
+            var container = ringMetricOrderList.ItemContainerGenerator.ContainerFromItem(item) as ContentPresenter;
             if (container?.ContentTemplate == null) continue;
             var tb = FindVisualChild<TextBlock>(container);
             if (tb == null) continue;
@@ -227,50 +297,151 @@ public partial class SettingsWindow : Window
     }
 
     /// <summary>
-    /// req-027：保存设置按钮的 Click 处理器——保存成功→关闭窗口；保存失败→弹错误 MessageBox + 不关闭。
-    /// <para>
-    /// 与之前 <c>SaveSettingsCommand</c> 的区别：本方法把"窗口关闭"嵌入到成功路径里，
-    /// 用户点击一次就完成"保存 + 退出设置"两步。失败时不关闭，让用户改完再点一次。
-    /// </para>
-    /// <para>
-    /// 数据源：<see cref="ConfigService.LastSaveError"/>。Save() 同步执行：成功时清空该属性，
-    /// 失败时填上 <c>$"{异常类型}: {消息}"</c>；窗体读它的状态决定后续动作。
-    /// </para>
+    /// req-073：原「保存设置」按钮已移除，改用底部全局保存栏（SaveAllSettingsCommand）。
+    /// 保留此方法仅为兼容旧代码引用，实际不再使用。
     /// </summary>
+    [Obsolete("req-073：已改用底部全局保存栏，此方法不再使用")]
     private void OnSaveClick(object sender, RoutedEventArgs e)
     {
-        try
+        // 兼容旧代码：直接调用 SaveAllSettingsCommand
+        if (DataContext is MainViewModel vm && vm.SaveAllSettingsCommand.CanExecute(null))
         {
-            // 触发保存（直接调 _configService.Save() 以保证异常路径被本 try/catch 接住）
-            _configService.Save();
-
-            if (!string.IsNullOrEmpty(_configService.LastSaveError))
-            {
-                // 保存失败：弹错误 + 不关闭
-                FileLogger.Warn("SettingsWindow",
-                    $"保存设置失败（LastSaveError 已设置）：{_configService.LastSaveError}");
-                System.Windows.MessageBox.Show(
-                    $"配置保存失败：\n{_configService.LastSaveError}\n\n可能是磁盘满、权限不足或文件被占用。窗口已保持打开，请修改后重试。",
-                    "保存失败",
-                    System.Windows.MessageBoxButton.OK,
-                    System.Windows.MessageBoxImage.Error);
-                return;
-            }
-
-            // 保存成功：关闭窗口（按 req-027 Q1 A + Q4 A，无 toast 反馈）
-            FileLogger.Info("SettingsWindow", "保存设置成功，关闭设置窗口");
-            this.Close();
+            vm.SaveAllSettingsCommand.Execute(null);
         }
-        catch (Exception ex)
+    }
+
+    /// <summary>
+    /// req-103：切换到「卡片排序」分区时刷新列表。
+    /// </summary>
+    private void RefreshCardOrderIfNeeded()
+    {
+        if (DataContext is MainViewModel vm)
+            vm.RefreshCardOrderItems();
+    }
+
+    /// <summary>
+    /// req-104：切换到「多进度条」分区时刷新字段列表。
+    /// </summary>
+    private void RefreshMultiProgressFieldItemsIfNeeded()
+    {
+        if (DataContext is MainViewModel vm)
+            vm.RefreshMultiProgressFieldItems();
+    }
+
+    /// <summary>
+    /// req-097：切换到「图表顺序」分区时刷新列表。
+    /// </summary>
+    private void RefreshChartOrderItemsIfNeeded()
+    {
+        if (DataContext is MainViewModel vm)
+            vm.RefreshChartOrderItems();
+    }
+
+    /// <summary>
+    /// req-098：切换到「任务栏迷你图表」分区时刷新列表。
+    /// <para>从 <c>_pluginManager.Plugins</c> 重新收集 SupportedMiniCharts 非空的 Provider，
+    /// 与既有用户配置合并（保留用户已修改项）。</para>
+    /// </summary>
+    private void RefreshTaskbarMiniChartOptionsIfNeeded()
+    {
+        if (DataContext is MainViewModel vm)
+            vm.RefreshTaskbarMiniChartOptions();
+    }
+
+    // =====================================================================
+    // REQ-103 卡片排序拖拽事件处理器
+    // =====================================================================
+
+    private System.Windows.Point _cardOrderDragStartPoint;
+    private bool _cardOrderIsDragging;
+
+    /// <summary>
+    /// req-103：记录拖拽起始点。
+    /// </summary>
+    private void CardOrderListBox_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        _cardOrderDragStartPoint = e.GetPosition(null);
+        _cardOrderIsDragging = false;
+    }
+
+    /// <summary>
+    /// req-103：检测拖拽距离，超过阈值后启动拖拽操作。
+    /// </summary>
+    private void CardOrderListBox_PreviewMouseMove(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        if (e.LeftButton != MouseButtonState.Pressed || _cardOrderIsDragging)
+            return;
+
+        var currentPos = e.GetPosition(null);
+        var diff = _cardOrderDragStartPoint - currentPos;
+
+        if (Math.Abs(diff.X) > SystemParameters.MinimumHorizontalDragDistance ||
+            Math.Abs(diff.Y) > SystemParameters.MinimumVerticalDragDistance)
         {
-            // Save() 自身抛出（如 JSON 写入失败）的兜底
-            FileLogger.Warn("SettingsWindow", "保存设置抛出异常", ex);
-            System.Windows.MessageBox.Show(
-                $"保存失败：\n{ex.Message}",
-                "保存失败",
-                System.Windows.MessageBoxButton.OK,
-                System.Windows.MessageBoxImage.Error);
+            if (sender is not System.Windows.Controls.ListBox listBox) return;
+            var draggedItem = FindVisualParent<System.Windows.Controls.ListBoxItem>(e.OriginalSource as DependencyObject);
+            if (draggedItem?.Content is not Helpers.CardOrderItem cardOrderItem) return;
+
+            _cardOrderIsDragging = true;
+            var dragData = new System.Windows.DataObject("CardOrderItem", cardOrderItem);
+            System.Windows.DragDrop.DoDragDrop(listBox, dragData, System.Windows.DragDropEffects.Move);
+            _cardOrderIsDragging = false;
         }
+    }
+
+    /// <summary>
+    /// req-103：拖拽悬停时设置效果。
+    /// </summary>
+    private void CardOrderListBox_DragEnter(object sender, System.Windows.DragEventArgs e)
+    {
+        if (e.Data.GetDataPresent("CardOrderItem"))
+            e.Effects = System.Windows.DragDropEffects.Move;
+        else
+            e.Effects = System.Windows.DragDropEffects.None;
+        e.Handled = true;
+    }
+
+    /// <summary>
+    /// req-103：放下时执行排序并持久化。
+    /// </summary>
+    private void CardOrderListBox_Drop(object sender, System.Windows.DragEventArgs e)
+    {
+        if (!e.Data.GetDataPresent("CardOrderItem")) return;
+        if (DataContext is not MainViewModel vm) return;
+
+        var droppedItem = e.Data.GetData("CardOrderItem") as Helpers.CardOrderItem;
+        if (droppedItem == null) return;
+
+        // 找到目标位置
+        var targetItem = FindVisualParent<System.Windows.Controls.ListBoxItem>(e.OriginalSource as DependencyObject);
+        if (targetItem?.Content is not Helpers.CardOrderItem targetCardItem) return;
+
+        var items = vm.CardOrderItems;
+        var oldIndex = items.IndexOf(droppedItem);
+        var newIndex = items.IndexOf(targetCardItem);
+
+        if (oldIndex < 0 || newIndex < 0 || oldIndex == newIndex) return;
+
+        // 移动元素
+        items.Move(oldIndex, newIndex);
+
+        // 持久化排序结果
+        vm.SaveCardOrder();
+
+        e.Handled = true;
+    }
+
+    /// <summary>
+    /// 向上查找指定类型的父元素。
+    /// </summary>
+    private static T? FindVisualParent<T>(DependencyObject? child) where T : DependencyObject
+    {
+        while (child != null)
+        {
+            if (child is T parent) return parent;
+            child = VisualTreeHelper.GetParent(child);
+        }
+        return null;
     }
 
     /// <summary>
@@ -321,5 +492,71 @@ public partial class SettingsWindow : Window
         {
             FileLogger.Warn("SettingsWindow", $"OnRingMetricToggleClick Save failed: {ex.Message}", ex);
         }
+    }
+
+    // =====================================================================
+    // REQ-097 图表顺序拖拽事件处理器
+    // =====================================================================
+
+    private System.Windows.Point _chartOrderDragStartPoint;
+    private bool _chartOrderIsDragging;
+
+    /// <summary>
+    /// req-097：记录拖拽起始点。
+    /// </summary>
+    private void ChartOrderListBox_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        _chartOrderDragStartPoint = e.GetPosition(null);
+        _chartOrderIsDragging = false;
+    }
+
+    /// <summary>
+    /// req-097：检测拖拽距离，超过阈值启动拖拽。
+    /// </summary>
+    private void ChartOrderListBox_PreviewMouseMove(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        if (e.LeftButton != MouseButtonState.Pressed || _chartOrderIsDragging) return;
+        var currentPos = e.GetPosition(null);
+        var diff = _chartOrderDragStartPoint - currentPos;
+        if (Math.Abs(diff.X) > SystemParameters.MinimumHorizontalDragDistance ||
+            Math.Abs(diff.Y) > SystemParameters.MinimumVerticalDragDistance)
+        {
+            if (sender is not System.Windows.Controls.ListBox listBox) return;
+            var draggedItem = FindVisualParent<System.Windows.Controls.ListBoxItem>(e.OriginalSource as DependencyObject);
+            if (draggedItem?.Content is not Helpers.ChartOrderItem chartOrderItem) return;
+            _chartOrderIsDragging = true;
+            var dragData = new System.Windows.DataObject("ChartOrderItem", chartOrderItem);
+            System.Windows.DragDrop.DoDragDrop(listBox, dragData, System.Windows.DragDropEffects.Move);
+            _chartOrderIsDragging = false;
+        }
+    }
+
+    /// <summary>
+    /// req-097：拖拽进入时设置效果。
+    /// </summary>
+    private void ChartOrderListBox_DragEnter(object sender, System.Windows.DragEventArgs e)
+    {
+        e.Effects = e.Data.GetDataPresent("ChartOrderItem") ? System.Windows.DragDropEffects.Move : System.Windows.DragDropEffects.None;
+        e.Handled = true;
+    }
+
+    /// <summary>
+    /// req-097：放置时调整顺序。
+    /// </summary>
+    private void ChartOrderListBox_Drop(object sender, System.Windows.DragEventArgs e)
+    {
+        if (!e.Data.GetDataPresent("ChartOrderItem")) return;
+        if (DataContext is not MainViewModel vm) return;
+        var droppedItem = e.Data.GetData("ChartOrderItem") as Helpers.ChartOrderItem;
+        if (droppedItem == null) return;
+        var targetItem = FindVisualParent<System.Windows.Controls.ListBoxItem>(e.OriginalSource as DependencyObject);
+        if (targetItem?.Content is not Helpers.ChartOrderItem targetChartItem) return;
+        var items = vm.ChartOrderItems;
+        var oldIndex = items.IndexOf(droppedItem);
+        var newIndex = items.IndexOf(targetChartItem);
+        if (oldIndex < 0 || newIndex < 0 || oldIndex == newIndex) return;
+        items.Move(oldIndex, newIndex);
+        vm.SaveChartOrder();
+        e.Handled = true;
     }
 }

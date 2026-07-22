@@ -25,10 +25,6 @@ internal static class MiniMaxDomExtractor
     /// <summary>Source name used in FileLogger</summary>
     private const string LogSource = "MiniMaxDomExtractor";
 
-    /// <summary>Debug log directory (raw API/DOM dumps) - same dir as FileLogger.LogDir/debug</summary>
-    private static readonly string DebugDir = Path.Combine(
-        UsageMonitor.Core.Services.FileLogger.LogDir, "debug");
-
     // req-067 B22：Regex 编译为 static readonly，避免每次调用都重新编译
     private static readonly Regex PercentRegex = new(@"(\d+(?:\.\d+)?)\s*%", RegexOptions.Compiled);
 
@@ -665,6 +661,8 @@ internal static class MiniMaxDomExtractor
         usageInfo.UsedAmount = (decimal)primaryPct;
         usageInfo.TotalAmount = 100m;
         usageInfo.Unit = "%";
+        // req-005-011：主指标为 5h 已用百分比，写入强类型 Quantity(PercentUnit)，与 UsedAmount 一致，GetUsagePercentage 不变。
+        usageInfo.PopulateQuantityFromLegacy();
         extras["intervalUsedPercent"] = interval5hUsed;
         extras["weeklyUsedPercent"] = weeklyUsed;
 
@@ -758,10 +756,13 @@ internal static class MiniMaxDomExtractor
     {
         try
         {
-            Directory.CreateDirectory(DebugDir);
+            // req-fix：统一使用 DebugFileManager 管理的 debug 目录（%AppData%\UsageMonitor\debug），
+            // 消除与本类重复定义的 DebugDir，并修复此前“写入 ProjectRoot\logs\debug、却清理 AppData\debug”的目录错位。
+            var debugDir = DebugFileManager.GetDebugDirectory();
+            Directory.CreateDirectory(debugDir);
             DebugFileManager.CleanupOldDebugFiles();
             var fileName = $"MiniMax-DomExtract-{suffix}.json";
-            var path = Path.Combine(DebugDir, fileName);
+            var path = Path.Combine(debugDir, fileName);
             var sb = new System.Text.StringBuilder();
             sb.AppendLine($"// time: {DateTime.Now:O}");
             sb.AppendLine($"// captured endpoint count: {capturedResponses.Count}");

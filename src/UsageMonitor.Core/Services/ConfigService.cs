@@ -33,6 +33,13 @@ public class AppSettings
     /// <summary>各插件是否启用的映射</summary>
     public Dictionary<string, bool> PluginEnabled { get; set; } = new();
 
+    /// <summary>
+    /// req-096：持久化的登录态信息（重启后恢复“登录态计时”）。
+    /// 仅存非敏感元数据（ProviderId / AccountId / AcquiredAt）；实际鉴权数据由各 AuthProvider 单独安全持久化，
+    /// <see cref="LoginStateInfo.EncryptedData"/> 已标 [JsonIgnore] 不落盘，避免明文凭据写入 config.json。
+    /// </summary>
+    public List<LoginStateInfo> PersistedLoginStates { get; set; } = new();
+
     /// <summary>历史数据保留点数（默认 60，可调 30/60/120）</summary>
     public int HistoryPointCount { get; set; } = 60;
 
@@ -41,6 +48,15 @@ public class AppSettings
 
     /// <summary>托盘悬浮窗关闭延迟（毫秒）</summary>
     public int TrayTooltipHideDelayMs { get; set; } = 500;
+
+    /// <summary>
+    /// req-098：用户对每个 Provider 任务栏迷你图表的配置（key = ProviderId）。
+    /// <para>
+    /// 未配置时 <c>MiniChartRegistryBootstrapper</c> 走默认注册路径（全部 Provider 用 RingChart
+    /// + PrimaryMetric）。用户在"任务栏迷你图表"设置页修改后写回此字典。
+    /// </para>
+    /// </summary>
+    public Dictionary<string, Models.TaskbarMiniChartConfig> TaskbarMiniChartConfigs { get; set; } = new(System.StringComparer.OrdinalIgnoreCase);
 
     /// <summary>托盘悬浮窗触发区域宽度（像素，屏幕右下角向左延伸），默认 200</summary>
     public int TrayTriggerWidth { get; set; } = 200;
@@ -231,6 +247,54 @@ public class AppSettings
     /// req-090-003：Cookie 保留天数（默认 90 天，范围 7-365）。超过此天数的 Cookie 文件在启动时被清理。
     /// </summary>
     public int CookieRetentionDays { get; set; } = 90;
+
+    // =====================================================================
+    // REQ-103 卡片排序功能
+    // =====================================================================
+
+    /// <summary>
+    /// req-103：用户自定义的卡片显示顺序（ProviderId 列表）。
+    /// <para>
+    /// 空列表或缺失时回退到默认启用顺序；支持 Provider 级别和账号级别的混合排序。
+    /// 调整顺序后保存 → ConfigChanged 事件 → MainViewModel 重新排序 EnabledUsages。
+    /// </para>
+    /// </summary>
+    public List<string> ProviderCardOrder { get; set; } = new();
+
+    // =====================================================================
+    // REQ-104 多进度条与数字多排显示
+    // =====================================================================
+
+    /// <summary>
+    /// req-104：用户选择的进度条显示字段（key=ProviderId，value=字段名列表）。
+    /// <para>
+    /// 空列表或缺失时显示插件声明的全部进度条；非空时仅显示选中的字段。
+    /// 字段名对应 <see cref="UsageMonitor.Core.Models.MetricBarItem.Label"/>。
+    /// </para>
+    /// </summary>
+    public Dictionary<string, List<string>> SelectedProgressFields { get; set; } = new();
+
+    /// <summary>
+    /// req-104：用户选择的数字多排显示字段（key=ProviderId，value=字段名列表）。
+    /// <para>
+    /// 空列表或缺失时显示插件声明的全部数字项；非空时仅显示选中的字段。
+    /// 字段名对应 <see cref="UsageMonitor.Core.Models.MetricGridItem.Label"/>。
+    /// </para>
+    /// </summary>
+    public Dictionary<string, List<string>> SelectedMetricFields { get; set; } = new();
+
+    // =====================================================================
+    // REQ-097 卡片图表顺序用户可调整
+    // =====================================================================
+
+    /// <summary>
+    /// req-097：用户自定义的卡片图表显示顺序（key=ProviderId，value=图表类型列表）。
+    /// <para>
+    /// 空列表或缺失时回退到插件声明的 <see cref="IUsageProvider.SupportedCardCharts"/> 顺序；
+    /// 调整顺序后保存 → ConfigChanged 事件 → MainViewModel 重新排序图表。
+    /// </para>
+    /// </summary>
+    public Dictionary<string, List<CardChartKind>> ProviderChartOrder { get; set; } = new();
 }
 
 /// <summary>
@@ -250,7 +314,7 @@ public class TrayTooltipPosition
 /// 配置管理服务 - 负责读写应用配置，支持API Key加密存储
 /// 配置文件保存在 %AppData%/UsageMonitor/config.json
 /// </summary>
-public class ConfigService
+public class ConfigService : IConfigService
 {
     /// <summary>req-060：序列化配置复用（写入用，带缩进）。</summary>
     private static readonly JsonSerializerOptions s_writeOptions = new()
@@ -385,6 +449,9 @@ public class ConfigService
 
         // req-060：RefreshIntervalSeconds 钳制到合理范围（30秒~24小时），避免 int 乘法溢出
         _settings.RefreshIntervalSeconds = Math.Clamp(_settings.RefreshIntervalSeconds, 30, 86400);
+
+        // req-095：托盘悬浮窗关闭延迟钳制到 100-5000ms，非法值（旧配置或手改 JSON）自动修正。
+        _settings.TrayTooltipHideDelayMs = Math.Clamp(_settings.TrayTooltipHideDelayMs, 100, 5000);
     }
 
     /// <summary>
@@ -550,6 +617,7 @@ public class ConfigService
             TrayTriggerWidth = _settings.TrayTriggerWidth,
             TrayTriggerHeight = _settings.TrayTriggerHeight,
             TrayTooltipWindowWidth = _settings.TrayTooltipWindowWidth,
+            TaskbarMiniChartConfigs = new Dictionary<string, Models.TaskbarMiniChartConfig>(),
             ProviderTaskbarModes = new Dictionary<string, TaskbarDisplayMode>(_settings.ProviderTaskbarModes),
             ProviderEnabledRingChartMetrics = new Dictionary<string, List<string>>(),
             GlobalEnabledRingChartMetrics = new List<string>(_settings.GlobalEnabledRingChartMetrics),
@@ -575,6 +643,10 @@ public class ConfigService
             RingChartSwitchAnimationMs = _settings.RingChartSwitchAnimationMs,
             TrayTooltipTriggerRect = _settings.TrayTooltipTriggerRect,
             LastCleanedZeroTokensAt = _settings.LastCleanedZeroTokensAt,
+            ProviderCardOrder = new List<string>(_settings.ProviderCardOrder),
+            SelectedProgressFields = new Dictionary<string, List<string>>(),
+            SelectedMetricFields = new Dictionary<string, List<string>>(),
+            ProviderChartOrder = new Dictionary<string, List<CardChartKind>>(),
         };
 
         // 顶层值为 List<T> 的字典需要逐项深拷贝到新 List 中（避免快照与 _settings 共享 List 引用）。
@@ -582,6 +654,22 @@ public class ConfigService
             snapshot.ProviderEnabledRingChartMetrics[kvp.Key] = new List<string>(kvp.Value);
         foreach (var kvp in _settings.ProviderCardChartKinds)
             snapshot.ProviderCardChartKinds[kvp.Key] = new List<CardChartKind>(kvp.Value);
+        foreach (var kvp in _settings.SelectedProgressFields)
+            snapshot.SelectedProgressFields[kvp.Key] = new List<string>(kvp.Value);
+        foreach (var kvp in _settings.SelectedMetricFields)
+            snapshot.SelectedMetricFields[kvp.Key] = new List<string>(kvp.Value);
+        foreach (var kvp in _settings.ProviderChartOrder)
+            snapshot.ProviderChartOrder[kvp.Key] = new List<CardChartKind>(kvp.Value);
+        // req-098：TaskbarMiniChartConfig 是引用类型，逐项 new 一个独立副本避免快照与 _settings 共享引用。
+        foreach (var kvp in _settings.TaskbarMiniChartConfigs)
+            snapshot.TaskbarMiniChartConfigs[kvp.Key] = new Models.TaskbarMiniChartConfig
+            {
+                IsVisible = kvp.Value.IsVisible,
+                ChartKind = kvp.Value.ChartKind,
+                ContentKind = kvp.Value.ContentKind,
+                SecondaryKind = kvp.Value.SecondaryKind,
+                ShowLogo = kvp.Value.ShowLogo
+            };
 
         return snapshot;
     }

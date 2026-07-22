@@ -11,6 +11,10 @@ namespace UsageMonitor.Core.Services;
 /// </summary>
 public static class WebPageParser
 {
+    /// <summary>req-067-002：数字清洗正则（去千分位/空白/百分号/单位后缀）提为 static readonly + Compiled。</summary>
+    private static readonly Regex _numberCleanRegex =
+        new(@"[,\s%次个条]", RegexOptions.Compiled);
+
     /// <summary>提取模式</summary>
     public enum ExtractMode
     {
@@ -71,7 +75,7 @@ public static class WebPageParser
         if (string.IsNullOrWhiteSpace(text)) return null;
 
         // 移除千分位逗号、百分号、单位后缀
-        var cleaned = Regex.Replace(text, @"[,\s%次个条]", "");
+        var cleaned = _numberCleanRegex.Replace(text, "");
         if (decimal.TryParse(cleaned, out var value))
         {
             return value;

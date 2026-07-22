@@ -15,8 +15,8 @@ namespace UsageMonitor.App.Helpers;
 /// </summary>
 public static class ThemeManager
 {
-    private const string DarkSource = "Themes/Dark.xaml";
-    private const string LightSource = "Themes/Light.xaml";
+    // req-099 B3：主题资源 URI 与切换逻辑已下沉到可插拔的 ThemeModule（支持注册第三方主题）。
+    // ThemeManager 保留为兼容门面：维护 ThemeMode 语义 + ThemeChanged 事件，内部委托到 ThemeModule.Default。
 
     /// <summary>
     /// 当前已应用的主题（默认深色）。
@@ -38,36 +38,9 @@ public static class ThemeManager
         // req-064 U6：当前已是目标主题时短路返回，避免重复移除/插入字典导致 UI 闪烁
         if (mode == Current && System.Windows.Application.Current != null) return;
 
-        var app = System.Windows.Application.Current;
-        if (app == null) return;
-
-        var dicts = app.Resources.MergedDictionaries;
-        var targetSource = mode == ThemeMode.Light ? LightSource : DarkSource;
-
-        // 从后往前遍历，移除现存的主题字典（按 Source 是否含 Dark/Light 判定），记录插入位置
-        int insertIndex = -1;
-        for (int i = dicts.Count - 1; i >= 0; i--)
-        {
-            var src = dicts[i].Source?.OriginalString ?? string.Empty;
-            if (src.Contains("Dark.xaml", StringComparison.OrdinalIgnoreCase) ||
-                src.Contains("Light.xaml", StringComparison.OrdinalIgnoreCase))
-            {
-                insertIndex = i;
-                dicts.RemoveAt(i);
-            }
-        }
-
-        var themeDict = new ResourceDictionary
-        {
-            Source = new Uri(targetSource, UriKind.Relative)
-        };
-
-        if (insertIndex >= 0 && insertIndex <= dicts.Count)
-            dicts.Insert(insertIndex, themeDict);
-        else
-            dicts.Add(themeDict);
-
+        // req-099 B3：字典切换逻辑已抽离到可插拔的 ThemeModule；ThemeManager 仅保留 ThemeMode 语义与 ThemeChanged 事件。
         var previous = Current;
+        UsageMonitor.App.Services.Theme.ThemeModule.Default.ApplyTheme(mode == ThemeMode.Light ? "light" : "dark");
         Current = mode;
 
         // 仅在主题实际变化时触发事件（避免 Apply 同主题的副作用）

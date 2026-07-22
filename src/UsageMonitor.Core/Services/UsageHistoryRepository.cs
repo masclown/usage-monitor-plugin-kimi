@@ -189,6 +189,31 @@ CREATE TABLE IF NOT EXISTS usage_refresh_aggregates (
 );
 CREATE INDEX IF NOT EXISTS idx_ura_provider_day
     ON usage_refresh_aggregates(provider_id, refresh_at DESC);
+
+-- req-092: 字段版本表，记录每个字段的最新值（字段级差异持久化）
+CREATE TABLE IF NOT EXISTS usage_field_versions (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    provider_id     TEXT NOT NULL,
+    field_name      TEXT NOT NULL,
+    field_value     TEXT,           -- JSON 序列化后的值
+    value_type      TEXT NOT NULL,  -- string/number/bool/datetime/json
+    updated_at      DATETIME NOT NULL,
+    UNIQUE(provider_id, field_name)
+);
+CREATE INDEX IF NOT EXISTS idx_ufv_provider
+    ON usage_field_versions(provider_id, updated_at DESC);
+
+-- req-092: 字段变更历史表（可选，用于审计）
+CREATE TABLE IF NOT EXISTS usage_field_history (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    provider_id     TEXT NOT NULL,
+    field_name      TEXT NOT NULL,
+    old_value       TEXT,
+    new_value       TEXT,
+    changed_at      DATETIME NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ufh_provider
+    ON usage_field_history(provider_id, changed_at DESC);
 ";
             cmd.ExecuteNonQuery();
             FileLogger.Info("UsageHistoryRepository", "EnsureSchema ok");
@@ -212,6 +237,60 @@ CREATE INDEX IF NOT EXISTS idx_ura_provider_day
         pragma.CommandText = "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;";
         pragma.ExecuteNonQuery();
         return conn;
+    }
+
+    /// <summary>
+    /// req-069 F-16：直接写入百分比值的历史点（不经过 UsageInfo 反推）。
+    /// 与 <see cref="UpsertPoint(UsageInfo)"/> 的区别：本方法直接接受 usagePercent，
+    /// 避免调用方为了写库而构造 dummy UsageInfo（UsedAmount=percent, TotalAmount=100）。
+    /// </summary>
+    /// <param name="providerId">服务商唯一标识</param>
+    /// <param name="usagePercent">已用百分比（0-100）</param>
+    public void UpsertPoint(string providerId, double usagePercent)
+    {
+        if (string.IsNullOrEmpty(providerId)) return;
+
+        try
+        {
+            var percent = Math.Max(0, Math.Min(100, usagePercent));
+            var recordedAt = DateTime.Now;
+            var bucketKey = recordedAt.ToString("yyyyMMddHHmm", CultureInfo.InvariantCulture);
+            var day = recordedAt.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+
+            using var conn = OpenConnection();
+            using var tx = conn.BeginTransaction();
+
+            // 1) 写原始点（同分钟内 INSERT OR REPLACE）
+            using (var cmd = conn.CreateCommand())
+            {
+                cmd.Transaction = tx;
+                cmd.CommandText = @"
+INSERT OR REPLACE INTO usage_points
+    (provider_id, bucket_key, recorded_at, used_percent, used_amount, total_amount,
+     used_tokens, total_tokens, unit, extra_json)
+VALUES
+    ($pid, $bk, $rec, $up, NULL, NULL, NULL, NULL, NULL, NULL);
+";
+                cmd.Parameters.AddWithValue("$pid", providerId);
+                cmd.Parameters.AddWithValue("$bk", bucketKey);
+                cmd.Parameters.AddWithValue("$rec", recordedAt);
+                cmd.Parameters.AddWithValue("$up", percent);
+                cmd.ExecuteNonQuery();
+            }
+
+            // 2) 从 usage_points 重新聚合当天那行
+            UpsertDailyInternal(conn, tx, providerId, day);
+
+            tx.Commit();
+        }
+        catch (Exception ex)
+        {
+            LastError = $"{ex.GetType().Name}: {ex.Message}";
+            FileLogger.Error("UsageHistoryRepository",
+                $"UpsertPoint({providerId}, {usagePercent}) failed", ex);
+            if (ex is SqliteException)
+                TryRecoverFromCorruptedDb(ex);
+        }
     }
 
     /// <summary>
@@ -1003,6 +1082,187 @@ WHERE provider_id = $pid AND day = $day LIMIT 1;
             Unit = reader.IsDBNull(9) ? null : reader.GetString(9),
             ExtraJson = reader.IsDBNull(10) ? null : reader.GetString(10)
         };
+    }
+
+    /// <summary>
+    /// req-092：增量保存字段变更。仅保存有变化的字段，避免重复存储。
+    /// </summary>
+    /// <param name="providerId">服务商唯一标识</param>
+    /// <param name="changes">字段变更列表</param>
+    /// <returns>保存的字段数量</returns>
+    public async Task<int> SaveIncrementalAsync(string providerId, FieldChange[] changes)
+    {
+        if (string.IsNullOrEmpty(providerId) || changes == null || changes.Length == 0)
+            return 0;
+
+        int savedCount = 0;
+        try
+        {
+            await using var conn = OpenConnection();
+            await using var tx = conn.BeginTransaction();
+
+            var now = DateTime.Now;
+
+            foreach (var change in changes)
+            {
+                // 1) 更新字段版本表（INSERT OR REPLACE）
+                await using (var cmd = conn.CreateCommand())
+                {
+                    cmd.Transaction = tx;
+                    cmd.CommandText = @"
+INSERT OR REPLACE INTO usage_field_versions
+    (provider_id, field_name, field_value, value_type, updated_at)
+VALUES
+    ($pid, $fname, $fvalue, $vtype, $now);
+";
+                    cmd.Parameters.AddWithValue("$pid", providerId);
+                    cmd.Parameters.AddWithValue("$fname", change.FieldName);
+                    cmd.Parameters.AddWithValue("$fvalue", (object?)change.NewValue ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("$vtype", change.ValueType);
+                    cmd.Parameters.AddWithValue("$now", now);
+                    await cmd.ExecuteNonQueryAsync();
+                }
+
+                // 2) 记录字段变更历史（用于审计）
+                await using (var cmd = conn.CreateCommand())
+                {
+                    cmd.Transaction = tx;
+                    cmd.CommandText = @"
+INSERT INTO usage_field_history
+    (provider_id, field_name, old_value, new_value, changed_at)
+VALUES
+    ($pid, $fname, $oldval, $newval, $now);
+";
+                    cmd.Parameters.AddWithValue("$pid", providerId);
+                    cmd.Parameters.AddWithValue("$fname", change.FieldName);
+                    cmd.Parameters.AddWithValue("$oldval", (object?)change.OldValue ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("$newval", (object?)change.NewValue ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("$now", now);
+                    await cmd.ExecuteNonQueryAsync();
+                }
+
+                savedCount++;
+            }
+
+            await tx.CommitAsync();
+            FileLogger.Info("UsageHistoryRepository",
+                $"SaveIncrementalAsync({providerId}): saved {savedCount} field changes");
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Error("UsageHistoryRepository",
+                $"SaveIncrementalAsync({providerId}) failed", ex);
+        }
+
+        return savedCount;
+    }
+
+    /// <summary>
+    /// req-092：查询指定 Provider 的所有字段最新值。
+    /// </summary>
+    /// <param name="providerId">服务商唯一标识</param>
+    /// <returns>字段名到最新值的字典</returns>
+    public async Task<Dictionary<string, object>> GetLatestFieldsAsync(string providerId)
+    {
+        var fields = new Dictionary<string, object>();
+        if (string.IsNullOrEmpty(providerId)) return fields;
+
+        try
+        {
+            await using var conn = OpenConnection();
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = @"
+SELECT field_name, field_value, value_type
+FROM usage_field_versions
+WHERE provider_id = $pid
+ORDER BY updated_at DESC;
+";
+            cmd.Parameters.AddWithValue("$pid", providerId);
+
+            await using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                var fieldName = reader.GetString(0);
+                var fieldValue = reader.IsDBNull(1) ? null : reader.GetString(1);
+                var valueType = reader.GetString(2);
+
+                // 根据 value_type 反序列化字段值
+                object? value = fieldValue == null ? null : DeserializeFieldValue(fieldValue, valueType);
+                if (value != null)
+                {
+                    fields[fieldName] = value;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Error("UsageHistoryRepository",
+                $"GetLatestFieldsAsync({providerId}) failed", ex);
+        }
+
+        return fields;
+    }
+
+    /// <summary>
+    /// req-092：根据 value_type 反序列化字段值。
+    /// </summary>
+    private static object? DeserializeFieldValue(string fieldValue, string valueType)
+    {
+        try
+        {
+            return valueType switch
+            {
+                "string" => JsonSerializer.Deserialize<string>(fieldValue),
+                "number" => JsonSerializer.Deserialize<double>(fieldValue),
+                "bool" => JsonSerializer.Deserialize<bool>(fieldValue),
+                "datetime" => JsonSerializer.Deserialize<DateTime>(fieldValue),
+                "json" => JsonSerializer.Deserialize<Dictionary<string, object>>(fieldValue),
+                _ => fieldValue
+            };
+        }
+        catch
+        {
+            return fieldValue;
+        }
+    }
+
+    /// <summary>
+    /// req-092：删除指定 Provider 的所有字段版本数据。
+    /// </summary>
+    /// <param name="providerId">服务商唯一标识</param>
+    public async Task DeleteProviderFieldVersionsAsync(string providerId)
+    {
+        if (string.IsNullOrWhiteSpace(providerId)) return;
+        try
+        {
+            await using var conn = OpenConnection();
+            await using var tx = conn.BeginTransaction();
+
+            int n1, n2;
+            await using (var cmd = conn.CreateCommand())
+            {
+                cmd.Transaction = tx;
+                cmd.CommandText = "DELETE FROM usage_field_versions WHERE provider_id = $id";
+                cmd.Parameters.AddWithValue("$id", providerId);
+                n1 = await cmd.ExecuteNonQueryAsync();
+            }
+            await using (var cmd = conn.CreateCommand())
+            {
+                cmd.Transaction = tx;
+                cmd.CommandText = "DELETE FROM usage_field_history WHERE provider_id = $id";
+                cmd.Parameters.AddWithValue("$id", providerId);
+                n2 = await cmd.ExecuteNonQueryAsync();
+            }
+
+            await tx.CommitAsync();
+            FileLogger.Info("UsageHistoryRepository",
+                $"DeleteProviderFieldVersionsAsync({providerId}): usage_field_versions={n1} 行, usage_field_history={n2} 行");
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Error("UsageHistoryRepository",
+                $"DeleteProviderFieldVersionsAsync({providerId}) failed", ex);
+        }
     }
 
     /// <summary>

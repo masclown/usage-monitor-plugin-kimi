@@ -52,6 +52,40 @@ public sealed class MiniChartDescriptor
     public MiniChartTooltip? Tooltip { get; init; }
 
     /// <summary>
+    /// req-098：主显示内容。决定 <c>MiniChartItemViewModel</c> 从
+    /// <see cref="UsageMonitor.Core.Plugins.IUsageProvider"/> 拉哪种数据填充主区域。
+    /// 默认 <see cref="MiniChartContentKind.PrimaryMetric"/>。
+    /// </summary>
+    public MiniChartContentKind ContentKind { get; init; } = MiniChartContentKind.PrimaryMetric;
+
+    /// <summary>
+    /// req-098：副显示内容（可选）。null 表示不显示副内容。典型用法：
+    /// <c>ContentKind = PrimaryMetric</c> + <c>SecondaryKind = ResetTime</c> → 半圆环图旁附重置倒计时。
+    /// </summary>
+    public MiniChartContentKind? SecondaryKind { get; init; }
+
+    /// <summary>
+    /// req-098：是否显示 Provider Logo。false 时宿主应隐藏图标只显示数字 / 文本。
+    /// 默认 true。
+    /// </summary>
+    public bool ShowLogo { get; init; } = true;
+
+    /// <summary>
+    /// req-098：插件声明的迷你图表 Tooltip 字段列表（<c>ProviderName / DataName / CurrentValue / RefreshCountdown</c>）。
+    /// <para>
+    /// 默认 4 项全开，向后兼容。宿主在 <c>MiniChartItemViewModel.ResolveTooltipTemplate</c>
+    /// 中按此列表从模板字符串剔除未启用字段（未来扩展点，本批次未实现剔除逻辑）。
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<string> ToolTipFields { get; init; } = new[]
+    {
+        "ProviderName",
+        "DataName",
+        "CurrentValue",
+        "RefreshCountdown"
+    };
+
+    /// <summary>
     /// 辅助构造：用最常用字段快速构造一个 Text 类型描述符。
     /// </summary>
     public static MiniChartDescriptor ForText(string providerId, double? usagePercent = null)

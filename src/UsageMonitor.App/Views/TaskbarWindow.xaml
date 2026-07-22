@@ -15,80 +15,33 @@
         TextElement.FontFamily="{DynamicResource AppFontFamily}"
         Cursor="SizeAll">
     <!--
-        拖拽入口走 override OnPreviewMouseXxx 虚方法（与 Stage-14.3 一致），
-        不在 XAML 绑 routed event，因为 override 是 100% 触发的入口，比 XAML 订阅更可靠。
+        req-088 B5：TaskbarWindow 重构为绑定 ITaskbarMiniChartRegistry.GetAll()。
+        拖拽入口走 override OnPreviewMouseXxx 虚方法（与 Stage-14.3 一致）。
+        ⚠️ XAML 资源顺序约定：DataTemplate 必须先于 DataTemplateSelector 声明。
+        WPF 资源按声明顺序解析，Selector 中 {StaticResource X} 是前向引用会抛 XamlParseException。
+        教训见 devdoc/20260721223000_项目开发说明文档-XAML资源顺序踩坑.md
     -->
     <Window.Resources>
-        <!-- 文字模式模板：Logo + DisplayName + 剩余额度 -->
-        <DataTemplate x:Key="TaskbarTextTemplate">
+        <!-- req-088 B5：文字模式模板 -->
+        <DataTemplate x:Key="MiniChartTextTemplate" DataType="{x:Type views:MiniChartItemViewModel}">
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center"
                         Margin="0,0,16,0"
-                        ToolTip="{Binding StatusText, Mode=OneWay}">
-                <Image Source="{Binding IconPath, Mode=OneWay}" Width="14" Height="14"
-                       VerticalAlignment="Center" Margin="0,0,4,0"
-                       RenderOptions.BitmapScalingMode="HighQuality"
-                       Visibility="{Binding IconPath, Converter={StaticResource StringToVisibility}}" />
-                <TextBlock FontSize="12" FontWeight="SemiBold"
+                        ToolTip="{Binding TooltipTitle, Mode=OneWay}"
+                        ToolTipService.InitialShowDelay="{Binding TooltipShowDelayMs}">
+                <TextBlock Text="{Binding ProviderId, Mode=OneWay}" FontSize="12" FontWeight="SemiBold"
                            Foreground="{DynamicResource TextPrimaryBrush}"
-                           VerticalAlignment="Center">
-                    <Run Text="{Binding DisplayName, Mode=OneWay}" />
-                </TextBlock>
+                           VerticalAlignment="Center" Margin="0,0,4,0" />
                 <TextBlock FontSize="12" Foreground="{DynamicResource AccentBrush}"
-                           VerticalAlignment="Center" Margin="4,0,0,0">
-                    <!-- 任务栏文字模式显示"剩余"百分比，加前缀避免与已用%混淆 -->
-                    <Run Text="{Binding RemainingText, Mode=OneWay, Converter={StaticResource RemainingPrefix}}" />
-                </TextBlock>
+                           VerticalAlignment="Center"
+                           Text="{Binding UsagePercent, Mode=OneWay, StringFormat={}{0:F0}%}" />
             </StackPanel>
         </DataTemplate>
 
-        <!-- 折线图模式模板：上方文字 + 下方迷你折线图 -->
-        <DataTemplate x:Key="TaskbarLineChartTemplate">
-            <Grid Width="120" Height="44" Margin="0,0,12,0" VerticalAlignment="Center"
-                  ToolTip="{Binding StatusText, Mode=OneWay}">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="*" />
-                    <RowDefinition Height="22" />
-                </Grid.RowDefinitions>
-                <DockPanel Grid.Row="0" LastChildFill="False" VerticalAlignment="Center">
-                    <Image Source="{Binding IconPath, Mode=OneWay}" Width="12" Height="12"
-                           VerticalAlignment="Center" Margin="0,0,4,0"
-                           RenderOptions.BitmapScalingMode="HighQuality"
-                           Visibility="{Binding IconPath, Converter={StaticResource StringToVisibility}}"
-                           DockPanel.Dock="Left" />
-                    <!-- req-079 U-32：字号统一至 12pt -->
-                    <TextBlock FontSize="12" FontWeight="SemiBold"
-                               Foreground="{DynamicResource TextPrimaryBrush}"
-                               DockPanel.Dock="Left" VerticalAlignment="Center">
-                        <Run Text="{Binding DisplayName, Mode=OneWay}" />
-                    </TextBlock>
-                    <TextBlock FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}"
-                               DockPanel.Dock="Right" VerticalAlignment="Center" Margin="6,0,0,0"
-                               Text="{Binding UsagePercentage, Mode=OneWay, StringFormat={}{0:F0}%}" />
-                </DockPanel>
-                <controls:MiniLineChartControl Grid.Row="1"
-                                                Values="{Binding HistoryValues, Mode=OneWay}"
-                                                StrokeThickness="1.6"
-                                                LowBrush="{DynamicResource UsageLowBrush}"
-                                                MidBrush="{DynamicResource UsageMidBrush}"
-                                                HighBrush="{DynamicResource UsageHighBrush}" />
-            </Grid>
-        </DataTemplate>
-
-        <!-- 圆环图模式模板：req-051 重构 - 半圆环样式。req-079 U-31：尺寸 38→44px -->
-        <!-- req-051-001：不传 IconPath 给 RingChartControl，让 logo 不渲染（数字独占圆心位置） -->
-        <!-- req-051-005：圆环图高度 44 → 38（更紧凑） -->
-        <DataTemplate x:Key="TaskbarRingChartTemplate">
-            <Grid Width="38" Height="38" Margin="0,0,6,0"
-                  Background="Transparent"
-                  ToolTip="{Binding TaskbarToolTipText, Mode=OneWay}"
-                  ToolTipService.Placement="Top"
-                  ToolTipService.VerticalOffset="-8"
-                  ToolTipService.HorizontalOffset="0"
-                  PreviewMouseWheel="OnRingChartPreviewMouseWheel">
-                <!-- 半圆环图（0% 在 8 点钟，100% 在 4 点钟），中心数字点击可刷新，禁用内置 tooltip -->
-                <!-- req-051-002：刷新按钮移到圆环正中（hover 时显示，覆盖数字）—— 通过 RingChartControl.CenterClick 已实现（点击中心即可触发刷新） -->
+        <!-- req-088 B5：圆环图模式模板 -->
+        <DataTemplate x:Key="MiniChartRingChartTemplate" DataType="{x:Type views:MiniChartItemViewModel}">
+            <Grid Width="38" Height="38" Margin="0,0,6,0" Background="Transparent">
                 <controls:RingChartControl Width="38" Height="38"
-                                            Percent="{Binding UsagePercentage, Mode=OneWay}"
+                                            Percent="{Binding UsagePercent, Mode=OneWay}"
                                             Size="38" StrokeThickness="3.5"
                                             TrackBrush="{DynamicResource TrackBrush}"
                                             ProgressBrush="{DynamicResource AccentBrush}"
@@ -96,44 +49,75 @@
                                             DangerBrush="{DynamicResource DangerBrush}"
                                             HorizontalAlignment="Center"
                                             VerticalAlignment="Top"
-                                            Margin="0,0,0,0"
                                             IsHalfRing="True"
                                             ShowHoverTooltip="False"
-                                            EnabledMetrics="{Binding EnabledRingChartMetrics}"
-                                            Tag="{Binding ProviderId}"
-                                            CenterClick="OnRingChartCenterClick"
-                                            MetricKeyChanged="OnRingChartMetricKeyChanged" />
+                                            Tag="{Binding ProviderId, Mode=OneWay}"
+                                            ToolTip="{Binding TooltipTitle, Mode=OneWay}"
+                                            ToolTipService.Placement="Top"
+                                            ToolTipService.VerticalOffset="-8"
+                                            ToolTipService.InitialShowDelay="{Binding TooltipShowDelayMs}" />
             </Grid>
         </DataTemplate>
 
-        <!-- req-079 U-33：加载骨架屏模板（刷新中显示） -->
-        <DataTemplate x:Key="TaskbarLoadingTemplate">
-            <Border Width="80" Height="36" Margin="0,0,8,0">
-                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                    <Border Width="14" Height="14" CornerRadius="3" Margin="0,0,6,0"
-                            Background="{DynamicResource TrackBrush}" />
-                    <Border Width="40" Height="8" CornerRadius="4"
-                            Background="{DynamicResource TrackBrush}" />
-                </StackPanel>
+        <!-- req-088 B5：折线图模式模板 -->
+        <DataTemplate x:Key="MiniChartLineChartTemplate" DataType="{x:Type views:MiniChartItemViewModel}">
+            <controls:MiniLineChartControl Width="120" Height="22"
+                                            Values="{Binding UsageVm.HistoryValues, Mode=OneWay}"
+                                            StrokeThickness="1.6"
+                                            LowBrush="{DynamicResource UsageLowBrush}"
+                                            MidBrush="{DynamicResource UsageMidBrush}"
+                                            HighBrush="{DynamicResource UsageHighBrush}"
+                                            ToolTip="{Binding TooltipTitle, Mode=OneWay}"
+                                            ToolTipService.InitialShowDelay="{Binding TooltipShowDelayMs}" />
+        </DataTemplate>
+
+        <!-- req-088 B5：柱状图模式模板（占位） -->
+        <DataTemplate x:Key="MiniChartBarChartTemplate" DataType="{x:Type views:MiniChartItemViewModel}">
+            <Border Width="80" Height="22" Margin="0,0,8,0"
+                    Background="{DynamicResource TrackBrush}" CornerRadius="3"
+                    ToolTip="MiniBarChart 占位（待 BarChartControl 接入）">
+                <TextBlock Text="▌▌▌" FontSize="10" Foreground="{DynamicResource TextSecondaryBrush}"
+                           HorizontalAlignment="Center" VerticalAlignment="Center" />
             </Border>
         </DataTemplate>
 
-        <!-- 模板选择器，绑定到上面三种模板 -->
-        <views:TaskbarItemTemplateSelector x:Key="TaskbarItemTemplateSelector"
-                                            TextTemplate="{StaticResource TaskbarTextTemplate}"
-                                            LineChartTemplate="{StaticResource TaskbarLineChartTemplate}"
-                                            RingChartTemplate="{StaticResource TaskbarRingChartTemplate}" />
+        <!-- req-088 B5：热力图模式模板（占位） -->
+        <DataTemplate x:Key="MiniChartHeatMapTemplate" DataType="{x:Type views:MiniChartItemViewModel}">
+            <Border Width="120" Height="22" Margin="0,0,8,0"
+                    Background="{DynamicResource TrackBrush}" CornerRadius="3"
+                    ToolTip="MiniHeatMap 占位（待 YearHeatMapControl 接入）">
+                <TextBlock Text="▦▦▦" FontSize="10" Foreground="{DynamicResource TextSecondaryBrush}"
+                           HorizontalAlignment="Center" VerticalAlignment="Center" />
+            </Border>
+        </DataTemplate>
+
+        <!--
+            ⚠️ req-088 B5：DataTemplateSelector 必须声明在所有 DataTemplate 之后！
+            上面 5 个 DataTemplate 注册到 Window.Resources 后，Selector 才能用 {StaticResource X} 找到它们。
+        -->
+        <views:MiniChartTemplateSelector x:Key="MiniChartTemplateSelector"
+                                         TextTemplate="{StaticResource MiniChartTextTemplate}"
+                                         RingChartTemplate="{StaticResource MiniChartRingChartTemplate}"
+                                         LineChartTemplate="{StaticResource MiniChartLineChartTemplate}"
+                                         BarChartTemplate="{StaticResource MiniChartBarChartTemplate}"
+                                         HeatMapTemplate="{StaticResource MiniChartHeatMapTemplate}" />
     </Window.Resources>
 
     <Border Background="{DynamicResource OverlayBackgroundBrush}" CornerRadius="8" Padding="12,6" Margin="2"
             BorderBrush="{DynamicResource OverlayBorderBrush}" BorderThickness="1"
             x:Name="RootBorder">
         <Grid>
+            <!--
+                req-088 B5/B6：ItemsControl 绑定 VisibleMiniCharts（来自 ITaskbarMiniChartRegistry），
+                通过 MiniChartTemplateSelector 按 Kind 选模板。
+                req-088 B8：当 CycleConfig.Enabled=true 时，由 TaskbarCycleService 控制可见子集；
+                当前默认全可见（不滚动）。
+            -->
             <ScrollViewer HorizontalScrollBarVisibility="Auto"
                           VerticalScrollBarVisibility="Disabled"
                           Padding="0">
-                <ItemsControl ItemsSource="{Binding EnabledUsages, Mode=OneWay}"
-                              ItemTemplateSelector="{StaticResource TaskbarItemTemplateSelector}">
+                <ItemsControl ItemsSource="{Binding VisibleMiniCharts, Mode=OneWay}"
+                              ItemTemplateSelector="{StaticResource MiniChartTemplateSelector}">
                     <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate>
                             <StackPanel Orientation="Horizontal" VerticalAlignment="Center" />

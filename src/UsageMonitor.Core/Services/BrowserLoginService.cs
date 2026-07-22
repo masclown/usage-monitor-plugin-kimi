@@ -99,6 +99,38 @@ public class BrowserLoginService
 
             _configService.UpdateProviderConfig(config.ProviderId, cfg);
 
+            // req-fix-Kimi-GetLoginState-AutoDetectMode: dual-mode plugin (KimiDualModeProvider)
+            // main ProviderId (e.g. kimi) differs from Web-mode internal ProviderId (e.g. kimi_web).
+            // Above already wrote Cookie to kimi_web's config, KimiDualModeProvider.GetUsageAsync
+            // can read it via _webProvider. But KimiDualModeProvider.GetUsageAsync's config
+            // is the main ProviderId (kimi) config -- can't read Cookie field directly.
+            // Here also mirror Cookie to main provider's config, and set QueryMode=web,
+            // so KimiDualModeProvider.GetUsageAsync auto-picks Web mode, avoiding "API Key missing" error.
+            // Only try when ProviderId contains underscore (kimi_web / deepseek_web etc dual-mode internal mode).
+            int underscoreIdx = config.ProviderId.IndexOf('_');
+            if (underscoreIdx > 0)
+            {
+                try
+                {
+                    var mainProviderId = config.ProviderId.Substring(0, underscoreIdx);
+                    var mainCfg = _configService.GetProviderConfig(mainProviderId);
+                    mainCfg.SetValue("Cookie", data.Cookie);
+                    mainCfg.SetValue("_userAgent", data.UserAgent);
+                    if (string.IsNullOrEmpty(mainCfg.GetValue("Region")))
+                        mainCfg.SetValue("Region", "CN");
+                    if (string.IsNullOrEmpty(mainCfg.GetValue("QueryMode")))
+                        mainCfg.SetValue("QueryMode", "web");
+                    _configService.UpdateProviderConfig(mainProviderId, mainCfg);
+                    FileLogger.Info("BrowserLoginService",
+                        $"Mirrored Cookie to dual-mode main provider={mainProviderId} (mode=web)");
+                }
+                catch (Exception mirrorEx)
+                {
+                    FileLogger.Warn("BrowserLoginService",
+                        $"Mirror Cookie to main provider failed: {mirrorEx.Message}");
+                }
+            }
+
             if (!string.IsNullOrEmpty(_configService.LastSaveError))
                 FileLogger.Warn("BrowserLoginService",
                     $"UpdateProviderConfig 报告保存错误：{_configService.LastSaveError}");

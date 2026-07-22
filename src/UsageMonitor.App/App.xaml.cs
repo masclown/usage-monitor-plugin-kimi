@@ -36,7 +36,7 @@ public partial class App : Application
     private PluginManager _pluginManager = null!;
     private ConfigService _configService = null!;
     private RefreshService _refreshService = null!;
-    private UsageHistoryStore _historyStore = null!;
+    private UsageMonitor.Core.Services.Data.DataModule _dataModule = null!;
     private UsageHistoryRepository _historyRepository = null!;
     private MainViewModel _viewModel = null!;
     private MainWindow? _mainWindow;
@@ -95,6 +95,8 @@ public partial class App : Application
         // 当前 I18n 已默认 zh-CN，这里主要是为了在日志中留下一条可观察的初始化记录）。
         I18n.SetLanguage(I18n.DefaultLanguage);
         FileLogger.Info("App", $"I18n initialized: language='{I18n.CurrentLanguage}'");
+        // req-069 F-13：注册 App UI 文案（zh-CN 现用 + en-US 预留），供 SettingsWindow 等 {helpers:Loc} 取值。
+        UsageMonitor.App.Helpers.AppUiStrings.Register();
 
         // 初始化核心服务
         _configService = new ConfigService();
@@ -205,9 +207,9 @@ public partial class App : Application
             FileLogger.Error("App", "req-021 historical token=0 cleanup scheduling failed", ex);
         }
 
-        // 创建历史数据存储，并同位启用持久化：刷新时 AddPoint 会 fire-and-forget 写 SQL
-        _historyStore = new UsageHistoryStore(_historyRepository);
-        _historyStore.MaxPoints = Math.Max(1, _configService.Settings.HistoryPointCount);
+        // req-099 B2：创建数据模块（内部封装 UsageHistoryStore + Repository）。刷新时 SaveUsage 会 fire-and-forget 写 SQL。
+        _dataModule = new UsageMonitor.Core.Services.Data.DataModule(_historyRepository);
+        _dataModule.MaxPoints = Math.Max(1, _configService.Settings.HistoryPointCount);
 
         // req-091：创建登录会话历史仓库（JSONL 持久化）。
         // 每个 Provider 启动时自动迁移老 Cookie 文件为首段，赋值给 ProviderUsageViewModel.SessionDurationDays。
@@ -220,23 +222,24 @@ public partial class App : Application
         {
             var providerIds = _pluginManager.Plugins.Select(p => p.Provider.ProviderId).ToList();
             var historyPoints = Math.Max(1, _configService.Settings.HistoryPointCount);
-            // LoadFromRepositoryAsync 是 async；这里启动任务即可，后续 _historyStore.HistoryChanged 会触发 UI 重绘
-            _ = _historyStore.LoadFromRepositoryAsync(_historyRepository, providerIds, historyPoints);
+            // LoadPersistedHistoryAsync 是 async；这里启动任务即可，后续 HistoryChanged 会触发 UI 重绘
+            _ = _dataModule.LoadPersistedHistoryAsync(providerIds, historyPoints);
         }
         catch (Exception ex)
         {
             FileLogger.Error("App", "Initial LoadFromRepositoryAsync failed", ex);
         }
 
-        _refreshService = new RefreshService(_pluginManager, _configService, _historyStore, _historyRepository);
+        _refreshService = new RefreshService(_pluginManager, _configService, _dataModule);
 
         // req-088 B6：创建 Taskbar 迷你图注册中心单例 + 注册 4 个内置 Provider。
+        // req-098：注入 ConfigService，按用户 TaskbarMiniChartConfigs 过滤 / 覆盖默认 descriptor。
         // 后续可在 TaskbarWindow 渲染层用 ITaskbarMiniChartRegistry.GetAll() 替换硬编码 VM 列表。
         _miniChartRegistry = new TaskbarMiniChartRegistry();
-        MiniChartRegistryBootstrapper.RegisterBuiltins(_miniChartRegistry);
+        MiniChartRegistryBootstrapper.RegisterBuiltins(_miniChartRegistry, _pluginManager, _configService);
 
         // 创建ViewModel
-        _viewModel = new MainViewModel(_pluginManager, _configService, _refreshService, _historyStore);
+        _viewModel = new MainViewModel(_pluginManager, _configService, _refreshService, _dataModule);
         // req-091-005：注入 App 引用，供卡片 ReLoginCommand 回调触发重新登录
         _viewModel.HostApp = this;
 
@@ -338,7 +341,7 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// 注册内置插件（Deepseek、MiMo、OpenAI、MiniMax、Kimi、Qoder）
+    /// 注册内置插件（Deepseek、MiMo、MiniMax、Kimi、Qoder）
     /// req-084：Deepseek 使用双模式插件（API + 网页）
     /// req-085：Kimi 使用双模式插件（API + 网页）
     /// req-087：Qoder 使用纯网页模式插件
@@ -347,7 +350,6 @@ public partial class App : Application
     {
         _pluginManager.RegisterPlugin(new Plugin.Deepseek.DeepseekDualModeProvider());
         _pluginManager.RegisterPlugin(new Plugin.MiMo.MiMoProvider());
-        _pluginManager.RegisterPlugin(new Plugin.OpenAI.OpenAIProvider());
         _pluginManager.RegisterPlugin(new Plugin.MiniMax.MiniMaxProvider());
         _pluginManager.RegisterPlugin(new Plugin.Kimi.KimiDualModeProvider());
         _pluginManager.RegisterPlugin(new Plugin.Qoder.QoderProvider());
@@ -457,7 +459,7 @@ public partial class App : Application
     ///   <item><description>拒绝处理：下次继续提醒（不记录"已忽略"状态）</description></item>
     /// </list>
     /// </summary>
-    private void OnRefreshServiceFailed(object? sender, RefreshService.RefreshFailedEventArgs e)
+    private void OnRefreshServiceFailed(object? sender, RefreshFailedEventArgs e)
     {
         if (e.FailureKind != FailureKind.LoginExpired) return;
 
@@ -509,7 +511,7 @@ public partial class App : Application
     /// 避免在 App 层重复实现一遍 BrowserLoginService 调用。
     /// </para>
     /// </summary>
-    public async void TriggerReLogin(string providerId)
+    public async void TriggerReLogin(string providerId, bool isAutomatic = true)
     {
         try
         {
@@ -537,6 +539,25 @@ public partial class App : Application
             {
                 // 用户完成登录并保存 → 立即触发一次刷新验证
                 FileLogger.Info("App", $"[req-091] Re-login succeeded for {providerId}, triggering refresh");
+
+                // req-091-004：归档当前活跃段并开启新活跃段（持续天数重新起算，历史段保留）
+                // 触发源：自动弹窗路径 → AutoRelogin；手动按钮路径 → ManualRelogin
+                var triggerSource = isAutomatic
+                    ? LoginSessionTriggers.AutoRelogin
+                    : LoginSessionTriggers.ManualRelogin;
+                try
+                {
+                    _loginSessionStore.ArchiveAndStartNew(providerId, triggerSource);
+                    FileLogger.Info("App",
+                        $"[req-091] ArchiveAndStartNew({providerId}) trigger={triggerSource}");
+                }
+                catch (Exception archiveEx)
+                {
+                    // 归档失败不影响主流程（刷新仍然继续），仅记录日志
+                    FileLogger.Warn("App",
+                        $"[req-091] ArchiveAndStartNew({providerId}) failed: {archiveEx.Message}");
+                }
+
                 await _refreshService.RefreshProviderAsync(providerId);
             }
         }
@@ -784,7 +805,8 @@ public partial class App : Application
         if (!_configService.Settings.ShowInTaskbar) return;
 
         _taskbarHelper = new Helpers.TaskbarHelper();
-        _taskbarWindow = new Views.TaskbarWindow(_viewModel, _configService, _taskbarHelper, _refreshService);
+        // req-088 B5：传入 ITaskbarMiniChartRegistry 让 TaskbarWindow 从注册中心拉取迷你图列表
+        _taskbarWindow = new Views.TaskbarWindow(_viewModel, _configService, _taskbarHelper, _refreshService, _miniChartRegistry);
         _taskbarWindow.EmbedIntoTaskbar();
         AttachTaskbarWindowResizeHandlers();
         FileLogger.Info("App", "TaskbarWindow 已创建并嵌入任务栏");

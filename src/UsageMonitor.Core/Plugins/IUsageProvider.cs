@@ -1,5 +1,6 @@
 using System.Threading;
 using UsageMonitor.Core.Models;
+using UsageMonitor.Core.Services.Auth;
 
 namespace UsageMonitor.Core.Plugins;
 
@@ -44,8 +45,76 @@ public interface IUsageProvider
     /// 设计参考：销项数据助手项目的 <c>browser-cookie-manager</c> Skill 采用的通用 Cookie
     /// 获取方案；本项目在此基础上用 Edge + CDP 替代 Playwright，降低外部依赖。
     /// </para>
+    /// <para>
+    /// req-096：此属性已被 <see cref="SupportedAuthKinds"/> 取代，保留仅为向后兼容。
+    /// 新插件应实现 <see cref="SupportedAuthKinds"/> 而非此属性。
+    /// </para>
     /// </summary>
+    [Obsolete("请使用 SupportedAuthKinds 属性声明鉴权方式，此属性将在未来版本移除")]
     Models.BrowserLoginConfig? LoginConfig => null;
+
+    /// <summary>
+    /// 插件支持的鉴权方式列表（req-096）。
+    /// <para>
+    /// 默认实现根据 <see cref="LoginConfig"/> 推断：LoginConfig != null → Cookie，否则 → ApiKey。
+    /// 插件可覆盖此属性以明确声明支持的鉴权方式，例如同时支持 ApiKey 和 Cookie 的插件
+    /// 可返回 <c>new[] { AuthKind.ApiKey, AuthKind.Cookie }</c>。
+    /// </para>
+    /// <para>
+    /// AuthManager 会根据此声明自动选择鉴权方式，统一管理鉴权数据的获取、验证、刷新。
+    /// </para>
+    /// </summary>
+    IReadOnlyList<AuthKind> SupportedAuthKinds => LoginConfig != null
+        ? new[] { AuthKind.Cookie }
+        : new[] { AuthKind.ApiKey };
+
+    /// <summary>
+    /// 插件运行模式（req-101）。
+    /// <para>
+    /// 默认返回 <see cref="ProviderMode.Api"/>（API 模式，按量付费，显示余额）。
+    /// Token Plan 模式的插件（如 MiniMax）应覆盖此属性返回 <see cref="ProviderMode.TokenPlan"/>。
+    /// </para>
+    /// <para>
+    /// 卡片根据此模式显示不同 UI：API 模式显示余额，Token Plan 模式显示订阅档位。
+    /// </para>
+    /// </summary>
+    Models.ProviderMode Mode => Models.ProviderMode.Api;
+
+    /// <summary>
+    /// 订阅档位字段名（req-101，Token Plan 模式专用）。
+    /// <para>
+    /// Token Plan 模式下，插件声明订阅档位名称从 UsageInfo 的哪个字段获取。
+    /// 例如 MiniMax 可返回 <c>"SubscriptionTier"</c>，卡片将从 <c>UsageInfo.Extra["SubscriptionTier"]</c> 读取档位名称。
+    /// </para>
+    /// <para>
+    /// API 模式无需实现此属性（返回 null 即可）。
+    /// </para>
+    /// </summary>
+    string? SubscriptionTierField => null;
+
+    /// <summary>
+    /// 插件刷新策略（req-102）。
+    /// <para>
+    /// 默认返回 null，表示使用全局刷新间隔（AppSettings.RefreshIntervalSeconds）。
+    /// 插件可覆盖此属性以声明自己的刷新策略，例如 MiniMax 的 5h 限额需要频繁刷新。
+    /// </para>
+    /// <para>
+    /// RefreshService 会按插件声明的策略执行刷新，用户设置的刷新间隔会被限制在策略范围内。
+    /// </para>
+    /// </summary>
+    Models.RefreshPolicy? RefreshPolicy => null;
+
+    /// <summary>
+    /// 卡片字段映射关系（req-100）。
+    /// <para>
+    /// 默认返回 null，表示使用默认字段名（UsedAmount / TotalAmount / UsagePercent 等）。
+    /// 插件可覆盖此属性以声明自己的字段映射关系，例如 MiniMax 使用 UsedTokens / TotalTokens。
+    /// </para>
+    /// <para>
+    /// 卡片按映射关系从 UsageInfo 中取数，不硬编码字段名，实现泛化取数。
+    /// </para>
+    /// </summary>
+    Models.FieldMapping? CardFieldMapping => null;
 
     /// <summary>
     /// 插件声明的默认渲染能力集合（在首次加载、未收到任何刷新数据前生效）。
@@ -176,6 +245,57 @@ public interface IUsageProvider
     /// </para>
     /// </summary>
     IReadOnlyList<string>? ExtraTooltipLines => null;
+    
+        /// <summary>
+        /// req-105：插件声明迷你图表（Taskbar / 卡片浮窗）Tooltip 应显示的字段列表。
+        /// <para>
+        /// 支持的字段名（由宿主 <c>MiniChartItemViewModel</c> 解析）：
+        /// <list type="bullet">
+        ///   <item><description><c>ProviderName</c>：插件显示名（<see cref="DisplayName"/>）。</description></item>
+        ///   <item><description><c>DataName</c>：当前数据指标名（如 "5h 用量"）。</description></item>
+        ///   <item><description><c>CurrentValue</c>：当前值（文本形式）。</description></item>
+        ///   <item><description><c>RefreshCountdown</c>：下一次刷新倒计时（如 "重置倒计时：2 小时 21 分钟"）。</description></item>
+        /// </list>
+        /// </para>
+        /// <para>
+        /// 默认实现为全部 4 项全开——保证现有插件开箱即用，宿主把未启用的字段从模板字符串中剔除。
+        /// 返回空集合表示该插件不提供任何 Tooltip 字段（宿主走纯标题模式）。
+        /// </para>
+        /// </summary>
+        IReadOnlyList<string> ToolTipFields => new[]
+        {
+            "ProviderName",
+            "DataName",
+            "CurrentValue",
+            "RefreshCountdown"
+        };
+
+    /// <summary>
+    /// req-098：插件声明支持的迷你图表类型（<see cref="Plugins.MiniChart.MiniChartKind"/>）。
+    /// <para>
+    /// 默认返回 <c>[MiniRingChart, MiniText]</c>。有额外能力的插件可重写返回更丰富的集合。
+    /// 返回空集合表示该插件不参与任务栏迷你图。
+    /// </para>
+    /// </summary>
+    IReadOnlyList<Plugins.MiniChart.MiniChartKind> SupportedMiniCharts => new[]
+    {
+        Plugins.MiniChart.MiniChartKind.MiniRingChart,
+        Plugins.MiniChart.MiniChartKind.MiniText
+    };
+
+    /// <summary>
+    /// req-098：插件能为迷你图提供的数据类型（<see cref="Plugins.MiniChart.MiniChartContentKind"/>）。
+    /// <para>
+    /// 默认返回 3 项基本内容（主指标 / Credits / 重置时间）。
+    /// 设置页"任务栏迷你图表"配置 UI 按此集合生成下拉选项。
+    /// </para>
+    /// </summary>
+    IReadOnlyList<Plugins.MiniChart.MiniChartContentKind> MiniChartDataTypes => new[]
+    {
+        Plugins.MiniChart.MiniChartContentKind.PrimaryMetric,
+        Plugins.MiniChart.MiniChartContentKind.Credits,
+        Plugins.MiniChart.MiniChartContentKind.ResetTime
+    };
 
     /// <summary>
     /// 控件触发周期切换时由宿主调用，让插件按新周期重算数据。
@@ -240,4 +360,19 @@ public interface IUsageProvider
     /// <param name="dataIndex">当前 hover 的数据点索引（0..N-1）。</param>
     /// <returns>该索引对应的 TooltipContent。</returns>
     System.Func<int, Models.TooltipContent>? LineTooltipProvider => null;
+
+    /// <summary>
+    /// req-092：将插件原始数据映射为标准字段名字典。
+    /// <para>
+    /// 默认实现返回 null，表示使用 <see cref="UsageDataDiffService.ExtractStandardFields"/> 自动提取。
+    /// 插件可覆盖此方法以自定义字段映射逻辑，例如 MiniMax 将网页 DOM 数据映射为标准字段。
+    /// </para>
+    /// <para>
+    /// 标准字段名定义在 <see cref="Models.UsageFields"/> 常量类中，插件应使用这些常量作为字典 key。
+    /// 差异检测引擎按标准字段名进行字段级对比，仅保存有变化的字段。
+    /// </para>
+    /// </summary>
+    /// <param name="usage">插件返回的用量信息对象</param>
+    /// <returns>标准字段名字典，key 为标准字段名（UsageFields 常量），value 为字段值</returns>
+    IReadOnlyDictionary<string, object>? MapToStandardFields(UsageInfo usage) => null;
 }

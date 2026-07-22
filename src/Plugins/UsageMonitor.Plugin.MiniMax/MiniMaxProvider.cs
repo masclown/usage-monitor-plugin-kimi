@@ -172,6 +172,27 @@ public class MiniMaxProvider : WebPluginBase
     /// </para>
     /// </summary>
     public override IReadOnlyList<UsageMonitor.Core.Models.BalanceItem> BalanceItems => System.Array.Empty<UsageMonitor.Core.Models.BalanceItem>();
+    
+        /// <summary>
+        /// req-098：MiniMax 任务栏迷你图声明：支持半圆环 + 文字 + 折线（每日用量趋势）。
+        /// <para>MiniMax 的 dailyTokenValues 可直接驱动 MiniLineChartControl，无需 DOM 字段映射。</para>
+        /// </summary>
+        public override IReadOnlyList<UsageMonitor.Core.Plugins.MiniChart.MiniChartKind> SupportedMiniCharts => new[]
+        {
+            UsageMonitor.Core.Plugins.MiniChart.MiniChartKind.MiniRingChart,
+            UsageMonitor.Core.Plugins.MiniChart.MiniChartKind.MiniText,
+            UsageMonitor.Core.Plugins.MiniChart.MiniChartKind.MiniLineChart
+        };
+    
+        /// <summary>
+        /// req-098：MiniMax 任务栏迷你图内容类型：主指标（已用百分比）/ Credits（积分余额） / ResetTime（5h 重置）。
+        /// </summary>
+        public override IReadOnlyList<UsageMonitor.Core.Plugins.MiniChart.MiniChartContentKind> MiniChartDataTypes => new[]
+        {
+            UsageMonitor.Core.Plugins.MiniChart.MiniChartContentKind.PrimaryMetric,
+            UsageMonitor.Core.Plugins.MiniChart.MiniChartContentKind.Credits,
+            UsageMonitor.Core.Plugins.MiniChart.MiniChartContentKind.ResetTime
+        };
 
     // ============== REQ-083 SDK v2 新增可选属性 ==============
 
@@ -634,6 +655,8 @@ public class MiniMaxProvider : WebPluginBase
             .ToArray();
 
         usageInfo.Extra = extras;
+        // req-005-011：构建末尾统一补写强类型 Quantity（由 UsedAmount+Unit 派生，零回归）。
+        usageInfo.PopulateQuantityFromLegacy();
         return usageInfo;
     }
 
@@ -650,6 +673,11 @@ public class MiniMaxProvider : WebPluginBase
     /// <summary>ProviderId static accessor (used by internal BuildUsageInfo)</summary>
     private static string ProviderIdStatic => "MiniMax";
 
+    /// <summary>req-067-002：错误脱敏正则提为 static readonly + Compiled，避免每次错误处理重新编译。</summary>
+    private static readonly System.Text.RegularExpressions.Regex _secretSanitizeRegex =
+        new(@"(api[_-]?key|authorization|token|secret)[""':\s=]+\S+",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
+
     /// <summary>
     /// req-086-3.2：从 HttpUsageProviderBase 迁移过来的错误响应体脱敏方法。
     /// 移除敏感信息并截断到指定长度。
@@ -658,11 +686,7 @@ public class MiniMaxProvider : WebPluginBase
     {
         if (string.IsNullOrEmpty(body)) return string.Empty;
         // 脱敏常见敏感模式
-        var sanitized = System.Text.RegularExpressions.Regex.Replace(
-            body,
-            @"(api[_-]?key|authorization|token|secret)[""':\s=]+\S+",
-            "$1=***REDACTED***",
-            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        var sanitized = _secretSanitizeRegex.Replace(body, "$1=***REDACTED***");
         return sanitized.Length <= maxLen ? sanitized : sanitized.Substring(0, maxLen) + "...";
     }
 

@@ -21,6 +21,13 @@ public class DeepseekWebProvider : WebPluginBase
         Timeout = TimeSpan.FromSeconds(30)
     };
 
+    /// <summary>req-060-004：反序列化选项提为 static readonly，避免每次 API 调用重建（JsonSerializerOptions 构造开销大且内部有缓存）。</summary>
+    private static readonly JsonSerializerOptions _jsonOptions = new() { PropertyNameCaseInsensitive = true };
+
+    /// <summary>req-067-002：余额数字正则提为 static readonly + Compiled，避免每次 DOM 兜底解析重新编译。</summary>
+    private static readonly System.Text.RegularExpressions.Regex _balanceRegex =
+        new(@"[\d,]+\.?\d*", System.Text.RegularExpressions.RegexOptions.Compiled);
+
     /// <inheritdoc />
     protected override HttpClient Http => _httpClient;
 
@@ -58,9 +65,14 @@ public class DeepseekWebProvider : WebPluginBase
     };
 
     /// <inheritdoc />
+    /// <remarks>
+    /// req-099/bug5：移除 HeatMap。DeepSeek 网页数据仅有余额/额度快照（V2 数字网格），
+    /// 没有「逐日 Token 日历」数据源，热力图选项会永远空白，属于图表能力误声明；
+    /// 折线图/柱状/环形可由历史用量百分比或额度比驱动，故保留。
+    /// </remarks>
     public override IReadOnlyList<CardChartKind> SupportedCardCharts => new[]
     {
-        CardChartKind.Line, CardChartKind.Bar, CardChartKind.Ring, CardChartKind.HeatMap
+        CardChartKind.Line, CardChartKind.Bar, CardChartKind.Ring
     };
 
     /// <inheritdoc />
@@ -73,6 +85,39 @@ public class DeepseekWebProvider : WebPluginBase
         new BalanceItem { Label = "赠送余额", Value = "--", Detail = null },
         new BalanceItem { Label = "充值余额", Value = "--", Detail = null }
     };
+
+    /// <summary>
+    /// req-098：DeepSeek 网页模式任务栏迷你图声明：半圆环 + 文字（基础两件套）。
+    /// </summary>
+    public override IReadOnlyList<UsageMonitor.Core.Plugins.MiniChart.MiniChartKind> SupportedMiniCharts => new[]
+    {
+        UsageMonitor.Core.Plugins.MiniChart.MiniChartKind.MiniRingChart,
+        UsageMonitor.Core.Plugins.MiniChart.MiniChartKind.MiniText
+    };
+
+    /// <summary>
+    /// req-098：DeepSeek 网页模式任务栏迷你图内容：主指标（已用百分比）+ Credits（总余额）。
+    /// </summary>
+    public override IReadOnlyList<UsageMonitor.Core.Plugins.MiniChart.MiniChartContentKind> MiniChartDataTypes => new[]
+    {
+        UsageMonitor.Core.Plugins.MiniChart.MiniChartContentKind.PrimaryMetric,
+        UsageMonitor.Core.Plugins.MiniChart.MiniChartContentKind.Credits
+    };
+
+    /// <summary>req-099/bug5：DeepSeek 卡片 V2 数字网格——总/赠送/充值余额 + 本月 Token。</summary>
+    protected override MetricGridData? BuildCardMetricGridData(UsageInfo usage)
+    {
+        var items = new System.Collections.Generic.List<MetricGridItem>();
+        var total = ReadExtraString(usage, "total_balance");
+        if (!string.IsNullOrEmpty(total)) items.Add(new MetricGridItem("总余额", "¥" + total));
+        var granted = ReadExtraString(usage, "granted_balance");
+        if (!string.IsNullOrEmpty(granted)) items.Add(new MetricGridItem("赠送余额", "¥" + granted));
+        var topped = ReadExtraString(usage, "topped_up_balance");
+        if (!string.IsNullOrEmpty(topped)) items.Add(new MetricGridItem("充值余额", "¥" + topped));
+        var monthly = ReadExtraLong(usage, "monthly_token_usage", -1);
+        if (monthly >= 0) items.Add(new MetricGridItem("本月 Token", monthly.ToString("N0")));
+        return items.Count > 0 ? new MetricGridData(items) : null;
+    }
 
     /// <summary>
     /// 解析用量页面，提取余额和用量数据。
@@ -219,10 +264,7 @@ public class DeepseekWebProvider : WebPluginBase
             }
 
             var json = await response.Content.ReadAsStringAsync();
-            return JsonSerializer.Deserialize<T>(json, new JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true
-            });
+            return JsonSerializer.Deserialize<T>(json, _jsonOptions);
         }
         catch (Exception ex)
         {
@@ -334,7 +376,7 @@ public class DeepseekWebProvider : WebPluginBase
             if (!string.IsNullOrWhiteSpace(balanceText))
             {
                 // 尝试解析数字
-                var match = System.Text.RegularExpressions.Regex.Match(balanceText, @"[\d,]+\.?\d*");
+                var match = _balanceRegex.Match(balanceText);
                 if (match.Success && decimal.TryParse(match.Value.Replace(",", ""), 
                     NumberStyles.Any, CultureInfo.InvariantCulture, out var balance))
                 {

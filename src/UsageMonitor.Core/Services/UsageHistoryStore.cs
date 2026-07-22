@@ -29,7 +29,7 @@ public class HistoryPoint
 /// - 线程安全（UI 与刷新服务并发访问）
 /// - 可选注入 UsageHistoryRepository，AddPoint 后 fire-and-forget 异步写 SQLite
 /// </summary>
-public class UsageHistoryStore
+public class UsageHistoryStore : IUsageHistoryStore
 {
     /// <summary>
     /// req-069 F-23：改为 <c>(Queue, lastPercent)</c> 元组存储，<see cref="AddErrorPoint"/> O(1) 读取
@@ -112,26 +112,8 @@ public class UsageHistoryStore
         // 异步写库（fire-and-forget）。仓库内部已 try/catch + FileLogger，这里不需要再包装。
         if (_repository != null)
         {
-            // 构造最小可用的 UsageInfo，避免引入插件路径所产生的额外查询。
-            // 历史窗口仅需 (providerId, used_percent, recorded_at)，仓库 UpsertPoint 仅读取这些字段。
-            //
-            // 注意：为了让 GetUsagePercentage() 返回我们手头这个 usagePercent，
-            // 必须让 UsedAmount / TotalAmount 形成比例 (usagePercent / 100)，
-            // 然后由 Repository 中的钳制（0-100）保证范围。
-            // 不要设 UsedAmount = 0 / TotalAmount = 100，那样 percent 永远是 0。
-            var dummy = new UsageInfo
-            {
-                ProviderId = providerId,
-                ProviderName = providerId, // 持久层不使用 name，仅占位
-                UsedAmount = (decimal)usagePercent,
-                TotalAmount = 100m,
-                UsedTokens = 0,
-                TotalTokens = -1,
-                LastUpdated = DateTime.Now,
-                IsSuccess = true,
-                ErrorMessage = null
-            };
-            _ = Task.Run(() => _repository.UpsertPoint(dummy));
+            // req-069 F-16：直写百分比，不再构造 dummy UsageInfo 反推
+            _ = Task.Run(() => _repository.UpsertPoint(providerId, usagePercent));
         }
     }
 

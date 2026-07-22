@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;  // req-094：DoubleAnimation / QuadraticEase 用于 Percent 平滑过渡
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using UsageMonitor.App.ViewModels;
@@ -647,14 +648,64 @@ public class RingChartControl : FrameworkElement, IHoverTooltipProvider
         return true;
     }
 
-    /// <summary>REQ-003 metric 键变化回调：触发重绘。</summary>
+    /// <summary>REQ-003 metric 键变化回调：触发重绘 + 同步元信息（req-093） + 同步 Percent 与动画（req-094）。</summary>
     private static void OnMetricKeyChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
         var control = (RingChartControl)d;
+        var newKey = (string)e.NewValue;
+
+        // req-093：从 MetricProviders 同步当前 metric 的色阶元信息（反转标记 / 阈值）。
+        var matchedProvider = control.MetricProviders?
+            .FirstOrDefault(p => string.Equals(p.Key, newKey, StringComparison.OrdinalIgnoreCase));
+        if (matchedProvider != null)
+        {
+            control._currentMetricIsInverted = matchedProvider.IsInverted;
+            control._currentMetricWarningThreshold = matchedProvider.GetWarningThreshold();
+            control._currentMetricDangerThreshold = matchedProvider.GetDangerThreshold();
+
+            // req-094：根据当前 metric 同步 Percent 并以 DoubleAnimation 平滑过渡弧度。
+            var targetPercent = matchedProvider.GetPercent();
+            if (control.SwitchAnimationMs > 0 && !double.IsNaN(targetPercent))
+            {
+                var anim = new DoubleAnimation
+                {
+                    To = targetPercent,
+                    Duration = TimeSpan.FromMilliseconds(control.SwitchAnimationMs),
+                    EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseInOut }
+                };
+                control.BeginAnimation(PercentProperty, anim);
+            }
+            else
+            {
+                control.Percent = targetPercent;
+            }
+        }
+        else
+        {
+            // 未匹配到 provider：重置元信息，走控件默认阈值。
+            control._currentMetricIsInverted = false;
+            control._currentMetricWarningThreshold = null;
+            control._currentMetricDangerThreshold = null;
+        }
+
         control.InvalidateVisual();
         // req-051：触发事件通知 ViewModel 更新 tooltip
         control.RaiseMetricKeyChanged(e);
     }
+
+    // req-093：当前 metric 附带的色阶元信息（仅供 SelectBrush 读取）。
+    private bool _currentMetricIsInverted;
+    private double? _currentMetricWarningThreshold;
+    private double? _currentMetricDangerThreshold;
+
+    /// <summary>req-093：当前 metric 是否反转色阶。false=高%危险（默认）；true=低%危险。</summary>
+    private bool CurrentMetricIsInverted => _currentMetricIsInverted;
+
+    /// <summary>req-093：当前 metric 附带的警告阈值（百分比）。null 时回退到 <see cref="WarningThreshold"/>。</summary>
+    private double? CurrentMetricWarningThreshold => _currentMetricWarningThreshold;
+
+    /// <summary>req-093：当前 metric 附带的危险阈值（百分比）。null 时回退到 <see cref="DangerThreshold"/>。</summary>
+    private double? CurrentMetricDangerThreshold => _currentMetricDangerThreshold;
 
     /// <summary>REQ-003 metric provider 列表变化回调：触发重绘。</summary>
     private static void OnMetricProvidersChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
@@ -968,11 +1019,21 @@ public class RingChartControl : FrameworkElement, IHoverTooltipProvider
         return geometry;
     }
 
-    /// <summary>根据百分比选择画笔</summary>
+    /// <summary>根据百分比选择画笔。req-093：支持 <see cref="CurrentMetricIsInverted"/> 反转模式与数据附带阈值。</summary>
     private Brush SelectBrush(double percent)
     {
-        if (percent >= DangerThreshold) return DangerBrush;
-        if (percent >= WarningThreshold) return WarningBrush;
+        var warning = CurrentMetricWarningThreshold ?? WarningThreshold;
+        var danger = CurrentMetricDangerThreshold ?? DangerThreshold;
+        if (CurrentMetricIsInverted)
+        {
+            // 反转模式（剩余量语义）：低百分比危险
+            if (percent <= danger) return DangerBrush;
+            if (percent <= warning) return WarningBrush;
+            return ProgressBrush;
+        }
+        // 正常模式（已用量语义）：高百分比危险
+        if (percent >= danger) return DangerBrush;
+        if (percent >= warning) return WarningBrush;
         return ProgressBrush;
     }
 
@@ -1039,6 +1100,11 @@ public class RingChartControl : FrameworkElement, IHoverTooltipProvider
 /// 控件本身只通过 <see cref="GetText"/> 拉当前展示的字符串。键值用于
 /// <see cref="UsageMonitor.Core.Models.RingChartMetricKeys"/> 路由 + 切换顺序排序。
 /// </para>
+/// <para>
+/// req-093：在原契约上扩展色阶元数据（<see cref="GetPercent"/> / <see cref="IsInverted"/> /
+/// <see cref="GetWarningThreshold"/> / <see cref="GetDangerThreshold"/>），所有扩展方法都提供
+/// 默认实现，向后兼容旧 Provider 不修改即可继续工作。
+/// </para>
 /// </summary>
 public interface IRingMetricProvider
 {
@@ -1047,4 +1113,30 @@ public interface IRingMetricProvider
 
     /// <summary>当前要展示的中心文本（含格式化与单位）。</summary>
     string GetText();
+
+    /// <summary>
+    /// req-093：当前 metric 对应的百分比（0-100）。<see cref="RingChartControl"/> 在
+    /// <c>OnMetricKeyChanged</c> 中调用本方法更新 <c>Percent</c> 依赖属性，使圆环弧度随
+    /// 切换的 metric 同步更新（req-094 修复点）。
+    /// <para>默认返回 0。旧 Provider 不实现本方法时控件走 "弧度不变" 的旧行为。</para>
+    /// </summary>
+    double GetPercent() => 0.0;
+
+    /// <summary>
+    /// req-093：色阶方向。false（默认）= 高百分比危险（已用量语义）；true = 低百分比危险
+    /// （剩余量语义，如周限额剩余、积分余额）。默认 false 保持旧行为。
+    /// </summary>
+    bool IsInverted => false;
+
+    /// <summary>
+    /// req-093：警告阈值（百分比）。null 表示回退到 <c>RingChartControl.WarningThreshold</c>
+    /// （默认 60）。插件可在 <c>RingMetricData</c> 中按 metric 语义覆盖。
+    /// </summary>
+    double? GetWarningThreshold() => null;
+
+    /// <summary>
+    /// req-093：危险阈值（百分比）。null 表示回退到 <c>RingChartControl.DangerThreshold</c>
+    /// （默认 85）。插件可在 <c>RingMetricData</c> 中按 metric 语义覆盖。
+    /// </summary>
+    double? GetDangerThreshold() => null;
 }

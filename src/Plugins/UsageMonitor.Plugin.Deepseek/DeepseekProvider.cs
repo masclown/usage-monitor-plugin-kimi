@@ -172,6 +172,9 @@ public class DeepseekProvider : HttpUsageProviderBase
         // 是否已认证
         usageInfo.Extra["isVerified"] = balanceResponse.IsAvailable;
 
+        // req-005-011：构建末尾统一补写强类型 Quantity（由 UsedAmount+Unit 派生，零回归）。
+        usageInfo.PopulateQuantityFromLegacy();
+
         return usageInfo;
     }
 }

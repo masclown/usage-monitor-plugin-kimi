@@ -262,6 +262,9 @@ public class CollapseVisibilityConverter : IMultiValueConverter
 
         // values[0]: IsDetailExpanded (bool)
         bool isExpanded = values[0] is bool b && b;
+        // req-fix-诊断（bug3a/5）：记录门控输入真值，定位卡片正文空白根因。
+        UsageMonitor.Core.Services.FileLogger.Info("CollapseVis",
+            $"kind={(values.Length > 2 ? values[2] : null)}, v0Type={values[0]?.GetType().Name ?? "null"}, v0={values[0]}, expanded={isExpanded}, v1IsStringList={values[1] is System.Collections.Generic.IEnumerable<string>}");
         if (isExpanded) return Visibility.Visible;
 
         // values[1]: CollapseVisibleParts (IEnumerable<string>)

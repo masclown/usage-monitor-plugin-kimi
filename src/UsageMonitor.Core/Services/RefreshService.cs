@@ -1,14 +1,16 @@
 using System.Collections.Concurrent;
 using System.Globalization;
 using UsageMonitor.Core.Models;
+using UsageMonitor.Core.Modules;
 using UsageMonitor.Core.Plugins;
+using UsageMonitor.Core.Services.Data;
 
 namespace UsageMonitor.Core.Services;
 
 /// <summary>
 /// 定时刷新服务 - 按设定间隔自动查询各AI服务商的用量信息
 /// </summary>
-public class RefreshService : IDisposable
+public class RefreshService : IRefreshService
 {
     /// <summary>
     /// req-091-002：单 Provider 刷新失败事件（携带 <see cref="FailureKind"/> 分类）。
@@ -21,8 +23,8 @@ public class RefreshService : IDisposable
 
     private readonly PluginManager _pluginManager;
     private readonly ConfigService _configService;
-    private readonly UsageHistoryStore _historyStore;
-    private readonly UsageHistoryRepository? _historyRepository;
+    // req-099 B2：数据访问统一走 IDataModule，不再直接持有 Store / Repository（数据刷新保存模块）。
+    private readonly IDataModule _dataModule;
     private readonly CookieHealthDetector _cookieHealthDetector;
     private Timer? _timer;
     /// <summary>req-057：刷新中标记（0=空闲，1=刷新中），使用 Interlocked 保证线程安全。</summary>
@@ -30,38 +32,6 @@ public class RefreshService : IDisposable
 
     /// <summary>每个 provider 的刷新互斥锁：同一 provider 的全量刷新与单卡片刷新互斥，不同 provider 仍可并行。</summary>
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _providerLocks = new();
-
-    /// <summary>
-/// req-091-002：单 Provider 刷新失败事件参数。
-/// <para>App 层通过 <see cref="FailureKind"/> 判定是否触发自动重新登录弹窗。</para>
-/// </summary>
-public sealed class RefreshFailedEventArgs : EventArgs
-{
-    /// <summary>失败的 Provider ID（如 "MiniMax"）。</summary>
-    public string ProviderId { get; }
-
-    /// <summary>失败的 Provider 显示名称。</summary>
-    public string ProviderDisplayName { get; }
-
-    /// <summary>失败原因分类（Cookie 失效 / 网络错误 / 未知错误）。</summary>
-    public FailureKind FailureKind { get; }
-
-    /// <summary>触发的异常（成功时为 null，Cookie 失效但无异常时为 null）。</summary>
-    public Exception? Exception { get; }
-
-    /// <summary>错误消息摘要（用于日志 / 弹窗展示）。</summary>
-    public string ErrorMessage { get; }
-
-    public RefreshFailedEventArgs(string providerId, string providerDisplayName,
-        FailureKind failureKind, Exception? exception, string errorMessage)
-    {
-        ProviderId = providerId;
-        ProviderDisplayName = providerDisplayName;
-        FailureKind = failureKind;
-        Exception = exception;
-        ErrorMessage = errorMessage;
-    }
-}
 
 /// <summary>req-058：每个 Provider 的连续失败计数（用于熔断器）。</summary>
 private readonly ConcurrentDictionary<string, int> _consecutiveFailures = new();
@@ -94,25 +64,22 @@ private readonly ConcurrentDictionary<string, int> _consecutiveFailures = new();
     /// </summary>
     /// <param name="pluginManager">插件管理器</param>
     /// <param name="configService">配置服务</param>
-    /// <param name="historyStore">
-    /// 历史仓库（可选）。传入后刷新过程中会同时将数据点入 SQLite（需在 historyStore 内部持有 Repository）。
+    /// <param name="dataModule">
+    /// req-099 B2：数据模块（可选）。刷新成功/失败通过它保存历史点、记错点、写刷新聚合，
+    /// 不再直接操作 Store / Repository。为 null 时使用内存模式的默认实现。
     /// </param>
-    /// <param name="historyRepository">
-    /// req-013：历史仓库（Repository，可选）。传入后会在每次刷新后异步写入 <c>usage_refresh_aggregates</c>。
-    /// </param>
+    /// <param name="cookieHealthDetector">Cookie 健康探测器（可选）。</param>
     public RefreshService(
         PluginManager pluginManager,
         ConfigService configService,
-        UsageHistoryStore? historyStore = null,
-        UsageHistoryRepository? historyRepository = null,
+        IDataModule? dataModule = null,
         CookieHealthDetector? cookieHealthDetector = null)
     {
         _pluginManager = pluginManager;
         _configService = configService;
-        _historyStore = historyStore ?? new UsageHistoryStore();
-        _historyRepository = historyRepository;
+        _dataModule = dataModule ?? new DataModule();
         _cookieHealthDetector = cookieHealthDetector ?? new CookieHealthDetector();
-        _historyStore.MaxPoints = Math.Max(1, _configService.Settings.HistoryPointCount);
+        _dataModule.MaxPoints = Math.Max(1, _configService.Settings.HistoryPointCount);
     }
 
     /// <summary>
@@ -122,7 +89,7 @@ private readonly ConcurrentDictionary<string, int> _consecutiveFailures = new();
     {
         Stop();
         // 同步历史点数设置
-        _historyStore.MaxPoints = Math.Max(1, _configService.Settings.HistoryPointCount);
+        _dataModule.MaxPoints = Math.Max(1, _configService.Settings.HistoryPointCount);
         var intervalMs = _configService.Settings.RefreshIntervalSeconds * 1000;
         _timer = new Timer(OnTimerTick, null, 0, intervalMs);
     }
@@ -301,11 +268,11 @@ private readonly ConcurrentDictionary<string, int> _consecutiveFailures = new();
                 // req-015：传完整 usage，Store 内部走 InsertUsagePointIfChangedAsync（业务指纹比对去重）。
                 if (usage.IsSuccess)
                 {
-                    _historyStore.AddPoint(providerId, usage);
+                    _dataModule.SaveUsage(usage);
                 }
                 else
                 {
-                    _historyStore.AddErrorPoint(providerId);
+                    _dataModule.AddErrorPoint(providerId);
 
                     // req-091-002：usage.IsSuccess=false 但无异常的场景
                     // （Web 插件 DOM 提取失败 / API 鉴权失效等）
@@ -323,7 +290,7 @@ private readonly ConcurrentDictionary<string, int> _consecutiveFailures = new();
 
                 // req-013：成功刷新后异步写入“刷新聚合”记录，供历史窗口展示每次刷新。
                 if (usage.IsSuccess)
-                    RecordRefreshAggregateAsync(providerId, triggerKind);
+                    _dataModule.RecordRefreshAggregate(providerId, triggerKind);
             }
             catch (Exception ex)
             {
@@ -334,7 +301,7 @@ private readonly ConcurrentDictionary<string, int> _consecutiveFailures = new();
                 plugin.LastQueryTime = DateTime.Now;
                 plugin.LastQuerySuccess = false;
                 // 异常同样记失败点。
-                _historyStore.AddErrorPoint(providerId);
+                _dataModule.AddErrorPoint(providerId);
 
                 // req-091-002：使用 CookieHealthDetector 判定失败原因，触发 RefreshFailed 事件
                 var failureKind = _cookieHealthDetector.Classify(ex);
@@ -390,55 +357,7 @@ private readonly ConcurrentDictionary<string, int> _consecutiveFailures = new();
             TaskContinuationOptions.OnlyOnFaulted);
     }
 
-    /// <summary>
-    /// req-013：在一次成功刷新后，把本次刷新区间的最大 / 最小 / 末尾 / 平均值写入
-    /// <c>usage_refresh_aggregates</c>，供历史窗口 DataGrid 展示。区间来源为 <see cref="UsageHistoryStore"/>
-    /// 的当前内存快照（最近 <c>MaxPoints</c> 个点）。写入是 fire-and-forget，失败仅日志。
-    /// </summary>
-    /// <param name="providerId">服务商唯一标识</param>
-    /// <param name="triggerKind">触发类型（"manual" / "auto"）</param>
-    private void RecordRefreshAggregateAsync(string providerId, string triggerKind)
-    {
-        if (_historyRepository == null)
-        {
-            FileLogger.Warn("RefreshService", $"RecordRefreshAggregateAsync({providerId}): _historyRepository is null");
-            return;
-        }
-        var points = _historyStore.GetHistory(providerId);
-        if (points == null || points.Count == 0)
-        {
-            FileLogger.Warn("RefreshService", $"RecordRefreshAggregateAsync({providerId}): no history points");
-            return;
-        }
-
-        // 过滤错误点（IsError=true）；错误点不参与"用量"的聚合统计。
-        var valid = new List<HistoryPoint>(points.Count);
-        foreach (var p in points)
-        {
-            if (!p.IsError) valid.Add(p);
-        }
-        if (valid.Count == 0)
-        {
-            FileLogger.Warn("RefreshService", $"RecordRefreshAggregateAsync({providerId}): all points are errors");
-            return;
-        }
-
-        var now = DateTime.Now;
-        var agg = new RefreshAggregate(
-            Id: 0,
-            ProviderId: providerId,
-            RefreshAt: now,
-            BusinessDay: now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-            MaxUsedPercent: valid.Max(p => p.UsagePercent),
-            MinUsedPercent: valid.Min(p => p.UsagePercent),
-            EndUsedPercent: valid[^1].UsagePercent,
-            AvgUsedPercent: valid.Average(p => p.UsagePercent),
-            SnapshotCount: valid.Count,
-            TriggerKind: triggerKind);
-
-        _ = _historyRepository.InsertRefreshAggregateAsync(agg);
-        FileLogger.Info("RefreshService", $"RecordRefreshAggregateAsync({providerId}): inserted aggregate with {valid.Count} points");
-    }
+    // req-099 B2：RecordRefreshAggregateAsync 已迁移至 DataModule.RecordRefreshAggregate（数据聚合/持久化集中在数据模块）。
 
     public void Dispose()
     {
@@ -457,5 +376,37 @@ public class UsageRefreshedEventArgs : EventArgs
     public UsageRefreshedEventArgs(IReadOnlyList<UsageInfo> usages)
     {
         Usages = usages;
+    }
+}
+
+/// <summary>
+/// req-091-002：单 Provider 刷新失败事件参数。
+/// <para>App 层通过 <see cref="FailureKind"/> 判定是否触发自动重新登录弹窗。</para>
+/// </summary>
+public sealed class RefreshFailedEventArgs : EventArgs
+{
+    /// <summary>失败的 Provider ID（如 "MiniMax"）。</summary>
+    public string ProviderId { get; }
+
+    /// <summary>失败的 Provider 显示名称。</summary>
+    public string ProviderDisplayName { get; }
+
+    /// <summary>失败原因分类（Cookie 失效 / 网络错误 / 未知错误）。</summary>
+    public FailureKind FailureKind { get; }
+
+    /// <summary>触发的异常（成功时为 null，Cookie 失效但无异常时为 null）。</summary>
+    public Exception? Exception { get; }
+
+    /// <summary>错误消息摘要（用于日志 / 弹窗展示）。</summary>
+    public string ErrorMessage { get; }
+
+    public RefreshFailedEventArgs(string providerId, string providerDisplayName,
+        FailureKind failureKind, Exception? exception, string errorMessage)
+    {
+        ProviderId = providerId;
+        ProviderDisplayName = providerDisplayName;
+        FailureKind = failureKind;
+        Exception = exception;
+        ErrorMessage = errorMessage;
     }
 }

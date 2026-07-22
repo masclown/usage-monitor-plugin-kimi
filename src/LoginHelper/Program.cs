@@ -210,7 +210,6 @@ public class Program
         // req-087：Qoder 使用纯网页模式插件
         pm.RegisterPlugin(new Plugin.Deepseek.DeepseekDualModeProvider());
         pm.RegisterPlugin(new Plugin.MiMo.MiMoProvider());
-        pm.RegisterPlugin(new Plugin.OpenAI.OpenAIProvider());
         pm.RegisterPlugin(new Plugin.MiniMax.MiniMaxProvider());
         pm.RegisterPlugin(new Plugin.Kimi.KimiDualModeProvider());
         pm.RegisterPlugin(new Plugin.Qoder.QoderProvider());

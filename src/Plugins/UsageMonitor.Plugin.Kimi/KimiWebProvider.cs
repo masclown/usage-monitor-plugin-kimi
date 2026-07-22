@@ -21,6 +21,13 @@ public class KimiWebProvider : WebPluginBase
         Timeout = TimeSpan.FromSeconds(30)
     };
 
+    /// <summary>req-060-004：反序列化选项提为 static readonly，避免每次 API 调用重建。</summary>
+    private static readonly JsonSerializerOptions _jsonOptions = new() { PropertyNameCaseInsensitive = true };
+
+    /// <summary>req-067-002：百分比正则提为 static readonly + Compiled，避免每次 DOM 兜底解析重新编译。</summary>
+    private static readonly System.Text.RegularExpressions.Regex _usagePercentRegex =
+        new(@"(\d+\.?\d*)%", System.Text.RegularExpressions.RegexOptions.Compiled);
+
     /// <inheritdoc />
     protected override HttpClient Http => _httpClient;
 
@@ -65,6 +72,62 @@ public class KimiWebProvider : WebPluginBase
 
     /// <inheritdoc />
     public override IReadOnlyList<string> SupportedRingChartMetrics => new[] { "Percent", "Usage" };
+    
+        /// <summary>
+        /// req-098：Kimi 网页模式任务栏迷你图声明：半圆环 + 文字（基础两件套）。
+        /// </summary>
+        public override IReadOnlyList<UsageMonitor.Core.Plugins.MiniChart.MiniChartKind> SupportedMiniCharts => new[]
+        {
+            UsageMonitor.Core.Plugins.MiniChart.MiniChartKind.MiniRingChart,
+            UsageMonitor.Core.Plugins.MiniChart.MiniChartKind.MiniText
+        };
+    
+        /// <summary>
+        /// req-098：Kimi 网页模式任务栏迷你图内容：主指标（已用百分比）+ Credits（余额）。
+        /// </summary>
+        public override IReadOnlyList<UsageMonitor.Core.Plugins.MiniChart.MiniChartContentKind> MiniChartDataTypes => new[]
+        {
+            UsageMonitor.Core.Plugins.MiniChart.MiniChartContentKind.PrimaryMetric,
+            UsageMonitor.Core.Plugins.MiniChart.MiniChartContentKind.Credits
+        };
+
+    /// <summary>req-099/bug5：Kimi 卡片 V2 进度条——5h/7天限额 + 额度已用（ratio 兼容 0-1 与 0-100）。</summary>
+    protected override MetricBarData? BuildCardMetricBarData(UsageInfo usage)
+    {
+        var bars = new System.Collections.Generic.List<MetricBarItem>();
+        var r5 = ReadExtraDouble(usage, "ratelimit_5h_ratio", -1);
+        if (r5 >= 0)
+        {
+            var reset5 = ReadExtraString(usage, "ratelimit_5h_reset");
+            bars.Add(new MetricBarItem("5h 限额", System.Math.Min(100, r5 <= 1.0 ? r5 * 100 : r5),
+                RightText: string.IsNullOrEmpty(reset5) ? null : reset5));
+        }
+        var r7 = ReadExtraDouble(usage, "ratelimit_7d_ratio", -1);
+        if (r7 >= 0)
+        {
+            var reset7 = ReadExtraString(usage, "ratelimit_7d_reset");
+            bars.Add(new MetricBarItem("7 天限额", System.Math.Min(100, r7 <= 1.0 ? r7 * 100 : r7),
+                RightText: string.IsNullOrEmpty(reset7) ? null : reset7));
+        }
+        var amt = ReadExtraDouble(usage, "amount_used_ratio", -1);
+        if (amt >= 0) bars.Add(new MetricBarItem("额度已用", System.Math.Min(100, amt <= 1.0 ? amt * 100 : amt)));
+        return bars.Count > 0 ? new MetricBarData(bars) : null;
+    }
+
+    /// <summary>req-099/bug5：Kimi 卡片 V2 数字网格——订阅档位 + Research 用量。</summary>
+    protected override MetricGridData? BuildCardMetricGridData(UsageInfo usage)
+    {
+        var items = new System.Collections.Generic.List<MetricGridItem>();
+        var sub = ReadExtraString(usage, "subscription_title");
+        if (!string.IsNullOrEmpty(sub)) items.Add(new MetricGridItem("订阅", sub));
+        var rt = ReadExtraLong(usage, "research_total", -1);
+        if (rt >= 0)
+        {
+            var ru = ReadExtraLong(usage, "research_used", 0);
+            items.Add(new MetricGridItem("Research", $"{ru}/{rt}"));
+        }
+        return items.Count > 0 ? new MetricGridData(items) : null;
+    }
 
     /// <summary>
     /// 解析用量页面，提取订阅信息和用量数据。
@@ -209,10 +272,7 @@ public class KimiWebProvider : WebPluginBase
             }
 
             var json = await response.Content.ReadAsStringAsync();
-            return JsonSerializer.Deserialize<T>(json, new JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true
-            });
+            return JsonSerializer.Deserialize<T>(json, _jsonOptions);
         }
         catch (Exception ex)
         {
@@ -334,7 +394,7 @@ public class KimiWebProvider : WebPluginBase
             if (!string.IsNullOrWhiteSpace(usageText))
             {
                 // 尝试解析百分比数字
-                var match = System.Text.RegularExpressions.Regex.Match(usageText, @"(\d+\.?\d*)%");
+                var match = _usagePercentRegex.Match(usageText);
                 if (match.Success && decimal.TryParse(match.Groups[1].Value,
                     NumberStyles.Any, CultureInfo.InvariantCulture, out var percent))
                 {

@@ -92,6 +92,8 @@ public class MiMoProvider : HttpUsageProviderBase
             Unit = "Tokens",
             UsedAmount = usageResponse.UsedCredits,
             TotalAmount = usageResponse.TotalCredits,
+            // req-005-011：主金额指标为积分（UsedCredits），写入强类型 Quantity(CreditUnit)；Token 计数仍走 UsedTokens，故 GetUsagePercentage/GetRemainingTokens 结果不变。
+            Quantity = new UsageMonitor.Core.Models.Quantity((decimal)usageResponse.UsedCredits, new UsageMonitor.Core.Models.CreditUnit("Credits")),
             ExpireDate = usageResponse.ExpireDate,
             // req-067 B21：统一使用 UTC 时间存储，避免时区问题
             LastUpdated = DateTime.UtcNow,

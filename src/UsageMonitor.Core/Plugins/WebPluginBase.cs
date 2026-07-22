@@ -117,16 +117,77 @@ public abstract class WebPluginBase : PluginBase, IUsageProvider
     public virtual IReadOnlyList<string>? ExtraTooltipLines => null;
 
     /// <inheritdoc />
+    /// <remarks>req-098：在 WebPluginBase 中提供 virtual 实现供子类 override，接口 default 实现作为兑底。</remarks>
+    public virtual IReadOnlyList<UsageMonitor.Core.Plugins.MiniChart.MiniChartKind> SupportedMiniCharts => new[]
+    {
+        UsageMonitor.Core.Plugins.MiniChart.MiniChartKind.MiniRingChart,
+        UsageMonitor.Core.Plugins.MiniChart.MiniChartKind.MiniText
+    };
+
+    /// <inheritdoc />
+    /// <remarks>req-098：在 WebPluginBase 中提供 virtual 实现供子类 override。</remarks>
+    public virtual IReadOnlyList<UsageMonitor.Core.Plugins.MiniChart.MiniChartContentKind> MiniChartDataTypes => new[]
+    {
+        UsageMonitor.Core.Plugins.MiniChart.MiniChartContentKind.PrimaryMetric,
+        UsageMonitor.Core.Plugins.MiniChart.MiniChartContentKind.Credits,
+        UsageMonitor.Core.Plugins.MiniChart.MiniChartContentKind.ResetTime
+    };
+
+    /// <inheritdoc />
+    /// <remarks>req-105：在 WebPluginBase 中提供 virtual 实现供子类 override。</remarks>
+    public virtual IReadOnlyList<string> ToolTipFields => new[]
+    {
+        "ProviderName",
+        "DataName",
+        "CurrentValue",
+        "RefreshCountdown"
+    };
+
+    /// <inheritdoc />
     public virtual IReadOnlyList<BalanceItem> BalanceItems => Array.Empty<BalanceItem>();
 
     /// <inheritdoc />
     public virtual IReadOnlyList<HeatMapTierConfig>? HeatMapTiers => null;
 
-    /// <inheritdoc />
-    public virtual MetricBarData? CardMetricBarData => null;
+    /// <summary>req-099/bug5：最后一次成功查询的用量（供 V2 卡片数据构建）。</summary>
+    protected UsageInfo? LastUsage { get; private set; }
 
     /// <inheritdoc />
-    public virtual MetricGridData? CardMetricGridData => null;
+    /// <remarks>req-099/bug5：默认从 <see cref="LastUsage"/> 走子类 <see cref="BuildCardMetricBarData"/> 构建；
+    /// 子类只需 override 构建方法即可让卡片在新框架下渲染 V2 进度条。</remarks>
+    public virtual MetricBarData? CardMetricBarData
+        => LastUsage == null ? null : BuildCardMetricBarData(LastUsage);
+
+    /// <inheritdoc />
+    /// <remarks>req-099/bug5：默认从 <see cref="LastUsage"/> 走子类 <see cref="BuildCardMetricGridData"/> 构建。</remarks>
+    public virtual MetricGridData? CardMetricGridData
+        => LastUsage == null ? null : BuildCardMetricGridData(LastUsage);
+
+    /// <summary>req-099/bug5：子类将自身抓取数据映射为“度量进度条组” V2 模型（默认 null=沿用旧模板）。</summary>
+    /// <param name="usage">最后一次成功用量。</param>
+    protected virtual MetricBarData? BuildCardMetricBarData(UsageInfo usage) => null;
+
+    /// <summary>req-099/bug5：子类将自身抓取数据映射为“度量数字网格” V2 模型（默认 null=沿用旧模板）。</summary>
+    /// <param name="usage">最后一次成功用量。</param>
+    protected virtual MetricGridData? BuildCardMetricGridData(UsageInfo usage) => null;
+
+    // req-099/bug5：Extra 值为 object 装箱，提供类型容错读取助手供子类构建 V2 模型。
+    /// <summary>从 Extra 容错读取 double（失败返回 fallback）。</summary>
+    protected static double ReadExtraDouble(UsageInfo usage, string key, double fallback = 0)
+        => usage.Extra != null && usage.Extra.TryGetValue(key, out var v) && v != null
+           && double.TryParse(System.Convert.ToString(v, System.Globalization.CultureInfo.InvariantCulture),
+               System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var d)
+           ? d : fallback;
+
+    /// <summary>从 Extra 容错读取 long（失败返回 fallback）。</summary>
+    protected static long ReadExtraLong(UsageInfo usage, string key, long fallback = 0)
+        => usage.Extra != null && usage.Extra.TryGetValue(key, out var v) && v != null
+           && long.TryParse(System.Convert.ToString(v, System.Globalization.CultureInfo.InvariantCulture), out var n)
+           ? n : fallback;
+
+    /// <summary>从 Extra 读取字符串（缺失返回空串）。</summary>
+    protected static string ReadExtraString(UsageInfo usage, string key)
+        => usage.Extra != null && usage.Extra.TryGetValue(key, out var v) ? v?.ToString() ?? "" : "";
 
     /// <inheritdoc />
     public virtual Func<int, TooltipContent>? LineTooltipProvider => null;
@@ -212,6 +273,13 @@ public abstract class WebPluginBase : PluginBase, IUsageProvider
 
             var result = await ParseUsagePageAsync(page);
             LogInfo($"GetUsageAsync 完成: IsSuccess={result.IsSuccess}");
+            // req-099/bug5：缓存最后一次成功用量，供 CardMetricBarData/CardMetricGridData 构建 V2 卡片数据。
+            if (result.IsSuccess)
+            {
+                LastUsage = result;
+                // req-005-011：Web 插件输出统一补写强类型 Quantity（由 UsedAmount+Unit 派生，零回归过渡）。
+                result.PopulateQuantityFromLegacy();
+            }
             return result;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)

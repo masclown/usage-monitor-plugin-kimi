@@ -73,8 +73,10 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
     private bool _supportsPeriodSwitch;
     private string _currentPeriod = UsageMonitor.App.Controls.ChartPeriods.Week;
     private bool _isLoading;
-    // req-072 U-05：卡片详情展开状态（默认折叠）
-    private bool _isDetailExpanded;
+    // req-072 U-05：卡片详情展开状态。req-099 修复（Bug3）：默认改为展开，让卡片首屏即显示
+    // 限额/余额/图表全部已填充数据；此前默认折叠只显示 CollapseVisibleParts 声明的区段，
+    // 导致 MiniMax 仅显示 5h/周而图表/余额被隐藏，被误认为“数据未显示”。用户仍可点箭头折叠。
+    private bool _isDetailExpanded = true;
     // req-007：缓存 MiniMax DOM 抓取到的「每日 Token」完整数据，供 PeriodChanged 重新切片。
     // 完整数据按日期升序，最多 168 天（MiniMax usage_summary 接口上限）。
     private IReadOnlyList<long> _fullDailyValues = Array.Empty<long>();
@@ -152,10 +154,14 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
 
     /// <summary>
     /// 配置变更时重新读取 MiniMax ProviderConfig 中 4 个进度条开关并通知属性变更。
+    /// req-104：同时通知 CardMetricBarData/CardMetricGridData 变更以应用字段过滤。
     /// </summary>
     private void OnConfigChanged(object? sender, EventArgs e)
     {
         ReloadBarToggles();
+        // req-104：配置变更时重新过滤多进度条/数字网格字段
+        OnPropertyChanged(nameof(CardMetricBarData));
+        OnPropertyChanged(nameof(CardMetricGridData));
     }
 
     /// <summary>
@@ -492,11 +498,27 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
             _cardChartKinds = value ?? Array.Empty<CardChartKind>();
             OnPropertyChanged();
             OnPropertyChanged(nameof(HasCardChart));
+            OnPropertyChanged(nameof(EnabledCharts));
         }
     }
 
     /// <summary>是否显示卡片图表区（多选集合非空时为 true）。</summary>
     public bool HasCardChart => _cardChartKinds != null && _cardChartKinds.Count > 0;
+
+    /// <summary>
+    /// req-005-019：实际可渲染的卡片图表集合 = 「Provider 声明的 <see cref="IUsageProvider.SupportedCardCharts"/>」
+    /// 与「用户多选 <see cref="CardChartKinds"/>」的交集。供 req-005-018 的 DataTemplateSelector / 卡片图表区
+    /// 按此过滤，避免渲染插件并不支持的图表类型；Provider 未声明支持集合时回退为用户多选本身（向后兼容）。
+    /// </summary>
+    public IReadOnlyList<CardChartKind> EnabledCharts
+    {
+        get
+        {
+            var supported = Provider?.SupportedCardCharts;
+            if (supported == null || supported.Count == 0) return _cardChartKinds;
+            return _cardChartKinds.Where(supported.Contains).ToList();
+        }
+    }
 
     /// <summary>
     /// 卡片折线图的数据序列。非 MiniMax（或 MiniMax API 模式）时跟随 <see cref="HistoryValues"/>（历史用量百分比，0-100）；
@@ -568,14 +590,50 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
     /// <summary>
     /// Provider 注入的"V2 度量进度条组"数据（REQ-083）。
     /// 返回 null 时主窗口 <c>ChartCardTemplateSelector</c> 自动回退到旧 CardLimitBarsTemplate。
+    /// req-104：按用户选择的字段过滤。
     /// </summary>
-    public UsageMonitor.Core.Models.MetricBarData? CardMetricBarData => Provider?.CardMetricBarData;
+    public UsageMonitor.Core.Models.MetricBarData? CardMetricBarData
+    {
+        get
+        {
+            var data = Provider?.CardMetricBarData;
+            if (data == null || ConfigService == null) return data;
+
+            // req-104：按用户选择过滤进度条字段
+            if (!ConfigService.Settings.SelectedProgressFields.TryGetValue(_providerId, out var selectedFields))
+                return data; // 未配置时显示全部
+
+            if (selectedFields.Count == 0)
+                return data; // 空列表时显示全部
+
+            var filteredBars = data.Bars.Where(b => selectedFields.Contains(b.Label)).ToList();
+            return new UsageMonitor.Core.Models.MetricBarData(filteredBars);
+        }
+    }
 
     /// <summary>
     /// Provider 注入的"V2 度量数字网格"数据（REQ-083）。
     /// 返回 null 时主窗口 <c>ChartCardTemplateSelector</c> 自动回退到旧 CardBalanceTemplate。
+    /// req-104：按用户选择的字段过滤。
     /// </summary>
-    public UsageMonitor.Core.Models.MetricGridData? CardMetricGridData => Provider?.CardMetricGridData;
+    public UsageMonitor.Core.Models.MetricGridData? CardMetricGridData
+    {
+        get
+        {
+            var data = Provider?.CardMetricGridData;
+            if (data == null || ConfigService == null) return data;
+
+            // req-104：按用户选择过滤数字网格字段
+            if (!ConfigService.Settings.SelectedMetricFields.TryGetValue(_providerId, out var selectedFields))
+                return data; // 未配置时显示全部
+
+            if (selectedFields.Count == 0)
+                return data; // 空列表时显示全部
+
+            var filteredItems = data.Items.Where(i => selectedFields.Contains(i.Label)).ToList();
+            return new UsageMonitor.Core.Models.MetricGridData(filteredItems);
+        }
+    }
 
     /// <summary>
     /// Provider 注入的"V2 TooltipContent 生成委托"（REQ-083）。
@@ -796,6 +854,10 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
     /// </summary>
     public void UpdateFromUsage(UsageInfo usage)
     {
+        // req-099/bug5：刷新后通知 V2 卡片数据属性重取（Provider 已在 GetUsageAsync 更新 LastUsage，
+        // 使 Kimi/Deepseek/Qoder 等 Web 插件的 CardMetricBarData/CardMetricGridData 在新框架下重新渲染）。
+        OnPropertyChanged(nameof(CardMetricBarData));
+        OnPropertyChanged(nameof(CardMetricGridData));
         IsError = !usage.IsSuccess;
         ErrorMessage = usage.ErrorMessage;
         LastUpdateText = usage.LastUpdated.ToString("HH:mm:ss");
@@ -862,6 +924,15 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
                 ? $"{usage.GetUsagePercentage():F1}% 已使用"
                 : $"已用 {UsedText}";
         }
+        else if (usage.UsedAmount > 0)
+        {
+            // req-099/bug5：纯“已用金额”型 API 插件（如 OpenAI 仅返回 UsedAmount、无 TotalAmount/Tokens），
+            // 之前落到 else 显示“暂无数据”。此处按“已用 X”展示，恢复其之前的功能。
+            UsedText = $"{usage.UsedAmount:F2} {usage.Unit}";
+            TotalText = "不限";
+            RemainingText = "--";
+            StatusText = $"已用 {UsedText}";
+        }
         else
         {
             StatusText = "暂无数据";
@@ -902,7 +973,9 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         }
         else
         {
-            RenderKinds = Array.Empty<string>();
+            // req-fix（bug3a）：mm_render_kinds 缺失/类型不符时回退到插件声明的 DefaultRenderKinds，
+            // 避免 RenderKinds 被清空导致 5h/周进度条整段消失。
+            RenderKinds = Provider?.DefaultRenderKinds ?? Array.Empty<string>();
         }
 
         // 2. 订阅档位胶囊。
@@ -968,6 +1041,13 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
 
         // 9. 折线图 / 热力图：用「每日 Token 用量」填充卡片图表数据。
         UpdateMiniMaxCharts(extra);
+
+        // req-fix-诊断（bug3a/5）：记录卡片渲染门控的运行时值，供下次运行定位“卡片正文空白”。
+        UsageMonitor.Core.Services.FileLogger.Info("CardRender",
+            $"MiniMax: IsDetailExpanded={IsDetailExpanded}, RenderKinds=[{string.Join(",", RenderKinds)}], " +
+            $"Show5h={Show5hBar}, ShowWeekly={ShowWeeklyBar}, 5h%={PrimaryBarPercent:0}, weekly%={WeeklyBarPercent:0}, " +
+            $"CardChartKinds=[{string.Join(",", CardChartKinds)}], HasCardChart={HasCardChart}, " +
+            $"CollapseParts=[{string.Join(",", CollapseVisibleParts)}], Line={CardLineValues.Count}, Heat={HeatMapCells.Count}");
     }
 
     /// <summary>
@@ -1564,8 +1644,12 @@ public class MainViewModel : INotifyPropertyChanged
 {
     private readonly PluginManager _pluginManager;
     private readonly ConfigService _configService;
-    private readonly RefreshService _refreshService;
-    private readonly UsageHistoryStore _historyStore;
+    // req-069 F-10：刷新服务依赖接口而非具体类（可注入 mock IRefreshService）。
+    private readonly IRefreshService _refreshService;
+    // req-099 B2：数据访问统一走 IDataModule（数据刷新保存模块）。
+    private readonly UsageMonitor.Core.Modules.IDataModule _dataModule;
+    // req-099 B1：显示模块——拥有卡片集合并封装装配 / 渲染路由 / 启用过滤 / 图表顺序逻辑（激进抽离）。
+    private readonly UsageMonitor.App.Services.Display.DisplayModule _displayModule;
     private UsageMonitor.App.App? _hostAppRef;
 
     /// <summary>
@@ -1587,14 +1671,17 @@ public class MainViewModel : INotifyPropertyChanged
     /// <summary>供主窗口和设置窗口复用的全局配置服务。</summary>
     public ConfigService ConfigService => _configService;
 
+    // req-099 B1：卡片集合的实际拥有者已抽离到 DisplayModule。以下三个属性委托返回模块内的同一集合实例，
+    // 既保留主窗口 / 设置窗口 / 任务栏既有 {Binding Usages/EnabledUsages/PluginItems} 不变，
+    // 又让装配 / 渲染 / 过滤逻辑集中在 DisplayModule 管理（激进抽离，MainViewModel 不再直接持有集合）。
     /// <summary>各服务商的用量显示列表（全量，包含被禁用的项，用于切换时保留状态）</summary>
-    public ObservableCollection<ProviderUsageViewModel> Usages { get; } = new();
+    public ObservableCollection<ProviderUsageViewModel> Usages => _displayModule.Usages;
 
     /// <summary>仅展示已启用插件的用量卡片（主窗口 ItemsControl 实际绑定此集合）</summary>
-    public ObservableCollection<ProviderUsageViewModel> EnabledUsages { get; } = new();
+    public ObservableCollection<ProviderUsageViewModel> EnabledUsages => _displayModule.EnabledUsages;
 
     /// <summary>插件列表</summary>
-    public ObservableCollection<PluginItemViewModel> PluginItems { get; } = new();
+    public ObservableCollection<PluginItemViewModel> PluginItems => _displayModule.PluginItems;
 
     /// <summary>
     /// req-016：当前主题对应的项目 Logo（用于 MainWindow.Icon 绑定）。
@@ -1763,13 +1850,14 @@ public class MainViewModel : INotifyPropertyChanged
         new KeyValuePair<TaskbarDisplayMode, string>(TaskbarDisplayMode.RingChart, "圆环图"),
     };
 
-    /// <summary>托盘悬浮窗关闭延迟（毫秒）</summary>
+    /// <summary>托盘悬浮窗关闭延迟（毫秒）。req-095：范围 100-5000，超出自动钳制。</summary>
     public int TrayTooltipHideDelayMs
     {
         get => _configService.Settings.TrayTooltipHideDelayMs;
         set
         {
-            var v = Math.Max(0, value);
+            // req-095：硬编码 100ms（避免闪烁）~ 5000ms（5 秒）。
+            var v = Math.Clamp(value, 100, 5000);
             _configService.Settings.TrayTooltipHideDelayMs = v;
             _configService.Save();
             OnPropertyChanged();
@@ -1810,7 +1898,7 @@ public class MainViewModel : INotifyPropertyChanged
         {
             var v = value <= 0 ? 60 : value;
             _configService.Settings.HistoryPointCount = v;
-            _historyStore.MaxPoints = v;
+            _dataModule.MaxPoints = v;
             _configService.Save();
             OnPropertyChanged();
         }
@@ -1879,6 +1967,376 @@ public class MainViewModel : INotifyPropertyChanged
 
     /// <summary>保存设置命令</summary>
     public IRelayCommand SaveSettingsCommand { get; }
+
+    // =====================================================================
+    // req-073 设置窗口导航重构：左侧导航 + 全局保存栏
+    // =====================================================================
+
+    /// <summary>
+    /// req-073：设置窗口当前选中的导航分区。默认 <see cref="Helpers.SettingsSection.General"/>。
+    /// <para>由设置窗口左侧导航 ListBox 双向绑定；切换时 ContentControl 通过
+    /// <see cref="Helpers.SettingsSectionSelector"/> 选择对应 DataTemplate。</para>
+    /// </summary>
+    public Helpers.SettingsSection CurrentSection
+    {
+        get => _currentSection;
+        set
+        {
+            if (_currentSection == value) return;
+            _currentSection = value;
+            OnPropertyChanged();
+        }
+    }
+    private Helpers.SettingsSection _currentSection = Helpers.SettingsSection.General;
+
+    /// <summary>
+    /// req-073：设置窗口左侧导航项列表（分组标题 + 可点击项混合）。
+    /// <para>按「通用 / 显示 / 高级」三组分组，为 req-103/104/097 预留导航项（当前注释掉，后续迭代启用）。</para>
+    /// </summary>
+    public IReadOnlyList<Helpers.SettingsNavigationItem> SettingsNavigationItems { get; } = new List<Helpers.SettingsNavigationItem>
+    {
+        // ===== 通用 =====
+        Helpers.SettingsNavigationItem.CreateGroupHeader("通用"),
+        Helpers.SettingsNavigationItem.CreateItem(Helpers.SettingsSection.General, "常规设置", "通用"),
+        Helpers.SettingsNavigationItem.CreateItem(Helpers.SettingsSection.Plugins, "插件管理", "通用"),
+
+        // ===== 显示 =====
+        Helpers.SettingsNavigationItem.CreateGroupHeader("显示"),
+        Helpers.SettingsNavigationItem.CreateItem(Helpers.SettingsSection.Taskbar, "任务栏显示", "显示"),
+        Helpers.SettingsNavigationItem.CreateItem(Helpers.SettingsSection.Tray, "悬浮窗", "显示"),
+        Helpers.SettingsNavigationItem.CreateItem(Helpers.SettingsSection.ColorTier, "色阶", "显示"),
+
+        // ===== 高级 =====
+        Helpers.SettingsNavigationItem.CreateGroupHeader("高级"),
+        Helpers.SettingsNavigationItem.CreateItem(Helpers.SettingsSection.Security, "安全", "高级"),
+        Helpers.SettingsNavigationItem.CreateItem(Helpers.SettingsSection.Diagnostics, "诊断日志", "高级"),
+
+        // ===== 个性化（req-103/104/097 已启用） =====
+        Helpers.SettingsNavigationItem.CreateGroupHeader("个性化"),
+        Helpers.SettingsNavigationItem.CreateItem(Helpers.SettingsSection.CardOrder, "卡片排序", "个性化"),
+        Helpers.SettingsNavigationItem.CreateItem(Helpers.SettingsSection.ChartOrder, "图表顺序", "个性化"),
+        Helpers.SettingsNavigationItem.CreateItem(Helpers.SettingsSection.MultiProgress, "多进度条", "个性化"),
+        Helpers.SettingsNavigationItem.CreateItem(Helpers.SettingsSection.TaskbarMiniChart, "任务栏迷你图表", "个性化"),
+    };
+
+    /// <summary>
+    /// req-073：设置窗口底部「有未保存修改」提示的可见性标记。
+    /// <para>
+    /// 当前实现为轻量方案：设置窗口打开期间任何属性 setter 触发 Save 后该标记即清除；
+    /// 由于现有各设置项 setter 均已即时持久化（调用 <c>_configService.Save()</c>），
+    /// 该属性主要为后续「延迟保存」语义预留——当某分区改为「编辑后不立即写盘」时，
+    /// 由对应编辑器 ViewModel 将其置 true，底部保存栏即显示提示。
+    /// </para>
+    /// </summary>
+    public bool HasUnsavedChanges
+    {
+        get => _hasUnsavedChanges;
+        set
+        {
+            if (_hasUnsavedChanges == value) return;
+            _hasUnsavedChanges = value;
+            OnPropertyChanged();
+        }
+    }
+    private bool _hasUnsavedChanges;
+
+    /// <summary>
+    /// req-073：设置窗口底部「保存」按钮命令——调用 <see cref="ConfigService.Save"/> 持久化全部配置，
+    /// 并清除 <see cref="HasUnsavedChanges"/> 标记。保存结果（成功/失败）由设置窗口 code-behind 读取
+    /// <see cref="ConfigService.LastSaveError"/> 后决定提示与是否关闭窗口。
+    /// </summary>
+    public IRelayCommand SaveAllSettingsCommand { get; private set; } = null!;
+
+    /// <summary>
+    /// req-073：设置窗口底部「取消」按钮命令——仅关闭窗口，不写盘。
+    /// 实际关闭动作由设置窗口 code-behind 订阅 <see cref="RequestCloseSettings"/> 事件执行。
+    /// </summary>
+    public IRelayCommand CancelSettingsCommand { get; private set; } = null!;
+
+    /// <summary>
+    /// req-073：请求关闭设置窗口事件。SaveAllSettingsCommand / CancelSettingsCommand 触发，
+    /// 由 SettingsWindow code-behind 订阅并执行 <see cref="System.Windows.Window.Close"/>。
+    /// <para>事件参数为 <c>bool</c>：<c>true</c> 表示「保存后关闭」，<c>false</c> 表示「取消关闭」。</para>
+    /// </summary>
+    public event EventHandler<bool>? RequestCloseSettings;
+
+    /// <summary>req-073：触发 <see cref="RequestCloseSettings"/> 事件。</summary>
+    private void RaiseRequestCloseSettings(bool saved)
+    {
+        try { RequestCloseSettings?.Invoke(this, saved); }
+        catch (Exception ex)
+        {
+            UsageMonitor.Core.Services.FileLogger.Error("MainViewModel",
+                $"RaiseRequestCloseSettings threw: {ex.Message}", ex);
+        }
+    }
+
+    // =====================================================================
+    // REQ-103 卡片排序功能
+    // =====================================================================
+
+    /// <summary>
+    /// req-103：卡片排序设置页的列表项集合（按当前配置顺序排列）。
+    /// </summary>
+    public ObservableCollection<Helpers.CardOrderItem> CardOrderItems { get; } = new();
+
+    /// <summary>
+    /// req-103：恢复默认卡片顺序命令（按插件加载顺序）。
+    /// </summary>
+    public IRelayCommand ResetCardOrderCommand { get; private set; } = null!;
+
+    /// <summary>
+    /// req-104：保存多进度条字段选择命令。
+    /// </summary>
+    public IRelayCommand SaveMultiProgressFieldsCommand { get; private set; } = null!;
+
+    /// <summary>
+    /// req-103：刷新 CardOrderItems 集合（从 EnabledUsages 同步）。
+    /// </summary>
+    public void RefreshCardOrderItems()
+    {
+        CardOrderItems.Clear();
+        foreach (var vm in EnabledUsages)
+        {
+            CardOrderItems.Add(new Helpers.CardOrderItem
+            {
+                ProviderId = vm.ProviderId,
+                DisplayName = vm.DisplayName,
+            });
+        }
+    }
+
+    /// <summary>
+    /// req-103：保存当前 CardOrderItems 顺序到配置。
+    /// </summary>
+    public void SaveCardOrder()
+    {
+        _configService.Settings.ProviderCardOrder = CardOrderItems.Select(x => x.ProviderId).ToList();
+        _configService.Save();
+        // 触发 RebuildEnabledUsages 按新顺序重新排列
+        RebuildEnabledUsages();
+    }
+
+    // =====================================================================
+    // REQ-104 多进度条与数字多排显示
+    // =====================================================================
+
+    /// <summary>
+    /// req-104：多进度条设置页的字段选择项集合（按 Provider 分组）。
+    /// </summary>
+    public ObservableCollection<Helpers.MultiProgressFieldItem> MultiProgressFieldItems { get; } = new();
+
+    // =====================================================================
+    // REQ-098 任务栏迷你图表 SDK 完善
+    // =====================================================================
+
+    /// <summary>
+    /// req-098：设置窗口“任务栏迷你图表” Tab 的列表项集合。每个 Provider 一项。
+    /// <para>由 <see cref="RefreshTaskbarMiniChartOptions"/> 从 <c>_pluginManager.Plugins</c>
+    /// 同步生成；只对 SupportedMiniCharts 非空的插件生成（纯 API Key 模式插件不入表）。</para>
+    /// </summary>
+    public ObservableCollection<TaskbarMiniChartProviderViewModel> TaskbarMiniChartOptions { get; } = new();
+
+    /// <summary>
+    /// req-098：刷新 <see cref="TaskbarMiniChartOptions"/> 集合。
+    /// <para>遍历 <c>_pluginManager.Plugins</c>，对每个 <c>SupportedMiniCharts</c> 非空的插件
+    /// 创建一个 <see cref="TaskbarMiniChartProviderViewModel"/>。已存在的不重建（保留用户修改）。</para>
+    /// </summary>
+    public void RefreshTaskbarMiniChartOptions()
+    {
+        var existing = TaskbarMiniChartOptions.ToDictionary(x => x.ProviderId, StringComparer.OrdinalIgnoreCase);
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var plugin in _pluginManager.Plugins)
+        {
+            var provider = plugin.Provider;
+            var supportedCharts = provider.SupportedMiniCharts ?? Array.Empty<Core.Plugins.MiniChart.MiniChartKind>();
+            if (supportedCharts.Count == 0) continue;
+            seen.Add(provider.ProviderId);
+            if (existing.TryGetValue(provider.ProviderId, out var kept))
+            {
+                // 保留既有 VM（用户的修改不被清空）
+                continue;
+            }
+            TaskbarMiniChartOptions.Add(new TaskbarMiniChartProviderViewModel(
+                provider.ProviderId,
+                provider.DisplayName,
+                supportedCharts,
+                provider.MiniChartDataTypes ?? Array.Empty<Core.Plugins.MiniChart.MiniChartContentKind>(),
+                _configService));
+        }
+        // 移除已卸载的 Provider 对应项
+        for (int i = TaskbarMiniChartOptions.Count - 1; i >= 0; i--)
+        {
+            if (!seen.Contains(TaskbarMiniChartOptions[i].ProviderId))
+                TaskbarMiniChartOptions.RemoveAt(i);
+        }
+    }
+
+    /// <summary>
+    /// req-104：刷新 MultiProgressFieldItems 集合（从 EnabledUsages 同步）。
+    /// </summary>
+    public void RefreshMultiProgressFieldItems()
+    {
+        MultiProgressFieldItems.Clear();
+        foreach (var vm in EnabledUsages)
+        {
+            var provider = vm.Provider;
+            if (provider == null) continue;
+
+            // 添加进度条字段
+            if (provider.CardMetricBarData?.Bars != null)
+            {
+                foreach (var bar in provider.CardMetricBarData.Bars)
+                {
+                    var isSelected = IsProgressFieldSelected(vm.ProviderId, bar.Label);
+                    MultiProgressFieldItems.Add(new Helpers.MultiProgressFieldItem
+                    {
+                        ProviderId = vm.ProviderId,
+                        ProviderDisplayName = vm.DisplayName,
+                        FieldName = bar.Label,
+                        FieldDisplayName = bar.Label,
+                        IsSelected = isSelected,
+                        FieldType = "Progress"
+                    });
+                }
+            }
+
+            // 添加数字网格字段
+            if (provider.CardMetricGridData?.Items != null)
+            {
+                foreach (var item in provider.CardMetricGridData.Items)
+                {
+                    var isSelected = IsMetricFieldSelected(vm.ProviderId, item.Label);
+                    MultiProgressFieldItems.Add(new Helpers.MultiProgressFieldItem
+                    {
+                        ProviderId = vm.ProviderId,
+                        ProviderDisplayName = vm.DisplayName,
+                        FieldName = item.Label,
+                        FieldDisplayName = item.Label,
+                        IsSelected = isSelected,
+                        FieldType = "Metric"
+                    });
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// req-104：检查指定 Provider 的进度条字段是否被选中。
+    /// </summary>
+    private bool IsProgressFieldSelected(string providerId, string fieldName)
+    {
+        if (!_configService.Settings.SelectedProgressFields.TryGetValue(providerId, out var selectedFields))
+            return true; // 默认全部选中
+        return selectedFields.Contains(fieldName);
+    }
+
+    /// <summary>
+    /// req-104：检查指定 Provider 的数字网格字段是否被选中。
+    /// </summary>
+    private bool IsMetricFieldSelected(string providerId, string fieldName)
+    {
+        if (!_configService.Settings.SelectedMetricFields.TryGetValue(providerId, out var selectedFields))
+            return true; // 默认全部选中
+        return selectedFields.Contains(fieldName);
+    }
+
+    /// <summary>
+    /// req-104：保存多进度条字段选择到配置。
+    /// </summary>
+    public void SaveMultiProgressFields()
+    {
+        // 按 Provider 分组保存进度条字段
+        var progressGroups = MultiProgressFieldItems
+            .Where(x => x.FieldType == "Progress")
+            .GroupBy(x => x.ProviderId);
+        foreach (var group in progressGroups)
+        {
+            var selectedFields = group.Where(x => x.IsSelected).Select(x => x.FieldName).ToList();
+            if (selectedFields.Count > 0)
+                _configService.Settings.SelectedProgressFields[group.Key] = selectedFields;
+            else
+                _configService.Settings.SelectedProgressFields.Remove(group.Key);
+        }
+
+        // 按 Provider 分组保存数字网格字段
+        var metricGroups = MultiProgressFieldItems
+            .Where(x => x.FieldType == "Metric")
+            .GroupBy(x => x.ProviderId);
+        foreach (var group in metricGroups)
+        {
+            var selectedFields = group.Where(x => x.IsSelected).Select(x => x.FieldName).ToList();
+            if (selectedFields.Count > 0)
+                _configService.Settings.SelectedMetricFields[group.Key] = selectedFields;
+            else
+                _configService.Settings.SelectedMetricFields.Remove(group.Key);
+        }
+
+        _configService.Save();
+        // 触发 ConfigChanged 事件，ProviderUsageViewModel 会重新过滤
+    }
+
+    // =====================================================================
+    // REQ-097 卡片图表顺序用户可调整
+    // =====================================================================
+
+    /// <summary>
+    /// req-097：图表顺序设置页的列表项集合（按 Provider 分组）。
+    /// </summary>
+    public ObservableCollection<Helpers.ChartOrderItem> ChartOrderItems { get; } = new();
+
+    /// <summary>
+    /// req-097：恢复默认图表顺序命令（按插件声明顺序）。
+    /// </summary>
+    public IRelayCommand ResetChartOrderCommand { get; private set; } = null!;
+
+    /// <summary>
+    /// req-097：刷新 ChartOrderItems 集合（从 EnabledUsages 同步）。
+    /// </summary>
+    public void RefreshChartOrderItems()
+    {
+        ChartOrderItems.Clear();
+        foreach (var vm in EnabledUsages)
+        {
+            var provider = vm.Provider;
+            if (provider == null) continue;
+
+            // 获取用户自定义顺序，若无则使用插件声明顺序
+            var chartOrder = GetProviderChartOrder(vm.ProviderId, provider.SupportedCardCharts);
+            foreach (var chartKind in chartOrder)
+            {
+                ChartOrderItems.Add(new Helpers.ChartOrderItem
+                {
+                    ProviderId = vm.ProviderId,
+                    ProviderDisplayName = vm.DisplayName,
+                    ChartKind = chartKind
+                });
+            }
+        }
+    }
+
+    /// <summary>
+    /// req-097：获取指定 Provider 的图表顺序（用户自定义优先，回退到插件声明）。
+    /// </summary>
+    private IReadOnlyList<CardChartKind> GetProviderChartOrder(string providerId, IReadOnlyList<CardChartKind> supportedCharts)
+        // req-099 B1：图表顺序解析已抽离到 DisplayModule。
+        => _displayModule.GetChartOrder(providerId, supportedCharts);
+
+    /// <summary>
+    /// req-097：保存当前 ChartOrderItems 顺序到配置。
+    /// </summary>
+    public void SaveChartOrder()
+    {
+        // 按 Provider 分组保存图表顺序
+        var groups = ChartOrderItems.GroupBy(x => x.ProviderId);
+        foreach (var group in groups)
+        {
+            var chartOrder = group.Select(x => x.ChartKind).ToList();
+            _configService.Settings.ProviderChartOrder[group.Key] = chartOrder;
+        }
+        _configService.Save();
+        // 触发 ConfigChanged 事件，MainViewModel 会重新排序图表
+    }
 
     // =====================================================================
     // REQ-003 环形图增强设置
@@ -2038,13 +2496,24 @@ public class MainViewModel : INotifyPropertyChanged
     /// <summary>REQ-004：使用方注入“在屏幕上调整”蒙版打开回调（在 App.xaml.cs 里设置）。</summary>
     public Action? OpenTriggerOverlayAction { get; set; }
 
-    public MainViewModel(PluginManager pluginManager, ConfigService configService, RefreshService refreshService, UsageHistoryStore? historyStore = null)
+    public MainViewModel(PluginManager pluginManager, ConfigService configService, IRefreshService refreshService, UsageMonitor.Core.Modules.IDataModule? dataModule = null)
     {
         _pluginManager = pluginManager;
         _configService = configService;
         _refreshService = refreshService;
-        _historyStore = historyStore ?? new UsageHistoryStore();
-        _historyStore.MaxPoints = Math.Max(1, _configService.Settings.HistoryPointCount);
+        _dataModule = dataModule ?? new UsageMonitor.Core.Services.Data.DataModule();
+        _dataModule.MaxPoints = Math.Max(1, _configService.Settings.HistoryPointCount);
+
+        // req-099 B1：创建显示模块（卡片装配 / 渲染 / 过滤 / 任务栏模式 / 图表顺序）。
+        // 重新登录回调转发到 TriggerManualReLogin（内部经 HostApp 触发登录流程）。
+        _displayModule = new UsageMonitor.App.Services.Display.DisplayModule(
+            pluginManager, configService, refreshService, TriggerManualReLogin);
+        // 已启用卡片集合变化时刷新空状态派生属性（IsEmpty）与绑定。
+        _displayModule.EnabledCardsChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(EnabledUsages));
+            OnPropertyChanged(nameof(IsEmpty));
+        };
 
                 // req-072 U-18：RefreshCommand 执行时更新 LastRefreshTime / RefreshProgress / ErrorCount
                 RefreshCommand = new AsyncRelayCommand(async () =>
@@ -2065,6 +2534,44 @@ public class MainViewModel : INotifyPropertyChanged
                     }
                 });
         SaveSettingsCommand = new RelayCommand(() => _configService.Save());
+
+        // req-073：全局保存 / 取消命令。保存命令仅写盘并清除未保存标记；
+        // 关闭窗口由 SettingsWindow 订阅 RequestCloseSettings 后执行（保存成功才关闭）。
+        SaveAllSettingsCommand = new RelayCommand(() =>
+        {
+            _configService.Save();
+            if (string.IsNullOrEmpty(_configService.LastSaveError))
+            {
+                HasUnsavedChanges = false;
+                RaiseRequestCloseSettings(saved: true);
+            }
+            // 保存失败：不触发关闭，由 SettingsWindow 检查 LastSaveError 弹错误提示。
+        });
+        CancelSettingsCommand = new RelayCommand(() =>
+        {
+            HasUnsavedChanges = false;
+            RaiseRequestCloseSettings(saved: false);
+        });
+
+        // req-103：恢复默认卡片顺序命令——清空用户自定义顺序，回退到插件启用顺序
+        ResetCardOrderCommand = new RelayCommand(() =>
+        {
+            _configService.Settings.ProviderCardOrder.Clear();
+            _configService.Save();
+            RebuildEnabledUsages();
+            RefreshCardOrderItems();
+        });
+
+        // req-104：保存多进度条字段选择命令
+        SaveMultiProgressFieldsCommand = new RelayCommand(SaveMultiProgressFields);
+
+        // req-097：恢复默认图表顺序命令——清空用户自定义顺序，回退到插件声明顺序
+        ResetChartOrderCommand = new RelayCommand(() =>
+        {
+            _configService.Settings.ProviderChartOrder.Clear();
+            _configService.Save();
+            RefreshChartOrderItems();
+        });
 
         // req-016：初始化主窗口 Logo + 订阅主题切换事件
         // req-032：单 logo 模式，加载一次即可（不再订阅 ThemeChanged 切换 logo）
@@ -2122,104 +2629,16 @@ public class MainViewModel : INotifyPropertyChanged
         // 必须在 Usages / EnabledUsages / PluginItems 都装配后启动；后续调用连动。
         StartFiveHourCountdownTimer();
 
-        // 初始化插件列表与用量显示
-        foreach (var plugin in pluginManager.Plugins)
-        {
-            // 读取已保存的显示模式
-            var savedMode = UsageMonitor.App.Helpers.TaskbarModeResolver.Resolve(
-                _configService.Settings, plugin.Provider.ProviderId);
-            var savedCardCharts = _configService.GetProviderCardChartKinds(plugin.Provider.ProviderId);
-
-            // req-fix-DualModeProvider ConfigFields 动态返回：在装配时把当前 config 注入到双模式 provider，
-            // 让 ConfigFields getter 根据 mode 字段返回对应模式的字段。
-            // 注意双模式 provider（KimiDualModeProvider / DeepseekDualModeProvider）是具体类型，需强制转换。
-            var currentConfig = _configService.GetProviderConfig(plugin.Provider.ProviderId, plugin.Provider);
-            switch (plugin.Provider)
-            {
-                case UsageMonitor.Plugin.Kimi.KimiDualModeProvider kimiProvider:
-                    kimiProvider.SetCurrentConfigSnapshot(currentConfig);
-                    break;
-                case UsageMonitor.Plugin.Deepseek.DeepseekDualModeProvider deepseekProvider:
-                    deepseekProvider.SetCurrentConfigSnapshot(currentConfig);
-                    break;
-            }
-
-            var item = new PluginItemViewModel(plugin.Provider, _configService)
-            {
-                ProviderId = plugin.Provider.ProviderId,
-                DisplayName = plugin.Provider.DisplayName,
-                Version = plugin.Provider.Version,
-                Author = plugin.Provider.Author,
-                Description = plugin.Provider.Description,
-                IsEnabled = plugin.IsEnabled,
-                DisplayMode = savedMode
-            };
-            // 初始化卡片图表多选（回显已保存/迁移的选择，不触发写盘）
-            item.InitCardChartKinds(savedCardCharts);
-            // 双向同步：PluginItem 变更时同步到 UsageVM 与配置
-            item.PropertyChanged += (_, e) =>
-            {
-                if (e.PropertyName == nameof(PluginItemViewModel.DisplayMode))
-                {
-                    ChangeTaskbarMode(item.ProviderId, item.DisplayMode);
-                }
-                else if (e.PropertyName == nameof(PluginItemViewModel.IsEnabled))
-                {
-                    // 设置窗口中勾选/取消勾选插件时，同步到配置/插件管理器/用量列表
-                    UpdatePluginEnabled(item.ProviderId, item.IsEnabled);
-                }
-                else if (e.PropertyName == nameof(PluginItemViewModel.CardChartKinds))
-                {
-                    // 卡片图表多选变更：同步到对应的用量卡片 VM，立即叠加/移除图表
-                    var target = Usages.FirstOrDefault(u => u.ProviderId == item.ProviderId);
-                    if (target != null) target.CardChartKinds = item.CardChartKinds;
-                }
-            };
-            PluginItems.Add(item);
-            
-            // 初始化用量显示（传入打开配置的回调 + ConfigService 让 VM 跟踪"仅 x 个进度条"开关变化）
-            // req-091-005：注入 ReLoginAction（仅当 Provider 声明 LoginConfig 时才启用按钮）
-            Action? reLoginAction = plugin.Provider.LoginConfig != null
-                ? () => TriggerManualReLogin(plugin.Provider.ProviderId)
-                : null;
-            var usageVm = new ProviderUsageViewModel(
-                item.OpenConfigDialog,
-                // 卡片右上角"⟳ 刷新"按钮回调：仅刷新当前服务商，复用刷新事件链路更新 UI/托盘。
-                () => _refreshService.RefreshProviderAsync(plugin.Provider.ProviderId),
-                // req-091-005：手动重新登录回调（null 表示隐藏按钮）
-                reLoginAction)
-            {
-                ProviderId = plugin.Provider.ProviderId,
-                DisplayName = plugin.Provider.DisplayName,
-                IconPath = ProviderUsageViewModel.ResolveIconPath(plugin.Provider.ProviderId),
-                IsEnabled = plugin.IsEnabled,
-                DisplayMode = savedMode,
-                CardChartKinds = savedCardCharts,
-                // 立刻写入插件声明的默认渲染能力，避免首次渲染时被"未声明 render_kind"折叠。
-                RenderKinds = plugin.Provider.DefaultRenderKinds,
-                // req-折叠插件控制：插件声明"折叠态仍可见"的元素（render_kind key），
-                // 主机不硬编码，由插件自己决定哪些限额/余额在折叠态也展示。
-                CollapseVisibleParts = plugin.Provider.CollapseVisibleParts ?? Array.Empty<string>(),
-                // req-007：把当前 provider 注入到 VM，供 PeriodChanged → SetPeriodAsync 调用。
-                Provider = plugin.Provider,
-                // req-007：把"是否支持周期切换"在装配时立即写入，避免首次刷新前 UI 缺位。
-                SupportsPeriodSwitch = plugin.Provider.SupportsPeriodSwitch,
-                ExtraTooltipLines = plugin.Provider.ExtraTooltipLines
-            };
-            usageVm.AttachConfigService(_configService);
-            Usages.Add(usageVm);
-        }
-
-        // 启动时构建一次"已启用"过滤集合
-        RebuildEnabledUsages();
+        // 初始化插件列表与用量显示（req-099 B1：卡片装配 / 已启用过滤逻辑已抽离到 DisplayModule.Build）
+        _displayModule.Build();
 
         // req-053：启动时同步全局已启用 metric 到所有 Provider，避免重启后显示所有 metric
         // 必须在 Usages 集合构建完成后调用
         SyncGlobalEnabledMetricsToAllProviders();
 
         // 监听历史数据变化
-        _historyStore.ProviderHistoryChanged += OnProviderHistoryChanged;
-        _historyStore.HistoryChanged += OnAnyHistoryChanged;
+        _dataModule.ProviderHistoryChanged += OnProviderHistoryChanged;
+        _dataModule.HistoryChanged += OnAnyHistoryChanged;
 
         // 订阅全局用量色阶变更：档位 / 颜色改了之后，强制让所有进度条 XAML 绑定刷新
         // （PercentToBrushConverter 重新走 ResolveBrush → 返回新 Brush），同时重着色卡片热力图单元。
@@ -2407,7 +2826,7 @@ public class MainViewModel : INotifyPropertyChanged
     {
         var vm = Usages.FirstOrDefault(u => u.ProviderId == providerId);
         if (vm == null) return;
-        vm.HistoryValues = _historyStore.GetHistoryValues(providerId);
+        vm.HistoryValues = _dataModule.GetHistoryValues(providerId);
     }
 
     /// <summary>
@@ -2417,7 +2836,7 @@ public class MainViewModel : INotifyPropertyChanged
     {
         foreach (var vm in Usages)
         {
-            vm.HistoryValues = _historyStore.GetHistoryValues(vm.ProviderId);
+            vm.HistoryValues = _dataModule.GetHistoryValues(vm.ProviderId);
         }
     }
 
@@ -2426,31 +2845,19 @@ public class MainViewModel : INotifyPropertyChanged
     /// </summary>
     public void UpdateUsages(IReadOnlyList<UsageInfo> usages)
     {
-        foreach (var usage in usages)
-        {
-            var vm = Usages.FirstOrDefault(u => u.ProviderId == usage.ProviderId);
-            vm?.UpdateFromUsage(usage);
-        }
+        // req-099 B1：渲染路由已抽离到 DisplayModule。
+        _displayModule.RenderCards(usages);
     }
 
     /// <summary>
     /// 根据 Usages 中各 VM 的 IsEnabled 状态重建"已启用"过滤集合，供主窗口 ItemsControl 绑定。
     /// 取消勾选时调用此方法即可让对应卡片立即从主窗口消失。
+    /// req-103：按 ProviderCardOrder 配置排序（用户自定义顺序优先，未配置的追加到末尾）。
     /// </summary>
     private void RebuildEnabledUsages()
     {
-        EnabledUsages.Clear();
-        UsageMonitor.Core.Services.FileLogger.Info("MainViewModel", $"RebuildEnabledUsages: Usages总数={Usages.Count}");
-        foreach (var vm in Usages)
-        {
-            UsageMonitor.Core.Services.FileLogger.Info("MainViewModel", $"  Provider={vm.ProviderId}, DisplayName={vm.DisplayName}, IsEnabled={vm.IsEnabled}");
-            if (vm.IsEnabled)
-            {
-                EnabledUsages.Add(vm);
-            }
-        }
-        UsageMonitor.Core.Services.FileLogger.Info("MainViewModel", $"RebuildEnabledUsages完成: EnabledUsages总数={EnabledUsages.Count}");
-        OnPropertyChanged(nameof(EnabledUsages));
+        // req-099 B1：已启用过滤 / 排序逻辑已抽离到 DisplayModule；集合变化经 EnabledCardsChanged 通知本 VM。
+        _displayModule.RebuildEnabledCards();
     }
 
     /// <summary>
@@ -2458,18 +2865,8 @@ public class MainViewModel : INotifyPropertyChanged
     /// </summary>
     public void UpdatePluginEnabled(string providerId, bool isEnabled)
     {
-        _configService.Settings.PluginEnabled[providerId] = isEnabled;
-
-        var plugin = _pluginManager.GetPlugin(providerId);
-        if (plugin != null) plugin.IsEnabled = isEnabled;
-
-        var usageVm = Usages.FirstOrDefault(u => u.ProviderId == providerId);
-        if (usageVm != null) usageVm.IsEnabled = isEnabled;
-
-        // 重建过滤集合，使主窗口中已禁用插件的卡片立即消失/再次出现
-        RebuildEnabledUsages();
-
-        _configService.Save();
+        // req-099 B1：插件启用状态同步与卡片重建已抽离到 DisplayModule。
+        _displayModule.SetPluginEnabled(providerId, isEnabled);
     }
 
     /// <summary>
@@ -2477,13 +2874,8 @@ public class MainViewModel : INotifyPropertyChanged
     /// </summary>
     public void ChangeTaskbarMode(string providerId, TaskbarDisplayMode mode)
     {
-        _configService.Settings.ProviderTaskbarModes[providerId] = mode;
-
-        var usageVm = Usages.FirstOrDefault(u => u.ProviderId == providerId);
-        if (usageVm != null && usageVm.DisplayMode != mode)
-            usageVm.DisplayMode = mode;
-
-        _configService.Save();
+        // req-099 B1：任务栏模式变更已抽离到 DisplayModule。
+        _displayModule.ChangeTaskbarMode(providerId, mode);
     }
 
     /// <summary>
@@ -2622,7 +3014,7 @@ public class MainViewModel : INotifyPropertyChanged
                 $"[req-091] TriggerManualReLogin({providerId}) skipped: HostApp not set");
             return;
         }
-        _hostAppRef.TriggerReLogin(providerId);
+        _hostAppRef.TriggerReLogin(providerId, isAutomatic: false);
     }
 
     /// <summary>req-053：把全局已启用 metric 集合同步到所有 ProviderUsageViewModel。</summary>

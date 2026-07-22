@@ -77,8 +77,8 @@ public partial class TrayTooltipWindow : Window
 
         // 鼠标进入悬浮窗时取消关闭
         MouseEnter += (_, _) => CancelHide();
-        // 鼠标离开悬浮窗时启动延迟关闭
-        MouseLeave += (_, _) => RequestHide();
+        // req-095：鼠标离开时从配置读取最新延迟值（让用户在设置页调整后立即生效，无需重启）。
+        MouseLeave += (_, _) => RequestHide(_configService.Settings.TrayTooltipHideDelayMs);
         // 窗口停用时关闭（点击其他窗口）
         Deactivated += (_, _) => ForceHide();
 

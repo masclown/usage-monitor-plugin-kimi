@@ -1,6 +1,7 @@
 using Microsoft.Playwright;
 using System.Net.Http;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using UsageMonitor.Core.Models;
 using UsageMonitor.Core.Plugins;
 using UsageMonitor.Core.Services;
@@ -18,6 +19,16 @@ public class QoderWebProvider : WebPluginBase
     {
         Timeout = TimeSpan.FromSeconds(30)
     };
+
+    /// <summary>req-067-002：Qoder DOM 主指标解析的 4 个正则提为 static readonly + Compiled，避免每次解析重新编译。</summary>
+    private static readonly Regex _slashMetricRegex =
+        new(@"([\d,]+(?:\.\d+)?)\s*[/\u5206]\s*([\d,]+(?:\.\d+)?)", RegexOptions.Compiled);
+    private static readonly Regex _remainingMetricRegex =
+        new(@"(?:剩余|可用|余量|remaining|left|available)\s*[:：]?\s*([\d,]+(?:\.\d+)?[KMk]?)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex _totalMetricRegex =
+        new(@"(?:总额|总计|总量|total)\s*[:：]?\s*([\d,]+(?:\.\d+)?[KMk]?)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex _singleNumberRegex =
+        new(@"([\d,]+(?:\.\d+)?[KMk]?)", RegexOptions.Compiled);
 
     /// <inheritdoc />
     protected override HttpClient Http => _httpClient;
@@ -55,32 +66,14 @@ public class QoderWebProvider : WebPluginBase
     /// <summary>
     /// req-fix-Qoder LoginConfig 强化：显式 override（替代之前的 <c>new</c> 隐藏），
     /// 恢复多态能力，同时补齐 BrowserLoginService 判定所需的关键字。
-    /// <para>
-    /// 关键修复点（req-fix-Qoder-B2-ValidateUrl，基于用户 2026-07-21 反馈的实际登录后 URL）：
-    /// <list type="number">
-    ///   <item><description><c>ValidateUrl = "https://qoder.com/account/usage"</c> —— 用户实际登录后
-    ///   跳转到 <c>/account/usage</c> 路径（裸域），不再是写死的 <c>/console/usage</c>。</description></item>
-    ///   <item><description><c>LoginUrl = "https://qoder.com/"</c>（裸域）—— 配合 <c>LoggedInHost = "qoder.com"</c>
-    ///   解决 qoder.com ↔ www.qoder.com 跨子域跳转被误判为登录页的问题。</description></item>
-    ///   <item><description><c>LoggedInHost = "qoder.com"</c> —— 显式声明已登录 host，覆盖从 LoginUrl
-    ///   推断得到的 "www.qoder.com"，避免跨子域跳转被误判为登录页。</description></item>
-    ///   <item><description><c>LoginUrlKeywords</c> 显式提供常见登录路径关键字，与 WebPluginBase 默认一致。</description></item>
-    /// </list>
-    /// </para>
-    /// <para>req-087-B2 TODO 已完成：用户提供实际跳转 URL 后精化 ValidateUrl / LoggedInHost，
-    /// 完成 BrowserLoginService 登录后强制导航 + IsLoginUrl 判定全链路。</para>
     /// </summary>
     public override BrowserLoginConfig? LoginConfig => new()
     {
         ProviderId = "qoder_web",
-        // 裸域 qoder.com/（用户反馈登录后实际从这里开始）
         LoginUrl = LoginUrl,
         CookieDomainFilters = CookieDomainFilters,
-        // 用户实际登录后跳转的用量页（裸域 + /account/usage）
         ValidateUrl = UsageUrl,
-        // 显式声明已登录 host = qoder.com，覆盖从 LoginUrl 推断得到的 "www.qoder.com"
         LoggedInHost = "qoder.com",
-        // 显式提供登录页路径关键字，覆盖 Qoder 实际登录页可能含的路径片段
         LoginUrlKeywords = new[] { "login", "signin", "sign-in", "signup", "register",
                                     "auth", "passport", "oauth", "unified-login" }
     };
@@ -95,19 +88,71 @@ public class QoderWebProvider : WebPluginBase
     };
 
     /// <inheritdoc />
+    /// <remarks>
+    /// req-099/bug5：移除 HeatMap。Qoder 网页数据仅有 Credits 余额/消耗快照（V2 数字网格），
+    /// 没有「逐日 Token 日历」数据源，热力图选项会永远空白，属于图表能力误声明；
+    /// 折线图/柱状/环形可由历史用量百分比或 Credits 比驱动，故保留。
+    /// </remarks>
     public override IReadOnlyList<CardChartKind> SupportedCardCharts => new[]
     {
-        CardChartKind.Line, CardChartKind.Bar, CardChartKind.Ring, CardChartKind.HeatMap
+        CardChartKind.Line, CardChartKind.Bar, CardChartKind.Ring
+    };
+
+    /// <summary>
+    /// req-098：Qoder 网页模式任务栏迷你图声明：半圆环 + 文字（基础两件套）。
+    /// </summary>
+    public override IReadOnlyList<UsageMonitor.Core.Plugins.MiniChart.MiniChartKind> SupportedMiniCharts => new[]
+    {
+        UsageMonitor.Core.Plugins.MiniChart.MiniChartKind.MiniRingChart,
+        UsageMonitor.Core.Plugins.MiniChart.MiniChartKind.MiniText
+    };
+
+    /// <summary>
+    /// req-098：Qoder 网页模式任务栏迷你图内容：主指标（已用百分比）+ Credits（剩余 Credits 余额）。
+    /// </summary>
+    public override IReadOnlyList<UsageMonitor.Core.Plugins.MiniChart.MiniChartContentKind> MiniChartDataTypes => new[]
+    {
+        UsageMonitor.Core.Plugins.MiniChart.MiniChartContentKind.PrimaryMetric,
+        UsageMonitor.Core.Plugins.MiniChart.MiniChartContentKind.Credits
     };
 
     /// <inheritdoc />
     public override IReadOnlyList<string> SupportedRingChartMetrics => new[] { "Percent", "Usage" };
 
+    /// <summary>req-099/bug5：Qoder 卡片 V2 数字网格——剩余/总/已消耗 Credits + 消耗成本。</summary>
+    protected override MetricGridData? BuildCardMetricGridData(UsageInfo usage)
+    {
+        var items = new System.Collections.Generic.List<MetricGridItem>();
+        var remaining = ReadExtraDouble(usage, "credits_remaining", -1);
+        var total = ReadExtraDouble(usage, "credits_total", -1);
+        var consumed = ReadExtraDouble(usage, "total_credits_consumed", -1);
+        var cost = ReadExtraDouble(usage, "total_cost_consumed", -1);
+        if (remaining >= 0) items.Add(new MetricGridItem("剩余 Credits", remaining.ToString("N0")));
+        if (total >= 0) items.Add(new MetricGridItem("总 Credits", total.ToString("N0")));
+        if (consumed >= 0) items.Add(new MetricGridItem("已消耗", consumed.ToString("N0")));
+        if (cost >= 0) items.Add(new MetricGridItem("消耗成本", "$" + cost.ToString("N2")));
+        return items.Count > 0 ? new MetricGridData(items) : null;
+    }
+
+    /// <summary>req-099/bug5：Qoder 卡片 V2 进度条——Credits 已用百分比。</summary>
+    protected override MetricBarData? BuildCardMetricBarData(UsageInfo usage)
+    {
+        var remaining = ReadExtraDouble(usage, "credits_remaining", -1);
+        var total = ReadExtraDouble(usage, "credits_total", -1);
+        if (total > 0 && remaining >= 0)
+        {
+            var usedPct = System.Math.Max(0, System.Math.Min(100, (total - remaining) / total * 100));
+            return new MetricBarData(new[]
+            {
+                new MetricBarItem("Credits 已用", usedPct, FooterText: $"{(total - remaining):N0} / {total:N0}")
+            });
+        }
+        return null;
+    }
+
     /// <summary>
     /// 解析用量页面，提取 Credits 主指标和动态表格数据。
     /// </summary>
-    /// <param name="page">已导航到用量页面的 IPage 实例</param>
-    /// <returns>解析后的 UsageInfo</returns>
     protected override async Task<UsageInfo> ParseUsagePageAsync(IPage page)
     {
         var usageInfo = new UsageInfo
@@ -137,7 +182,6 @@ public class QoderWebProvider : WebPluginBase
             {
                 usageInfo.Extra["table_record_count"] = records.Count;
 
-                // 转换为图表数据
                 var lineData = QoderChartAdapter.ToLineChartData(records);
                 var barData = QoderChartAdapter.ToBarChartData(records);
                 var heatData = QoderChartAdapter.ToHeatMapData(records);
@@ -146,13 +190,11 @@ public class QoderWebProvider : WebPluginBase
                 usageInfo.Extra["bar_chart_data"] = JsonSerializer.Serialize(barData);
                 usageInfo.Extra["heat_map_data"] = JsonSerializer.Serialize(heatData);
 
-                // 计算总消耗
                 var totalCredits = QoderChartAdapter.CalculateTotalCredits(records);
                 var totalCost = QoderChartAdapter.CalculateTotalCost(records);
                 usageInfo.Extra["total_credits_consumed"] = totalCredits;
                 usageInfo.Extra["total_cost_consumed"] = totalCost;
 
-                // 设置 Quantity（req-086 新字段）
                 usageInfo.Quantity = new Quantity(totalCredits, new TokenUnit("credits"));
             }
 
@@ -169,41 +211,49 @@ public class QoderWebProvider : WebPluginBase
     }
 
     /// <summary>
-    /// 提取主指标（顶部 Credits 剩余/总额度）。
+    /// req-087-002：提取主指标（顶部 Credits 剩余/总额度）。
+    /// <para>选择器策略优先级（从高到低）：</para>
+    /// <list type="number">
+    ///   <item><description>data-testid / aria-label 含 credit / balance 的元素（最稳定，受 class 改名影响小）</description></item>
+    ///   <item><description>class 含 credit / balance / quota / remaining / total 的元素</description></item>
+    ///   <item><description>页面其它位置包含大数字的元素（兑底）</description></item>
+    /// </list>
+    /// <para>TODO: 待王晨提供 qoder.com/account/usage 登录后页面截图后进一步收窄选择器范围。</para>
     /// </summary>
-    /// <param name="page">IPage 实例</param>
-    /// <returns>主指标数据，失败返回 null</returns>
     private async Task<QoderMainMetric?> ExtractMainMetricAsync(IPage page)
     {
         try
         {
-            // 等待主指标区域加载
-            // TODO: B2 - 待王晨提供页面截图后更新选择器
-            await page.WaitForSelectorAsync("[class*='credit'], [class*='balance'], [class*='quota'], [class*='usage']",
+            // 等待主指标区域加载（宽松 fallback —— 任何一个候选选择器出现即可）
+            await page.WaitForSelectorAsync(
+                "[class*='credit'], [class*='balance'], [class*='quota'], [class*='usage'], [data-testid*='credit'], [data-testid*='balance']",
                 new PageWaitForSelectorOptions { Timeout = 10000 });
 
-            // 尝试多种选择器策略
+            // 尝试多种选择器策略（按优先级）
             var metricText = await page.EvaluateAsync<string?>(@"() => {
-                // 策略1：查找包含 'Credits' 或 '剩余' 文本的元素
-                const selectors = [
-                    '[class*=""credit""]',
-                    '[class*=""balance""]',
-                    '[class*=""quota""]',
-                    '[class*=""usage""]',
-                    '[class*=""remaining""]',
-                    '[class*=""total""]'
+                // req-087-002：分层策略，优先带语义属性的元素。
+                const strategies = [
+                    '[data-testid*=""credit"" i]',
+                    '[data-testid*=""balance"" i]',
+                    '[data-testid*=""quota"" i]',
+                    '[aria-label*=""credit"" i]',
+                    '[aria-label*=""balance"" i]',
+                    '[aria-label*=""剩余""]',
+                    '[aria-label*=""可用""]',
+                    '[class*=""credit"" i]',
+                    '[class*=""balance"" i]',
+                    '[class*=""quota"" i]',
+                    '[class*=""remaining"" i]',
+                    '[class*=""total"" i]',
+                    '[class*=""usage"" i]'
                 ];
-                
-                for (const sel of selectors) {
+
+                for (const sel of strategies) {
                     const els = document.querySelectorAll(sel);
                     for (const el of els) {
-                        const text = el.textContent || '';
-                        // 匹配数字格式：123.45 或 123/456 或 剩余 123
-                        // req-fix-Qoder正则转义：C# verbatim string 中 \d 字面传给 JS 正则，匹配数字；
-                        // 原错误写法 \\d+\\.?\\d* 在 JS 正则中等价于匹配字面 \d 文本而非数字。
-                        if (/\d+\.?\d*/.test(text) && text.length < 100) {
-                            return text.trim();
-                        }
+                        const text = (el.textContent || '').trim();
+                        if (text.length === 0 || text.length > 200) continue;
+                        if (/\d/.test(text)) return text;
                     }
                 }
                 return null;
@@ -211,43 +261,12 @@ public class QoderWebProvider : WebPluginBase
 
             if (string.IsNullOrWhiteSpace(metricText))
             {
-                LogWarn("未找到主指标元素");
+                LogWarn("未找到主指标元素（所有 fallback 选择器均未命中）");
                 return null;
             }
 
             LogInfo($"主指标原始文本: {metricText}");
-
-            // 解析数字
-            var metric = new QoderMainMetric();
-
-            // 尝试匹配 "剩余 X / 总额 Y" 或 "X / Y" 格式
-            var slashMatch = System.Text.RegularExpressions.Regex.Match(
-                metricText, @"(\d+\.?\d*)\s*/\s*(\d+\.?\d*)");
-            if (slashMatch.Success)
-            {
-                metric.Remaining = decimal.Parse(slashMatch.Groups[1].Value,
-                    System.Globalization.CultureInfo.InvariantCulture);
-                metric.Total = decimal.Parse(slashMatch.Groups[2].Value,
-                    System.Globalization.CultureInfo.InvariantCulture);
-                metric.Used = metric.Total - metric.Remaining;
-                return metric;
-            }
-
-            // 尝试匹配单个数字
-            var singleMatch = System.Text.RegularExpressions.Regex.Match(
-                metricText, @"(\d+\.?\d*)");
-            if (singleMatch.Success)
-            {
-                var value = decimal.Parse(singleMatch.Groups[1].Value,
-                    System.Globalization.CultureInfo.InvariantCulture);
-                // 假设是剩余量，总额未知
-                metric.Remaining = value;
-                metric.Total = value; // 暂时设为相同值
-                metric.Used = 0;
-                return metric;
-            }
-
-            return null;
+            return ParseMainMetricText(metricText);
         }
         catch (Exception ex)
         {
@@ -257,26 +276,85 @@ public class QoderWebProvider : WebPluginBase
     }
 
     /// <summary>
+    /// req-087-002：从主指标原始文本解析 (Remaining, Total, Used)。
+    /// <para>支持顺序：</para>
+    /// <list type="number">
+    ///   <item><description>"X / Y" 格式 → Remaining=X, Total=Y</description></item>
+    ///   <item><description>单个数字（含千分位、K/M 后缀）→ Remaining=Total=值</description></item>
+    ///   <item><description>"剩余 X 总计 Y" 等自然语言 → 正则分别匹配剩余 / 总额</description></item>
+    /// </list>
+    /// </summary>
+    private QoderMainMetric? ParseMainMetricText(string text)
+    {
+        var metric = new QoderMainMetric();
+
+        // 策略 1："X / Y" 斜杠分割
+        var slashMatch = _slashMetricRegex.Match(text);
+        if (slashMatch.Success)
+        {
+            metric.Remaining = ParseNumericToken(slashMatch.Groups[1].Value);
+            metric.Total = ParseNumericToken(slashMatch.Groups[2].Value);
+            metric.Used = Math.Max(0, metric.Total - metric.Remaining);
+            return metric;
+        }
+
+        // 策略 2："剩余 X 总额 Y" / "Remaining X Total Y" 自然语言
+        var remainingMatch = _remainingMetricRegex.Match(text);
+        var totalMatch = _totalMetricRegex.Match(text);
+        if (remainingMatch.Success || totalMatch.Success)
+        {
+            if (remainingMatch.Success) metric.Remaining = ParseNumericToken(remainingMatch.Groups[1].Value);
+            if (totalMatch.Success) metric.Total = ParseNumericToken(totalMatch.Groups[1].Value);
+            if (metric.Total == 0) metric.Total = metric.Remaining;
+            metric.Used = Math.Max(0, metric.Total - metric.Remaining);
+            return metric;
+        }
+
+        // 策略 3：单个数字（含千分位、K/M 后缀）
+        var singleMatch = _singleNumberRegex.Match(text);
+        if (singleMatch.Success)
+        {
+            var value = ParseNumericToken(singleMatch.Groups[1].Value);
+            metric.Remaining = value;
+            metric.Total = value;
+            metric.Used = 0;
+            return metric;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// req-087-002：解析带千分位 / K/M 后缀的数字字符串为 decimal。
+    /// </summary>
+    private static decimal ParseNumericToken(string raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return 0;
+        var s = raw.Trim().ToUpperInvariant().Replace(",", "");
+        decimal multiplier = 1;
+        if (s.EndsWith("K")) { multiplier = 1_000m; s = s[..^1]; }
+        else if (s.EndsWith("M")) { multiplier = 1_000_000m; s = s[..^1]; }
+        if (decimal.TryParse(s, System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var v))
+            return v * multiplier;
+        return 0;
+    }
+
+    /// <summary>
     /// 提取动态表格数据（7 字段）。
     /// </summary>
-    /// <param name="page">IPage 实例</param>
-    /// <returns>解析后的记录列表</returns>
     private async Task<List<QoderUsageRecord>> ExtractTableDataAsync(IPage page)
     {
         var records = new List<QoderUsageRecord>();
 
         try
         {
-            // 等待表格加载
-            // TODO: B2 - 待王晨提供页面截图后更新选择器
             await page.WaitForSelectorAsync("table tbody tr, [class*='table'] [class*='row'], [class*='list'] [class*='item']",
                 new PageWaitForSelectorOptions { Timeout = 10000 });
 
-            // 提取表格行数据
             var rowsData = await page.EvaluateAsync<List<List<string>>>(@"() => {
                 const results = [];
-                
-                // 策略1：标准 table 结构
+
                 const tableRows = document.querySelectorAll('table tbody tr');
                 if (tableRows.length > 0) {
                     for (const row of tableRows) {
@@ -287,8 +365,7 @@ public class QoderWebProvider : WebPluginBase
                     }
                     return results;
                 }
-                
-                // 策略2：div 模拟表格结构（修复引号嵌套错误：原写法 [class*='row''] 多了一个 '，CSS 无效）
+
                 const divRows = document.querySelectorAll('[class*=""table""] [class*=""row""], [class*=""list""] [class*=""item""]');
                 for (const row of divRows) {
                     const cells = Array.from(row.querySelectorAll('[class*=""cell""], [class*=""col""], [class*=""field""]'))
@@ -297,7 +374,7 @@ public class QoderWebProvider : WebPluginBase
                         results.push(cells);
                     }
                 }
-                
+
                 return results;
             }");
 
@@ -309,7 +386,6 @@ public class QoderWebProvider : WebPluginBase
 
             LogInfo($"找到 {rowsData.Count} 行表格数据");
 
-            // 解析每一行
             foreach (var cells in rowsData)
             {
                 var record = QoderTableParser.ParseRow(cells.ToArray());
