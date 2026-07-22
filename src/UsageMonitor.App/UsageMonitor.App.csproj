@@ -9,13 +9,13 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
 
-    <!-- 项目版本号（0.24.0-beta）：模块化架构(IDataModule/IDisplayModule/IThemeModule/DisplayModule/ThemeModule/DataModule) / 任务栏迷你图表(TaskbarMiniChartProviderViewModel/MiniChartItemViewModel/MiniChartTemplateSelector/TaskbarCycleService) / 环形图控件重构 / MainViewModel大幅增强(+650行) / 设置窗口大幅重构 / 任务栏窗口重构 / OpenAI插件移除 / 认证架构Auth SDK / 服务接口抽象 / 模型层扩展；用于程序集元数据 + 文件属性。 -->
+    <!-- 项目版本号（0.24.1-beta）：模块化架构(IDataModule/IDisplayModule/IThemeModule/DisplayModule/ThemeModule/DataModule) / 任务栏迷你图表(TaskbarMiniChartProviderViewModel/MiniChartItemViewModel/MiniChartTemplateSelector/TaskbarCycleService) / 环形图控件重构 / MainViewModel大幅增强(+650行) / 设置窗口大幅重构 / 任务栏窗口重构 / OpenAI插件移除 / 认证架构Auth SDK / 服务接口抽象 / 模型层扩展；用于程序集元数据 + 文件属性。 -->
     <!-- 显式设置 5 个属性，避免被 SDK 衍生规则变动影响。 -->
-    <Version>0.24.0-beta</Version>
-    <AssemblyVersion>0.24.0.0</AssemblyVersion>
-    <FileVersion>0.24.0.0</FileVersion>
-    <InformationalVersion>0.24.0-beta</InformationalVersion>
-    <ProductVersion>0.24.0-beta</ProductVersion>
+    <Version>0.24.1-beta</Version>
+    <AssemblyVersion>0.24.1.0</AssemblyVersion>
+    <FileVersion>0.24.1.0</FileVersion>
+    <InformationalVersion>0.24.1-beta</InformationalVersion>
+    <ProductVersion>0.24.1-beta</ProductVersion>
     <AssemblyTitle>UsageMonitor</AssemblyTitle>
     <Product>UsageMonitor</Product>
     <Company>UsageMonitor</Company>

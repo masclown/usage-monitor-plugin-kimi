@@ -172,27 +172,27 @@ public class MiniMaxProvider : WebPluginBase
     /// </para>
     /// </summary>
     public override IReadOnlyList<UsageMonitor.Core.Models.BalanceItem> BalanceItems => System.Array.Empty<UsageMonitor.Core.Models.BalanceItem>();
-    
-        /// <summary>
-        /// req-098：MiniMax 任务栏迷你图声明：支持半圆环 + 文字 + 折线（每日用量趋势）。
-        /// <para>MiniMax 的 dailyTokenValues 可直接驱动 MiniLineChartControl，无需 DOM 字段映射。</para>
-        /// </summary>
-        public override IReadOnlyList<UsageMonitor.Core.Plugins.MiniChart.MiniChartKind> SupportedMiniCharts => new[]
-        {
-            UsageMonitor.Core.Plugins.MiniChart.MiniChartKind.MiniRingChart,
-            UsageMonitor.Core.Plugins.MiniChart.MiniChartKind.MiniText,
-            UsageMonitor.Core.Plugins.MiniChart.MiniChartKind.MiniLineChart
-        };
-    
-        /// <summary>
-        /// req-098：MiniMax 任务栏迷你图内容类型：主指标（已用百分比）/ Credits（积分余额） / ResetTime（5h 重置）。
-        /// </summary>
-        public override IReadOnlyList<UsageMonitor.Core.Plugins.MiniChart.MiniChartContentKind> MiniChartDataTypes => new[]
-        {
-            UsageMonitor.Core.Plugins.MiniChart.MiniChartContentKind.PrimaryMetric,
-            UsageMonitor.Core.Plugins.MiniChart.MiniChartContentKind.Credits,
-            UsageMonitor.Core.Plugins.MiniChart.MiniChartContentKind.ResetTime
-        };
+
+    /// <summary>
+    /// req-098：MiniMax 任务栏迷你图声明：支持半圆环 + 文字 + 折线（每日用量趋势）。
+    /// <para>MiniMax 的 dailyTokenValues 可直接驱动 MiniLineChartControl，无需 DOM 字段映射。</para>
+    /// </summary>
+    public override IReadOnlyList<UsageMonitor.Core.Plugins.MiniChart.MiniChartKind> SupportedMiniCharts => new[]
+    {
+        UsageMonitor.Core.Plugins.MiniChart.MiniChartKind.MiniRingChart,
+        UsageMonitor.Core.Plugins.MiniChart.MiniChartKind.MiniText,
+        UsageMonitor.Core.Plugins.MiniChart.MiniChartKind.MiniLineChart
+    };
+
+    /// <summary>
+    /// req-098：MiniMax 任务栏迷你图内容类型：主指标（已用百分比）/ Credits（积分余额） / ResetTime（5h 重置）。
+    /// </summary>
+    public override IReadOnlyList<UsageMonitor.Core.Plugins.MiniChart.MiniChartContentKind> MiniChartDataTypes => new[]
+    {
+        UsageMonitor.Core.Plugins.MiniChart.MiniChartContentKind.PrimaryMetric,
+        UsageMonitor.Core.Plugins.MiniChart.MiniChartContentKind.Credits,
+        UsageMonitor.Core.Plugins.MiniChart.MiniChartContentKind.ResetTime
+    };
 
     // ============== REQ-083 SDK v2 新增可选属性 ==============
 

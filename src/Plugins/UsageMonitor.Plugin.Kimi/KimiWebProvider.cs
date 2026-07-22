@@ -72,24 +72,24 @@ public class KimiWebProvider : WebPluginBase
 
     /// <inheritdoc />
     public override IReadOnlyList<string> SupportedRingChartMetrics => new[] { "Percent", "Usage" };
-    
-        /// <summary>
-        /// req-098：Kimi 网页模式任务栏迷你图声明：半圆环 + 文字（基础两件套）。
-        /// </summary>
-        public override IReadOnlyList<UsageMonitor.Core.Plugins.MiniChart.MiniChartKind> SupportedMiniCharts => new[]
-        {
-            UsageMonitor.Core.Plugins.MiniChart.MiniChartKind.MiniRingChart,
-            UsageMonitor.Core.Plugins.MiniChart.MiniChartKind.MiniText
-        };
-    
-        /// <summary>
-        /// req-098：Kimi 网页模式任务栏迷你图内容：主指标（已用百分比）+ Credits（余额）。
-        /// </summary>
-        public override IReadOnlyList<UsageMonitor.Core.Plugins.MiniChart.MiniChartContentKind> MiniChartDataTypes => new[]
-        {
-            UsageMonitor.Core.Plugins.MiniChart.MiniChartContentKind.PrimaryMetric,
-            UsageMonitor.Core.Plugins.MiniChart.MiniChartContentKind.Credits
-        };
+
+    /// <summary>
+    /// req-098：Kimi 网页模式任务栏迷你图声明：半圆环 + 文字（基础两件套）。
+    /// </summary>
+    public override IReadOnlyList<UsageMonitor.Core.Plugins.MiniChart.MiniChartKind> SupportedMiniCharts => new[]
+    {
+        UsageMonitor.Core.Plugins.MiniChart.MiniChartKind.MiniRingChart,
+        UsageMonitor.Core.Plugins.MiniChart.MiniChartKind.MiniText
+    };
+
+    /// <summary>
+    /// req-098：Kimi 网页模式任务栏迷你图内容：主指标（已用百分比）+ Credits（余额）。
+    /// </summary>
+    public override IReadOnlyList<UsageMonitor.Core.Plugins.MiniChart.MiniChartContentKind> MiniChartDataTypes => new[]
+    {
+        UsageMonitor.Core.Plugins.MiniChart.MiniChartContentKind.PrimaryMetric,
+        UsageMonitor.Core.Plugins.MiniChart.MiniChartContentKind.Credits
+    };
 
     /// <summary>req-099/bug5：Kimi 卡片 V2 进度条——5h/7天限额 + 额度已用（ratio 兼容 0-1 与 0-100）。</summary>
     protected override MetricBarData? BuildCardMetricBarData(UsageInfo usage)
