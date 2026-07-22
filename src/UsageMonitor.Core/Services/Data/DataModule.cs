@@ -21,6 +21,8 @@ public sealed class DataModule : IDataModule
 {
     private readonly UsageHistoryStore _store;
     private readonly UsageHistoryRepository? _repository;
+    /// <summary>req-092 B3 接线：字段级差异检测引擎，用于提取标准字段与对比新旧值。</summary>
+    private readonly IUsageDataDiffService _diffService = new UsageDataDiffService();
 
     /// <summary>
     /// 创建数据模块。传入仓库时启用 SQLite 持久化（内部据此创建 Store）。
@@ -68,11 +70,42 @@ public sealed class DataModule : IDataModule
     }
 
     /// <inheritdoc/>
-    public void SaveUsage(UsageInfo usage)
+    public void SaveUsage(UsageInfo usage, IReadOnlyDictionary<string, object>? standardFields = null)
     {
         if (usage == null) return;
         // Store.AddPoint(providerId, usage) 内部走 InsertUsagePointIfChangedAsync（字段级指纹去重）+ 持久化。
         _store.AddPoint(usage.ProviderId, usage);
+
+        // req-092 B3 接线：字段级差异持久化。与点级历史（AddPoint）并行，仅将变化的标准字段写入 usage_field_versions。
+        // 优先用插件 MapToStandardFields 结果（standardFields），缺省回退 DiffService.ExtractStandardFields。
+        // 需有 repository 才能持久化（纯内存模式无字段版本表）。
+        if (_repository != null)
+        {
+            var newFields = standardFields ?? _diffService.ExtractStandardFields(usage);
+            _ = SaveIncrementalDiffAsync(usage.ProviderId, newFields);
+        }
+    }
+
+    /// <summary>
+    /// req-092 B3：异步执行字段级差异检测 + 增量保存（fire-and-forget，不阻塞刷新）。
+    /// <para>从 <c>usage_field_versions</c> 读取上次各字段最新值作为旧值，与新值逐字段对比，
+    /// 仅对有变化的字段调 <c>SaveIncrementalAsync</c>。相同数据重复刷新时无新记录（验收 req-092#3）。</para>
+    /// </summary>
+    private async Task SaveIncrementalDiffAsync(string providerId, IReadOnlyDictionary<string, object> newFields)
+    {
+        try
+        {
+            var oldFields = await _repository!.GetLatestFieldsAsync(providerId);
+            var changes = _diffService.DetectChanges(oldFields, newFields);
+            if (changes.Length > 0)
+            {
+                await _repository.SaveIncrementalAsync(providerId, changes);
+            }
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Warn("DataModule", $"SaveIncrementalDiffAsync({providerId}) failed: {ex.Message}");
+        }
     }
 
     /// <inheritdoc/>

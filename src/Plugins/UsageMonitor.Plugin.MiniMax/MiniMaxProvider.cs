@@ -194,6 +194,47 @@ public class MiniMaxProvider : WebPluginBase
         UsageMonitor.Core.Plugins.MiniChart.MiniChartContentKind.ResetTime
     };
 
+    // ============== req-100/101/092 契约对齐 ==============
+
+    /// <summary>req-101 B4：MiniMax 为 Token Plan（订阅制）模式，卡片显示订阅档位而非余额。</summary>
+    public override ProviderMode Mode => ProviderMode.TokenPlan;
+
+    /// <summary>req-101 B4：订阅档位名称从 Extra["mm_subscriptionTitle"] 读取。</summary>
+    public override string? SubscriptionTierField => "mm_subscriptionTitle";
+
+    /// <summary>req-100 B4：MiniMax 卡片字段映射——5h 已用百分比为主指标，重置时间/积分余额指向对应 Extra 键。</summary>
+    public override FieldMapping? CardFieldMapping => new FieldMapping
+    {
+        PercentField = "mm_5hUsedPercent",
+        ResetTimeField = "mm_5hResetAt",
+        BalanceField = "mm_remainingCredits"
+    };
+
+    /// <summary>
+    /// req-092 B4：将 MiniMax DOM 提取的 mm_*（camelCase）标准化为 <see cref="UsageFields"/> 标准字段名，
+    /// 供字段级差异增量持久化（usage_field_versions）。仅当对应 Extra 键存在且非空时写入。
+    /// </summary>
+    public override IReadOnlyDictionary<string, object>? MapToStandardFields(UsageInfo usage)
+    {
+        if (usage == null) return null;
+        var f = new Dictionary<string, object>
+        {
+            [UsageFields.UsedPercent] = usage.GetUsagePercentage(),
+            [UsageFields.IsSuccess] = usage.IsSuccess,
+            [UsageFields.LastUpdated] = usage.LastUpdated
+        };
+        var extra = usage.Extra;
+        if (extra != null)
+        {
+            if (extra.TryGetValue("mm_5hUsedPercent", out var v5) && v5 != null) f[UsageFields.Mm5hUsedPercent] = v5;
+            if (extra.TryGetValue("mm_weeklyUsedPercent", out var vw) && vw != null) f[UsageFields.MmWeeklyUsedPercent] = vw;
+            if (extra.TryGetValue("mm_remainingCredits", out var vc) && vc != null) f[UsageFields.MmRemainingCredits] = vc;
+            if (extra.TryGetValue("mm_subscriptionTitle", out var vt) && vt != null) f[UsageFields.MmSubscriptionTitle] = vt;
+            if (extra.TryGetValue("mm_subscriptionActive", out var va) && va != null) f[UsageFields.MmSubscriptionActive] = va;
+        }
+        return f;
+    }
+
     // ============== REQ-083 SDK v2 新增可选属性 ==============
 
     /// <summary>

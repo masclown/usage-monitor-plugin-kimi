@@ -3,6 +3,7 @@ using System.Globalization;
 using UsageMonitor.Core.Models;
 using UsageMonitor.Core.Modules;
 using UsageMonitor.Core.Plugins;
+using UsageMonitor.Core.Services.Auth;
 using UsageMonitor.Core.Services.Data;
 
 namespace UsageMonitor.Core.Services;
@@ -26,6 +27,8 @@ public class RefreshService : IRefreshService
     // req-099 B2：数据访问统一走 IDataModule，不再直接持有 Store / Repository（数据刷新保存模块）。
     private readonly IDataModule _dataModule;
     private readonly CookieHealthDetector _cookieHealthDetector;
+    /// <summary>req-096 接线：统一鉴权管理器（可空）。用于刷新成功后记录登录态计时，使第四大模块真正生效。</summary>
+    private readonly AuthManager? _authManager;
     private Timer? _timer;
     /// <summary>req-057：刷新中标记（0=空闲，1=刷新中），使用 Interlocked 保证线程安全。</summary>
     private int _isRefreshing;
@@ -69,16 +72,19 @@ private readonly ConcurrentDictionary<string, int> _consecutiveFailures = new();
     /// 不再直接操作 Store / Repository。为 null 时使用内存模式的默认实现。
     /// </param>
     /// <param name="cookieHealthDetector">Cookie 健康探测器（可选）。</param>
+    /// <param name="authManager">req-096：统一鉴权管理器（可选）。传入后刷新成功会记录登录态计时。</param>
     public RefreshService(
         PluginManager pluginManager,
         ConfigService configService,
         IDataModule? dataModule = null,
-        CookieHealthDetector? cookieHealthDetector = null)
+        CookieHealthDetector? cookieHealthDetector = null,
+        AuthManager? authManager = null)
     {
         _pluginManager = pluginManager;
         _configService = configService;
         _dataModule = dataModule ?? new DataModule();
         _cookieHealthDetector = cookieHealthDetector ?? new CookieHealthDetector();
+        _authManager = authManager;
         _dataModule.MaxPoints = Math.Max(1, _configService.Settings.HistoryPointCount);
     }
 
@@ -268,7 +274,12 @@ private readonly ConcurrentDictionary<string, int> _consecutiveFailures = new();
                 // req-015：传完整 usage，Store 内部走 InsertUsagePointIfChangedAsync（业务指纹比对去重）。
                 if (usage.IsSuccess)
                 {
-                    _dataModule.SaveUsage(usage);
+                    // req-092 B3 接线：传入插件 MapToStandardFields 映射结果（默认 null 时 DataModule 回退 ExtractStandardFields），
+                    // 使字段级差异增量持久化生效。
+                    _dataModule.SaveUsage(usage, plugin.Provider.MapToStandardFields(usage));
+                    // req-096 接线：首次成功刷新时记录登录态获取时间（幂等，不覆盖已有 AcquiredAt），
+                    // 使 AuthManager 的“登录态计时”真正生效；轻量记录，不触发浏览器登录。
+                    _authManager?.EnsureLoginStateRecorded(providerId);
                 }
                 else
                 {

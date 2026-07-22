@@ -200,6 +200,26 @@ public class AuthManager
     }
 
     /// <summary>
+    /// req-096 接线：幂等记录登录态获取时间（仅当尚未记录时写入 AcquiredAt=now）。
+    /// <para>供 <c>RefreshService</c> 在首次成功刷新时调用，使“登录态计时”生效。
+    /// 与 <see cref="UpdateLoginStateAsync"/> 不同：本方法**不**获取鉴权数据（不触发浏览器/IO），也**不**覆盖已有记录，
+    /// 避免每次刷新重置 AcquiredAt；EncryptedData 留空（已标 [JsonIgnore]）。</para>
+    /// </summary>
+    /// <param name="providerId">服务商唯一标识。</param>
+    /// <param name="accountId">账号标识（默认 "default"）。</param>
+    public void EnsureLoginStateRecorded(string providerId, string accountId = "default")
+    {
+        if (string.IsNullOrEmpty(providerId)) return;
+        var key = GetLoginStateKey(providerId, accountId);
+        _loginStates.TryAdd(key, new LoginStateInfo
+        {
+            ProviderId = providerId,
+            AccountId = accountId,
+            AcquiredAt = DateTime.Now
+        });
+    }
+
+    /// <summary>
     /// 更新登录态信息
     /// </summary>
     private async Task UpdateLoginStateAsync(string providerId, string accountId, CancellationToken ct)

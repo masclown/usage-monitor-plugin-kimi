@@ -674,8 +674,8 @@
                                                       ContentTemplateSelector="{StaticResource LimitBarsTemplateSelector}">
                                         <ContentPresenter.Visibility>
                                             <MultiBinding Converter="{StaticResource CollapseVisibility}">
-                                                <Binding Path="IsDetailExpanded" />
-                                                <Binding Path="CollapseVisibleParts" />
+                                                <Binding Path="DataContext.IsDetailExpanded" RelativeSource="{RelativeSource AncestorType=Border}" />
+                                                <Binding Path="DataContext.CollapseVisibleParts" RelativeSource="{RelativeSource AncestorType=Border}" />
                                                 <Binding Source="limitBars" />
                                             </MultiBinding>
                                         </ContentPresenter.Visibility>
@@ -686,8 +686,8 @@
                                                       ContentTemplateSelector="{StaticResource BalanceTemplateSelector}">
                                         <ContentPresenter.Visibility>
                                             <MultiBinding Converter="{StaticResource CollapseVisibility}">
-                                                <Binding Path="IsDetailExpanded" />
-                                                <Binding Path="CollapseVisibleParts" />
+                                                <Binding Path="DataContext.IsDetailExpanded" RelativeSource="{RelativeSource AncestorType=Border}" />
+                                                <Binding Path="DataContext.CollapseVisibleParts" RelativeSource="{RelativeSource AncestorType=Border}" />
                                                 <Binding Source="balanceSnapshot" />
                                             </MultiBinding>
                                         </ContentPresenter.Visibility>
@@ -698,8 +698,8 @@
                                                       ContentTemplate="{StaticResource CardChartTemplate}">
                                         <ContentPresenter.Visibility>
                                             <MultiBinding Converter="{StaticResource CollapseVisibility}">
-                                                <Binding Path="IsDetailExpanded" />
-                                                <Binding Path="CollapseVisibleParts" />
+                                                <Binding Path="DataContext.IsDetailExpanded" RelativeSource="{RelativeSource AncestorType=Border}" />
+                                                <Binding Path="DataContext.CollapseVisibleParts" RelativeSource="{RelativeSource AncestorType=Border}" />
                                                 <Binding Source="charts" />
                                             </MultiBinding>
                                         </ContentPresenter.Visibility>

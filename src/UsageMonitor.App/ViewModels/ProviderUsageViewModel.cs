@@ -1,0 +1,1504 @@
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.IO;
+using System.Linq;
+using System.Runtime.CompilerServices;
+using System.Windows;
+using System.Windows.Input;
+using CommunityToolkit.Mvvm.Input;
+using UsageMonitor.App.Controls;
+using UsageMonitor.App.Helpers;
+using UsageMonitor.Core.Models;
+using UsageMonitor.Core.Plugins;
+using UsageMonitor.Core.Services;
+
+namespace UsageMonitor.App.ViewModels;
+
+/// <summary>
+/// 单个服务商的用量显示模型
+/// </summary>
+public class ProviderUsageViewModel : INotifyPropertyChanged
+{
+    private string _providerId = string.Empty;
+    private string _displayName = string.Empty;
+    private string _statusText = "未查询";
+    private double _usagePercentage;
+    private string _usedText = "--";
+    private string _totalText = "--";
+    private string _remainingText = "--";
+    private string _lastUpdateText = "--";
+    private bool _isEnabled = true;
+    private bool _isError;
+    private string? _errorMessage;
+    private TaskbarDisplayMode _displayMode = TaskbarDisplayMode.Text;
+    private CardChartKind _cardChartKind = CardChartKind.None;
+    private IReadOnlyList<double> _historyValues = Array.Empty<double>();
+    // req-008：余额快照重构为多列布局，使用 ObservableCollection<BalanceItem> 取代旧的 5 个拼接字段。
+    // 拆为集合的好处是：插件只需提供 BalanceItems 集合即可在 XAML 中动态生成列与分隔线，
+    // 不再受限于拼接文本（"12,345 / 678,901（5h窗口剩余）"）这种单列布局。
+    private readonly System.Collections.ObjectModel.ObservableCollection<UsageMonitor.Core.Models.BalanceItem> _balanceItems = new();
+    private Action? _openConfigAction;
+    private Func<Task>? _refreshCardAction;
+    // 卡片多进度条与订阅档位相关字段
+    private string _subscriptionTitle = "Token Plan 订阅";
+    private bool _isSubscriptionActive;
+    private double _primaryBarPercent;
+    private double _weeklyBarPercent;
+    private string _primaryResetText = "--";
+    private string _weeklyResetText = "--";
+    // req-028：5h 重置的精确时刻（来自 mm_5hResetAt extras）。null 表示该 Provider 无 5h 字段（不应出现在 5h 倒计时语境）。
+    private DateTime? _next5hResetAt;
+    private string _fiveHourCountdownText = "00:00:00";
+    private bool _fiveHourAutoRefreshTriggered;
+    private string _videoQuotaText = "--";
+    private string _videoWeeklyText = "--";
+    private double _remainingCredits;
+    private double _videoIntervalPercent;
+    private double _videoWeeklyPercent;
+    private IReadOnlyList<string> _renderKinds = Array.Empty<string>();
+    private bool _show5hBar = true;
+    private bool _showWeeklyBar = true;
+    private bool _showVideo5hBar = true;
+    private bool _showVideoWeeklyBar = true;
+    // 卡片图表多选与折线/热力图数据相关字段
+    private IReadOnlyList<CardChartKind> _cardChartKinds = Array.Empty<CardChartKind>();
+    private IReadOnlyList<double> _cardLineValues = Array.Empty<double>();
+    private double _cardLineMax = 100;
+    // MiniMax DOM 抓取模式标记：为 true 时折线图使用「每日 Token」，不被历史用量百分比覆盖。
+    private bool _isDomExtractMode;
+    // req-007：折线图完整化字段。SupportsPeriodSwitch=true 的插件（仅 MiniMax）会启用周期切换按钮。
+    private IReadOnlyList<string> _dates = Array.Empty<string>();
+    private IReadOnlyList<string>? _extraTooltipLines;
+    private bool _supportsPeriodSwitch;
+    private string _currentPeriod = UsageMonitor.App.Controls.ChartPeriods.Week;
+    private bool _isLoading;
+    // req-072 U-05：卡片详情展开状态。req-099 修复（Bug3）：默认改为展开，让卡片首屏即显示
+    // 限额/余额/图表全部已填充数据；此前默认折叠只显示 CollapseVisibleParts 声明的区段，
+    // 导致 MiniMax 仅显示 5h/周而图表/余额被隐藏，被误认为“数据未显示”。用户仍可点箭头折叠。
+    private bool _isDetailExpanded = true;
+    // req-007：缓存 MiniMax DOM 抓取到的「每日 Token」完整数据，供 PeriodChanged 重新切片。
+    // 完整数据按日期升序，最多 168 天（MiniMax usage_summary 接口上限）。
+    private IReadOnlyList<long> _fullDailyValues = Array.Empty<long>();
+    private IReadOnlyList<string> _fullDailyDates = Array.Empty<string>();
+    // req-034 修复：完整缓存命中率数据，供 SliceCardLineByPeriod 按周期切片
+    private IReadOnlyList<double> _fullDailyCacheHitPercents = Array.Empty<double>();
+    // req-026：当前 Provider 启用的环形图中心 metric key 列表，绑定到 RingChartControl.EnabledMetrics。
+    private IReadOnlyList<string> _enabledRingChartMetrics = Array.Empty<string>();
+
+    /// <summary>
+    /// 创建用量显示 VM。
+    /// </summary>
+    /// <param name="openConfigAction">
+    /// 点击卡片上"⚙ 设置"按钮时触发的回调。
+    /// 不传时点击按钮不会有反应（插件没配置项的情况）。
+    /// </param>
+    /// <param name="refreshCardAction">
+    /// 点击卡片右上角"⟳ 刷新"按钮时触发的回调（仅刷新本卡片对应服务商）。
+    /// 不传时刷新按钮为禁用态。
+    /// </param>
+    /// <param name="reLoginAction">
+    /// req-091-005：点击卡片「🔑 重新登录」按钮时触发的回调。
+    /// 不传时按钮隐藏（用 IUsageProvider.LoginConfig 是否为 null 判定）。
+    /// </param>
+    public ProviderUsageViewModel(Action? openConfigAction = null, Func<Task>? refreshCardAction = null, Action? reLoginAction = null)
+    {
+        _openConfigAction = openConfigAction;
+        _refreshCardAction = refreshCardAction;
+        _reLoginAction = reLoginAction;
+        ConfigCommand = new RelayCommand(OpenConfig, () => _openConfigAction != null);
+        RefreshCardCommand = new AsyncRelayCommand(RefreshCardAsync, () => _refreshCardAction != null);
+        ReLoginCommand = new RelayCommand(ReLogin, () => _reLoginAction != null);
+    }
+
+    /// <summary>req-091-005：手动重新登录回调，由 MainViewModel 装配时注入。</summary>
+    private readonly Action? _reLoginAction;
+
+    /// <summary>
+    /// req-091-005：点击卡片「🔑 重新登录」按钮时执行的命令。
+    /// 委托给 <see cref="_reLoginAction"/>（MainViewModel 在装配时传入），
+    /// 由 MainViewModel 内部调用 App 的 TriggerReLogin 流程。
+    /// </summary>
+    public IRelayCommand ReLoginCommand { get; }
+
+    /// <summary>req-091-005：执行手动重新登录（供 ReLoginCommand 调用）。</summary>
+    private void ReLogin()
+    {
+        _reLoginAction?.Invoke();
+    }
+
+    /// <summary>req-091-005：当前卡片是否支持重新登录（仅当插件声明 LoginConfig 时显示按钮）。</summary>
+    public bool SupportsReLogin => _reLoginAction != null;
+
+    /// <summary>
+    /// 供 MainViewModel 在创建时注入的 ConfigService。
+    /// 负责把 PluginConfigWindow 中改的 4 个进度条可见性开关同步到当前 VM 的属性。
+    /// </summary>
+    public UsageMonitor.Core.Services.ConfigService? ConfigService { get; private set; }
+
+    /// <summary>
+    /// 主 VM 装配时调用一次：注入 ConfigService 并首次从最新配置读取 4 个进度条开关。
+    /// 之后订阅 ConfigChanged 事件，配置变更时自动重新读取。
+    /// </summary>
+    public void AttachConfigService(UsageMonitor.Core.Services.ConfigService? configService)
+    {
+        if (ConfigService != null)
+            ConfigService.ConfigChanged -= OnConfigChanged;
+        ConfigService = configService;
+        if (configService != null)
+        {
+            configService.ConfigChanged += OnConfigChanged;
+            ReloadBarToggles();
+        }
+    }
+
+    /// <summary>
+    /// 配置变更时重新读取 MiniMax ProviderConfig 中 4 个进度条开关并通知属性变更。
+    /// req-104：同时通知 CardMetricBarData/CardMetricGridData 变更以应用字段过滤。
+    /// </summary>
+    private void OnConfigChanged(object? sender, EventArgs e)
+    {
+        ReloadBarToggles();
+        // req-104：配置变更时重新过滤多进度条/数字网格字段
+        OnPropertyChanged(nameof(CardMetricBarData));
+        OnPropertyChanged(nameof(CardMetricGridData));
+    }
+
+    /// <summary>
+    /// 从当前 ConfigService 拉取 MiniMax 的 ProviderConfig，按 key 取 Show5hBar 等字段。
+    /// 缺省时维持属性当前值（首次初始化为 true）。
+    /// </summary>
+    private void ReloadBarToggles()
+    {
+        if (ConfigService == null || string.IsNullOrEmpty(_providerId)) return;
+        var cfg = ConfigService.Settings.ProviderConfigs.Values
+            .FirstOrDefault(p => p.ProviderId == _providerId);
+        if (cfg == null) return;
+        Show5hBar = ReadBool(cfg, "Show5hBar", _show5hBar);
+        ShowWeeklyBar = ReadBool(cfg, "ShowWeeklyBar", _showWeeklyBar);
+        ShowVideo5hBar = ReadBool(cfg, "ShowVideo5hBar", _showVideo5hBar);
+        ShowVideoWeeklyBar = ReadBool(cfg, "ShowVideoWeeklyBar", _showVideoWeeklyBar);
+    }
+
+    /// <summary>读取 boolean 配置项，缺省时使用 currentDefault。</summary>
+    private static bool ReadBool(ProviderConfig cfg, string key, bool currentDefault)
+    {
+        var raw = cfg.GetValue(key);
+        if (string.IsNullOrWhiteSpace(raw)) return currentDefault;
+        return bool.TryParse(raw, out var b) ? b : currentDefault;
+    }
+
+    /// <summary>
+    /// 主窗口中卡片右上角"⚙ 设置"按钮绑定的命令（调用构造时传入的回调）。
+    /// </summary>
+    public RelayCommand ConfigCommand { get; }
+
+    /// <summary>
+    /// 主窗口中卡片右上角"⟳ 刷新"按钮绑定的命令（仅刷新本卡片对应服务商）。
+    /// 使用 AsyncRelayCommand：执行期间自动禁用按钮，避免重复点击导致并发请求。
+    /// </summary>
+    public IAsyncRelayCommand RefreshCardCommand { get; }
+
+    /// <summary>
+    /// 主窗口卡片点击设置按钮时调用外部逻辑（打开 PluginConfigWindow）。
+    /// </summary>
+    private void OpenConfig()
+    {
+        _openConfigAction?.Invoke();
+    }
+
+    /// <summary>
+    /// 触发构造时注入的"刷新本卡片"回调；未注入时返回已完成任务，不做任何事。
+    /// </summary>
+    private Task RefreshCardAsync() => _refreshCardAction?.Invoke() ?? Task.CompletedTask;
+
+    public string ProviderId { get => _providerId; set { _providerId = value; OnPropertyChanged(); } }
+    public string DisplayName { get => _displayName; set { _displayName = value; OnPropertyChanged(); } }
+
+    /// <summary>Provider 图标的文件路径，用于在卡片、任务栏、悬浮窗中显示 logo</summary>
+    public string? IconPath { get => _iconPath; set { _iconPath = value; OnPropertyChanged(); } }
+    private string? _iconPath;
+
+    /// <summary>
+    /// 根据 ProviderId 解析对应的图标文件路径。
+    /// <para>
+    /// req-069 F-14：移除硬编码 switch 列表，改为约定优于配置 + 插件 <see cref="IUsageProvider.IconPath"/>
+    /// 优先。扫描 <c>Assets/Providers/{providerId}.{png|ico|jpg}</c> 任一存在的文件。
+    /// </para>
+    /// <para>优点：新增 Provider 只需在 Assets/Providers/ 放下对应图标文件，无需改本方法。
+    /// SVG 暂不原生支持（需 XAML 转 BitmapImage）。</para>
+    /// </summary>
+    public static string? ResolveIconPath(string providerId)
+    {
+        if (string.IsNullOrWhiteSpace(providerId)) return null;
+        var basePath = AppDomain.CurrentDomain.BaseDirectory;
+        var dir = Path.Combine(basePath, "Assets", "Providers");
+        var normalizedId = providerId.ToLowerInvariant();
+        // 按优先级扫描常见扩展名（png > ico > jpg > svg）
+        foreach (var ext in new[] { ".png", ".ico", ".jpg", ".svg" })
+        {
+            var candidate = Path.Combine(dir, normalizedId + ext);
+            if (File.Exists(candidate)) return candidate;
+        }
+        return null;
+    }
+    public string StatusText { get => _statusText; set { _statusText = value; OnPropertyChanged(); } }
+    public double UsagePercentage { get => _usagePercentage; set { _usagePercentage = value; OnPropertyChanged(); } }
+    public string UsedText { get => _usedText; set { _usedText = value; OnPropertyChanged(); } }
+    public string TotalText { get => _totalText; set { _totalText = value; OnPropertyChanged(); } }
+    public string RemainingText { get => _remainingText; set { _remainingText = value; OnPropertyChanged(); } }
+    public string LastUpdateText { get => _lastUpdateText; set { _lastUpdateText = value; OnPropertyChanged(); } }
+    public bool IsEnabled { get => _isEnabled; set { _isEnabled = value; OnPropertyChanged(); } }
+    public bool IsError { get => _isError; set { _isError = value; OnPropertyChanged(); } }
+    public string? ErrorMessage { get => _errorMessage; set { _errorMessage = value; OnPropertyChanged(); } }
+    /// <summary>req-008：余额快照多列布局数据源（默认 4 项：累计 / 峰值 / 活跃 / 积分余额）。
+    /// 由 <c>UpdateBalanceFromExtra</c> 组装，插件可通过 <see cref="IUsageProvider.BalanceItems"/> 覆盖/追加/隐藏默认项。
+    /// XAML 端用 ItemsControl 横向拼接 + 1px 竖向分隔符。</summary>
+    public System.Collections.ObjectModel.ObservableCollection<UsageMonitor.Core.Models.BalanceItem> BalanceItems => _balanceItems;
+
+    /// <summary>订阅档位胶囊文案：已订阅返回具体档位名，未订阅或未抓到返回默认占位</summary>
+    public string SubscriptionTitle { get => _subscriptionTitle; set { _subscriptionTitle = value; OnPropertyChanged(); } }
+
+    /// <summary>是否已订阅（按后端 combo_id 是否存在判断）</summary>
+    public bool IsSubscriptionActive { get => _isSubscriptionActive; set { _isSubscriptionActive = value; OnPropertyChanged(); } }
+
+    /// <summary>5h 限额进度条已使用百分比（0-100）</summary>
+    public double PrimaryBarPercent { get => _primaryBarPercent; set { _primaryBarPercent = value; OnPropertyChanged(); } }
+
+    /// <summary>周限额进度条已使用百分比（0-100）</summary>
+    public double WeeklyBarPercent { get => _weeklyBarPercent; set { _weeklyBarPercent = value; OnPropertyChanged(); } }
+
+    /// <summary>5h 限额重置剩余文案（"2 小时 21 分钟后重置"）</summary>
+    public string PrimaryResetText { get => _primaryResetText; set { _primaryResetText = value; OnPropertyChanged(); } }
+
+    /// <summary>req-051：当前圆环图显示的 metric 名称（如"5h 用量"、"周用量"等）。</summary>
+    public string CurrentMetricName { get => _currentMetricName; set { _currentMetricName = value; OnPropertyChanged(); OnPropertyChanged(nameof(TaskbarToolTipText)); } }
+    private string _currentMetricName = "5h 用量";
+
+    /// <summary>req-051：任务栏圆环图 tooltip 文本（Provider 名字 + 数据名字 + 重置倒计时）。</summary>
+    public string TaskbarToolTipText
+    {
+        get
+        {
+            var resetInfo = string.IsNullOrEmpty(FiveHourCountdownText) ? "" : $"\n重置：{FiveHourCountdownText}";
+            return $"{DisplayName}\n{CurrentMetricName}{resetInfo}";
+        }
+    }
+
+    /// <summary>
+    /// req-028：根据 <see cref="Next5hResetAt"/> 重新计算 <see cref="FiveHourCountdownText"/>。
+    /// <para>由 MainViewModel 的全局每秒 timer 调用；不需要 INPC 子订阅。
+    /// 返回当前倒计时 + 是否已超过 0（”到点了“），供 MainViewModel 决定是否调 <c>RefreshProviderAsync</c>。</para>
+    /// </summary>
+    /// <param name="now">外部传“当时”便于测试；不传则用 <see cref="DateTime.Now"/>。</param>
+    /// <returns>(剩余时长, 是否≤0) 剩余&gt;0时返回 remaining+false；小于等于0或 null 时返回 (Zero, true)。</returns>
+    public (TimeSpan remaining, bool isElapsed) RefreshFiveHourCountdownText(DateTime? now = null)
+    {
+        var current = now ?? DateTime.Now;
+        var target = _next5hResetAt;
+        if (target == null)
+        {
+            FiveHourCountdownText = "00:00:00";
+            return (TimeSpan.Zero, true);
+        }
+        var remaining = target.Value - current;
+        if (remaining <= TimeSpan.Zero)
+        {
+            FiveHourCountdownText = "00:00:00";
+            return (TimeSpan.Zero, true);
+        }
+        FiveHourCountdownText = UsageMonitor.App.Helpers.CountdownFormatter.Format(remaining);
+        return (remaining, false);
+    }
+
+    /// <summary>req-028：MainViewModel 检查到“到点了”时调用，标记本次窗口已经触发；到下个新 mm_5hResetAt 出现时被重置。</summary>
+    public void MarkFiveHourAutoRefreshTriggered() => _fiveHourAutoRefreshTriggered = true;
+
+    /// <summary>req-028：检查本 Provider 是否应该被自动刷新（倒计时≤0 且本窗口未触发过）。</summary>
+    public bool ShouldTriggerFiveHourAutoRefresh()
+        => _next5hResetAt.HasValue
+           && _next5hResetAt.Value <= DateTime.Now
+           && !_fiveHourAutoRefreshTriggered;
+
+    /// <summary>
+    /// req-028：5h 重置精确时刻（来自 mm_5hResetAt extras）。
+    /// <para>用于计算托盘/悬浮窗倒计时 <see cref="FiveHourCountdownText"/>，以及到时自动刷新的判定。
+    /// 由 <c>UpdateFromMiniMaxDom</c> 写入；为 null 时表示该 Provider 不参与 5h 倒计时。</para>
+    /// </summary>
+    public DateTime? Next5hResetAt
+    {
+        get => _next5hResetAt;
+        set
+        {
+            if (_next5hResetAt == value) return;
+            _next5hResetAt = value;
+            _fiveHourAutoRefreshTriggered = false; // 新值出现意味着倒计时重置，允许下次再次到达 0 时触发
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(FiveHourCountdownText));
+            OnPropertyChanged(nameof(HasFiveHourCountdown));
+        }
+    }
+
+    /// <summary>
+    /// req-028：5h 倒计时显示文本（HH:mm:ss 形式）。
+    /// <para>由 MainViewModel 装配的每 1 秒 <c>DispatcherTimer</c> 刷新（直接调用
+    /// <see cref="RefreshFiveHourCountdownText"/>）。托盘/悬浮窗均可绑此属性。</para>
+    /// </summary>
+    public string FiveHourCountdownText
+    {
+        get => _fiveHourCountdownText;
+        set { if (_fiveHourCountdownText == value) return; _fiveHourCountdownText = value; OnPropertyChanged(); OnPropertyChanged(nameof(TaskbarToolTipText)); }
+    }
+
+    /// <summary>req-028：是否存在有效 5h 重置时间（用于按需显隐倒计时 UI）。</summary>
+    public bool HasFiveHourCountdown => _next5hResetAt.HasValue;
+
+    /// <summary>周限额重置剩余文案（"5 天 2 小时后重置"）</summary>
+    public string WeeklyResetText { get => _weeklyResetText; set { _weeklyResetText = value; OnPropertyChanged(); } }
+
+    /// <summary>视频赠送 5h 维度已用/总额（"0/3"）</summary>
+    public string VideoQuotaText { get => _videoQuotaText; set { _videoQuotaText = value; OnPropertyChanged(); } }
+
+    /// <summary>视频赠送 周维度已用/总额（"0/21"）</summary>
+    public string VideoWeeklyText { get => _videoWeeklyText; set { _videoWeeklyText = value; OnPropertyChanged(); } }
+
+    /// <summary>剩余积分余额</summary>
+    public double RemainingCredits { get => _remainingCredits; set { _remainingCredits = value; OnPropertyChanged(); } }
+
+    /// <summary>视频赠送 5h 维度已用百分比（0-100），分母为 0 时为 0。</summary>
+    public double VideoIntervalPercent { get => _videoIntervalPercent; set { _videoIntervalPercent = value; OnPropertyChanged(); } }
+
+    /// <summary>视频赠送 周 维度已用百分比（0-100），分母为 0 时为 0。</summary>
+    public double VideoWeeklyPercent { get => _videoWeeklyPercent; set { _videoWeeklyPercent = value; OnPropertyChanged(); } }
+
+    /// <summary>用户设置：5h 限额进度条是否在卡片中显示（默认 true）。</summary>
+    public bool Show5hBar { get => _show5hBar; set { _show5hBar = value; OnPropertyChanged(); } }
+
+    /// <summary>用户设置：周限额进度条是否在卡片中显示（默认 true）。</summary>
+    public bool ShowWeeklyBar { get => _showWeeklyBar; set { _showWeeklyBar = value; OnPropertyChanged(); } }
+
+    /// <summary>用户设置：视频赠送 5h 进度条是否在卡片中显示（默认 true）。</summary>
+    public bool ShowVideo5hBar { get => _showVideo5hBar; set { _showVideo5hBar = value; OnPropertyChanged(); } }
+
+    /// <summary>用户设置：视频赠送 周 进度条是否在卡片中显示（默认 true）。</summary>
+    public bool ShowVideoWeeklyBar { get => _showVideoWeeklyBar; set { _showVideoWeeklyBar = value; OnPropertyChanged(); } }
+
+    /// <summary>该插件声明的渲染能力集合，供 XAML 决定是否呈现特定段落。</summary>
+    public IReadOnlyList<string> RenderKinds
+    {
+        get => _renderKinds;
+        set
+        {
+            _renderKinds = value ?? Array.Empty<string>();
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// req-折叠插件控制：插件声明"卡片折叠状态下仍可见的元素"集合（render_kind key）。
+    /// 与 <see cref="RenderKinds"/> 不同的是：本集合控制**折叠态**下哪些元素保持显示，
+    /// 展开态下不受影响（仍按 <see cref="RenderKinds"/> 决定可见性）。
+    /// <para>由 MainViewModel 装配时从 <c>IUsageProvider.CollapseVisibleParts</c> 注入。
+    /// 默认空集合 —— 折叠态下隐藏所有限额/余额/图表。</para>
+    /// </summary>
+    private IReadOnlyList<string> _collapseVisibleParts = Array.Empty<string>();
+    public IReadOnlyList<string> CollapseVisibleParts
+    {
+        get => _collapseVisibleParts;
+        set
+        {
+            _collapseVisibleParts = value ?? Array.Empty<string>();
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// 任务栏显示模式（影响任务栏窗口中的呈现样式）
+    /// </summary>
+    public TaskbarDisplayMode DisplayMode
+    {
+        get => _displayMode;
+        set
+        {
+            if (_displayMode == value) return;
+            _displayMode = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(DisplayModeText));
+        }
+    }
+
+    /// <summary>用于下拉框显示的友好文本</summary>
+    public string DisplayModeText => DisplayMode switch
+    {
+        TaskbarDisplayMode.Text => "文字",
+        TaskbarDisplayMode.MiniLineChart => "折线图",
+        TaskbarDisplayMode.RingChart => "圆环图",
+        _ => "文字"
+    };
+
+    // ============ req-091：登录态持续天数 ============
+
+    private int _sessionDurationDays;
+
+    /// <summary>
+    /// req-091：当前 Provider 登录态持续天数（0 = 首次登录当天，&gt;0 = 持续 N 天）。
+    /// </summary>
+    public int SessionDurationDays
+    {
+        get => _sessionDurationDays;
+        set
+        {
+            if (_sessionDurationDays == value) return;
+            _sessionDurationDays = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(SessionDurationText));
+        }
+    }
+
+    /// <summary>
+    /// req-091：当前登录态持续天数的显示文本。
+    /// <para>
+    /// 王晨 16:57 拍板：持续天数为 0（首次登录当天）显示**空值**——不显示"今天"、不显示"0天"、
+    /// 不显示倒计时、不显示提醒。UI 用 <c>StringToVisibility</c> 转换器自动隐藏空文本。
+    /// </para>
+    /// </summary>
+    public string? SessionDurationText
+    {
+        get
+        {
+            if (_sessionDurationDays <= 0) return null;
+            return $"持续 {_sessionDurationDays} 天";
+        }
+    }
+
+    /// <summary>
+    /// 主窗口卡片中展示的图表类型（None=仅进度条）。遗留的「单选」属性，仅为向后兼容保留；
+    /// 新逻辑一律使用多选集合 <see cref="CardChartKinds"/> 驱动卡片图表区显隐。
+    /// </summary>
+    public CardChartKind CardChartKind
+    {
+        get => _cardChartKind;
+        set
+        {
+            if (_cardChartKind == value) return;
+            _cardChartKind = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// 主窗口卡片中展示的图表类型「集合」（多选，空集合=仅进度条）。
+    /// 由 PluginItemViewModel 负责持久化，这里驱动卡片图表区的显隐与各图表控件的按需叠加显示。
+    /// </summary>
+    public IReadOnlyList<CardChartKind> CardChartKinds
+    {
+        get => _cardChartKinds;
+        set
+        {
+            _cardChartKinds = value ?? Array.Empty<CardChartKind>();
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(HasCardChart));
+            OnPropertyChanged(nameof(EnabledCharts));
+        }
+    }
+
+    /// <summary>是否显示卡片图表区（多选集合非空时为 true）。</summary>
+    public bool HasCardChart => _cardChartKinds != null && _cardChartKinds.Count > 0;
+
+    /// <summary>
+    /// req-005-019：实际可渲染的卡片图表集合 = 「Provider 声明的 <see cref="IUsageProvider.SupportedCardCharts"/>」
+    /// 与「用户多选 <see cref="CardChartKinds"/>」的交集。供 req-005-018 的 DataTemplateSelector / 卡片图表区
+    /// 按此过滤，避免渲染插件并不支持的图表类型；Provider 未声明支持集合时回退为用户多选本身（向后兼容）。
+    /// </summary>
+    public IReadOnlyList<CardChartKind> EnabledCharts
+    {
+        get
+        {
+            var supported = Provider?.SupportedCardCharts;
+            if (supported == null || supported.Count == 0) return _cardChartKinds;
+            return _cardChartKinds.Where(supported.Contains).ToList();
+        }
+    }
+
+    /// <summary>
+    /// 卡片折线图的数据序列。非 MiniMax（或 MiniMax API 模式）时跟随 <see cref="HistoryValues"/>（历史用量百分比，0-100）；
+    /// MiniMax DOM 模式下由 <see cref="UpdateMiniMaxCharts"/> 替换为「每日 Token 用量」序列。
+    /// </summary>
+    public IReadOnlyList<double> CardLineValues
+    {
+        get => _cardLineValues;
+        set { _cardLineValues = value ?? Array.Empty<double>(); OnPropertyChanged(); }
+    }
+
+    /// <summary>卡片折线图的 Y 轴最大值。用量百分比场景为 100；每日 Token 场景为区间最大值（自适应）。</summary>
+    public double CardLineMax
+    {
+        get => _cardLineMax;
+        set { _cardLineMax = value <= 0 ? 100 : value; OnPropertyChanged(); }
+    }
+
+    /// <summary>
+    /// 卡片热力图单元集合（GitHub 贡献图风格）。目前由 MiniMax DOM 模式按「每日 Token 用量」填充；
+    /// 其它插件暂无逐日日历数据，保持为空（选中热力图时不显示内容）。
+    /// </summary>
+    public ObservableCollection<YearHeatMapCell> HeatMapCells { get; } = new();
+
+    /// <summary>
+    /// 历史已用百分比数据点（用于折线图绘制，0-100 数值）
+    /// </summary>
+    public IReadOnlyList<double> HistoryValues
+    {
+        get => _historyValues;
+        set
+        {
+            _historyValues = value ?? Array.Empty<double>();
+            OnPropertyChanged();
+            // 非 MiniMax DOM 模式：卡片折线图跟随历史用量百分比（0-100）。
+            // DOM 模式下折线图改用每日 Token，不能被历史百分比覆盖。
+            if (!_isDomExtractMode)
+            {
+                CardLineValues = _historyValues;
+                CardLineMax = 100;
+                // req-007：非 DOM 模式无日期数据，清空 X 轴标签 / 周期切换 / tooltip 扩展。
+                Dates = Array.Empty<string>();
+                SupportsPeriodSwitch = false;
+                ExtraTooltipLines = null;
+            }
+        }
+    }
+
+    // =====================================================================
+    // req-007：折线图完整化属性与切换处理
+    // =====================================================================
+
+    /// <summary>折线图 X 轴日期标签（按数据点顺序）。</summary>
+    public IReadOnlyList<string> Dates
+    {
+        get => _dates;
+        set { _dates = value ?? Array.Empty<string>(); OnPropertyChanged(); }
+    }
+
+    /// <summary>折线图 hover tooltip 的扩展文本行（按换行拼接展示）。</summary>
+    public IReadOnlyList<string>? ExtraTooltipLines
+    {
+        get => _extraTooltipLines;
+        set { _extraTooltipLines = value; OnPropertyChanged(); }
+    }
+
+    // ============== REQ-083 SDK v2 新增可选属性（委托给 Provider） ==============
+
+    /// <summary>
+    /// Provider 注入的"V2 度量进度条组"数据（REQ-083）。
+    /// 返回 null 时主窗口 <c>ChartCardTemplateSelector</c> 自动回退到旧 CardLimitBarsTemplate。
+    /// req-104：按用户选择的字段过滤。
+    /// </summary>
+    public UsageMonitor.Core.Models.MetricBarData? CardMetricBarData
+    {
+        get
+        {
+            var data = Provider?.CardMetricBarData;
+            if (data == null || ConfigService == null) return data;
+
+            // req-104：按用户选择过滤进度条字段
+            if (!ConfigService.Settings.SelectedProgressFields.TryGetValue(_providerId, out var selectedFields))
+                return data; // 未配置时显示全部
+
+            if (selectedFields.Count == 0)
+                return data; // 空列表时显示全部
+
+            var filteredBars = data.Bars.Where(b => selectedFields.Contains(b.Label)).ToList();
+            return new UsageMonitor.Core.Models.MetricBarData(filteredBars);
+        }
+    }
+
+    /// <summary>
+    /// Provider 注入的"V2 度量数字网格"数据（REQ-083）。
+    /// 返回 null 时主窗口 <c>ChartCardTemplateSelector</c> 自动回退到旧 CardBalanceTemplate。
+    /// req-104：按用户选择的字段过滤。
+    /// </summary>
+    public UsageMonitor.Core.Models.MetricGridData? CardMetricGridData
+    {
+        get
+        {
+            var data = Provider?.CardMetricGridData;
+            if (data == null || ConfigService == null) return data;
+
+            // req-104：按用户选择过滤数字网格字段
+            if (!ConfigService.Settings.SelectedMetricFields.TryGetValue(_providerId, out var selectedFields))
+                return data; // 未配置时显示全部
+
+            if (selectedFields.Count == 0)
+                return data; // 空列表时显示全部
+
+            var filteredItems = data.Items.Where(i => selectedFields.Contains(i.Label)).ToList();
+            return new UsageMonitor.Core.Models.MetricGridData(filteredItems);
+        }
+    }
+
+    /// <summary>
+    /// Provider 注入的"V2 TooltipContent 生成委托"（REQ-083）。
+    /// 返回 null 时主窗口沿用旧 ExtraTooltipLines 拼接逻辑。
+    /// </summary>
+    public System.Func<int, UsageMonitor.Core.Models.TooltipContent>? LineTooltipProvider => Provider?.LineTooltipProvider;
+
+    /// <summary>req-034 修复：缓存命中率（0-100），供折线图 tooltip 显示。负值表示无数据。</summary>
+    public double CacheHitPercent
+    {
+        get => _cacheHitPercent;
+        set { _cacheHitPercent = value; OnPropertyChanged(); }
+    }
+    private double _cacheHitPercent = -1;
+
+    /// <summary>req-034 修复：每独立的缓存命中率集合（与 CardLineValues 等长）。</summary>
+    public IReadOnlyList<double> DailyCacheHitPercents
+    {
+        get => _dailyCacheHitPercents;
+        set { _dailyCacheHitPercents = value ?? Array.Empty<double>(); OnPropertyChanged(); }
+    }
+    private IReadOnlyList<double> _dailyCacheHitPercents = Array.Empty<double>();
+
+    /// <summary>插件是否声明支持周期切换（req-007）。为 true 时卡片折线图右上角显示「近 7 天 / 近 30 天」按钮。</summary>
+    public bool SupportsPeriodSwitch
+    {
+        get => _supportsPeriodSwitch;
+        set { _supportsPeriodSwitch = value; OnPropertyChanged(); }
+    }
+
+    /// <summary>当前周期（req-007）。</summary>
+    public string CurrentPeriod
+    {
+        get => _currentPeriod;
+        set
+        {
+            var v = value ?? UsageMonitor.App.Controls.ChartPeriods.Week;
+            if (_currentPeriod == v) return;
+            _currentPeriod = v;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>是否处于加载态（req-007）。为 true 时控件半透明 + 中央“加载中...”文字 + 按钮变灰。</summary>
+    public bool IsLoading
+    {
+        get => _isLoading;
+        set
+        {
+            if (_isLoading == value) return;
+            _isLoading = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// req-072 U-05：卡片详情展开状态（默认折叠）。
+    /// 用于 Expander 绑定，控制限额/余额/图表等次要信息的显示。
+    /// </summary>
+    public bool IsDetailExpanded
+    {
+        get => _isDetailExpanded;
+        set
+        {
+            if (_isDetailExpanded == value) return;
+            _isDetailExpanded = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// req-026：当前 Provider 启用的环形图中心 metric key 集合。
+    /// <para>绑定到 RingChartControl.EnabledMetrics，由 <c>MainViewModel.BuildProviderRingChartMetricGroups</c>
+    /// 在用户勾选变更时通过 <c>SyncProviderEnabledMetricsToVm</c> 同步。null / 空集合表示“全部启用”，
+    /// 控件会沿用旧行为不显灰。</para>
+    /// </summary>
+    public IReadOnlyList<string> EnabledRingChartMetrics
+    {
+        get => _enabledRingChartMetrics;
+        set
+        {
+            if (ReferenceEquals(_enabledRingChartMetrics, value)) return;
+            if (value == null) value = Array.Empty<string>();
+            _enabledRingChartMetrics = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(EnabledRingChartMetricsOrNull));
+        }
+    }
+
+    /// <summary>
+    /// req-026：XAML 绑定辅助——把 null 转成"全部启用"占位的 null（让 RingChartControl 默认启灰判断）。
+    /// <para>vs <see cref="EnabledRingChartMetrics"/>：返回 null 时让控件认为"未配置"，保留旧行为。</para>
+    /// </summary>
+    public IReadOnlyList<string>? EnabledRingChartMetricsOrNull
+    {
+        get => _enabledRingChartMetrics.Count == 0 ? null : _enabledRingChartMetrics;
+        set { /* 仅供 XAML setter 调用，实际写入见 EnabledRingChartMetrics */ }
+    }
+
+    /// <summary>
+    /// 插件提供者引用（req-007）：为当前 VM 关联的插件 provider，用于 SetPeriodAsync 调用。
+    /// 在 MainViewModel 装配时注入，刷新流程不会修改。
+    /// </summary>
+    public UsageMonitor.Core.Plugins.IUsageProvider? Provider
+    {
+        get => _provider;
+        set
+        {
+            _provider = value;
+            // REQ-083：Provider 变更时通知 V2 数据属性，让 ChartCardTemplateSelector 重新选模板。
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(CardMetricBarData));
+            OnPropertyChanged(nameof(CardMetricGridData));
+            OnPropertyChanged(nameof(LineTooltipProvider));
+        }
+    }
+    private UsageMonitor.Core.Plugins.IUsageProvider? _provider;
+
+    /// <summary>
+    /// req-007：处理 MiniLineChartControl.PeriodChanged 事件。
+    /// <para>
+    /// 1) 调插件 <c>SetPeriodAsync</c>（默认 no-op，仅记 log）；2) 切换 <see cref="IsLoading"/>=true；
+    /// 3) 按 <see cref="CurrentPeriod"/> 在已缓存的 <c>_fullDailyValues</c>/<c>_fullDailyDates</c> 上重新切片到
+    ///    <see cref="CardLineValues"/> 与 <see cref="Dates"/>；4) 关 IsLoading。
+    /// 之所以不调 GetUsageAsync：usage_summary 返回的是最多 168 天的历史数据，周期切换不需要重新拉接口。
+    /// </para>
+    /// </summary>
+    public void HandlePeriodChanged(string period)
+    {
+        CurrentPeriod = period;
+        IsLoading = true;
+        try
+        {
+            // 通知插件（默认 no-op：MiniMax 重写为记录 period；其他插件保持原状）
+            var provider = Provider;
+            if (provider != null)
+            {
+                _ = provider.SetPeriodAsync(period);
+            }
+
+            // 按周期切片缓存的完整数据到折线图
+            SliceCardLineByPeriod(period);
+        }
+        catch (Exception ex)
+        {
+            // req-031：捕获切片/插件异常，避免冒泡到 UI 线程导致闪退
+            UsageMonitor.Core.Services.FileLogger.Warn("ProviderUsageViewModel",
+                $"HandlePeriodChanged({period}) failed for {ProviderId}: {ex.Message}", ex);
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    /// <summary>
+    /// req-007：根据 period 在 <c>_fullDailyValues</c> 与 <c>_fullDailyDates</c> 上切片并写入
+    /// <see cref="CardLineValues"/> / <see cref="CardLineMax"/> / <see cref="Dates"/>。
+    /// <para>
+    /// 窗口取后 N 天（N = <see cref="UsageMonitor.App.Controls.ChartPeriods.ToDays"/>）；
+    /// 数据不足时使用全部；空数据时清空。
+    /// </para>
+    /// </summary>
+    private void SliceCardLineByPeriod(string period)
+    {
+        var values = _fullDailyValues;
+        var dates = _fullDailyDates;
+        if (values == null || values.Count == 0)
+        {
+            CardLineValues = Array.Empty<double>();
+            CardLineMax = 1;
+            Dates = Array.Empty<string>();
+            return;
+        }
+
+        var days = UsageMonitor.App.Controls.ChartPeriods.ToDays(period);
+        var take = Math.Min(days, values.Count);
+        var start = values.Count - take;
+
+        var sliced = new double[take];
+        for (int i = 0; i < take; i++) sliced[i] = values[start + i];
+
+        CardLineValues = sliced;
+
+        // Y 轴最大值：取窗口内最大值（至少 1，避免全零平线）
+        double max = 0;
+        for (int i = 0; i < take; i++) if (sliced[i] > max) max = sliced[i];
+        CardLineMax = max > 0 ? max : 1;
+
+        // Dates：仅在「完整数据提供日期」时同步切片；其他插件 Dates 为空。
+        if (dates != null && dates.Count == values.Count && take > 0)
+        {
+            var slicedDates = new string[take];
+            for (int i = 0; i < take; i++) slicedDates[i] = dates[start + i];
+            Dates = slicedDates;
+        }
+        else
+        {
+            Dates = Array.Empty<string>();
+        }
+
+        // req-034 修复：缓存命中率同步切片（与 values/dates 同逻辑，取后 take 个）
+        var fullCacheHit = _fullDailyCacheHitPercents;
+        if (fullCacheHit != null && fullCacheHit.Count == values.Count && take > 0)
+        {
+            var slicedCacheHit = new double[take];
+            for (int i = 0; i < take; i++) slicedCacheHit[i] = fullCacheHit[start + i];
+            DailyCacheHitPercents = slicedCacheHit;
+        }
+        else
+        {
+            DailyCacheHitPercents = Array.Empty<double>();
+        }
+    }
+
+    /// <summary>
+    /// 根据 UsageInfo 更新显示数据
+    /// </summary>
+    public void UpdateFromUsage(UsageInfo usage)
+    {
+        // req-099/bug5：刷新后通知 V2 卡片数据属性重取（Provider 已在 GetUsageAsync 更新 LastUsage，
+        // 使 Kimi/Deepseek/Qoder 等 Web 插件的 CardMetricBarData/CardMetricGridData 在新框架下重新渲染）。
+        OnPropertyChanged(nameof(CardMetricBarData));
+        OnPropertyChanged(nameof(CardMetricGridData));
+        IsError = !usage.IsSuccess;
+        ErrorMessage = usage.ErrorMessage;
+        LastUpdateText = usage.LastUpdated.ToString("HH:mm:ss");
+
+        if (!usage.IsSuccess)
+        {
+            StatusText = "查询失败";
+
+            // MiniMax 插件错误引导：根据错误类型显示不同提示
+            if (string.Equals(usage.ProviderId, "MiniMax", StringComparison.OrdinalIgnoreCase))
+            {
+                var msg = usage.ErrorMessage ?? "";
+
+                // 1. 完全未配置 Key（提示中包含"Token Plan 订阅 Key"或"填写"）
+                if (msg.Contains("Token Plan 订阅 Key") || msg.Contains("填写"))
+                {
+                    StatusText = "请进入设置界面来配置 Token Plan 订阅 Key";
+                }
+                // 2. 1004 鉴权失败 / login fail
+                else if (msg.Contains("1004") || msg.Contains("login fail"))
+                {
+                    StatusText = "Token Plan 订阅 Key 无效，请进入设置检查";
+                }
+                // 3. 其他错误：显示通用引导
+                else
+                {
+                    StatusText = "请进入设置界面来配置 MiniMax 的权限";
+                }
+            }
+
+            // req-008：失败场景也要把余额快照重置为 4 个默认占位项，避免显示上一次成功的旧值。
+            UpdateBalanceFromExtra(usage.Extra ?? new Dictionary<string, object>());
+            return;
+        }
+
+        UsagePercentage = usage.GetUsagePercentage();
+
+        // MiniMax 通过 DOM/网页 API 抓取的用量：走专用渲染分支。
+        if (usage.Extra != null && usage.Extra.TryGetValue("domExtract", out var deFlag)
+            && deFlag is bool deb && deb)
+        {
+            UpdateFromMiniMaxDom(usage);
+            return;
+        }
+
+        // 走到这里说明不是 MiniMax DOM 抓取数据：回到「历史用量百分比」折线图模式。
+        _isDomExtractMode = false;
+        CardLineValues = _historyValues;
+        CardLineMax = 100;
+
+        if (usage.TotalAmount > 0)
+        {
+            UsedText = $"{usage.UsedAmount:F2} {usage.Unit}";
+            TotalText = $"{usage.TotalAmount:F2} {usage.Unit}";
+            RemainingText = $"{usage.GetRemainingAmount():F2} {usage.Unit}";
+            StatusText = $"{usage.GetUsagePercentage():F1}% 已使用";
+        }
+        else if (usage.UsedTokens > 0)
+        {
+            UsedText = FormatTokens(usage.UsedTokens);
+            TotalText = usage.TotalTokens > 0 ? FormatTokens(usage.TotalTokens) : "不限";
+            RemainingText = usage.TotalTokens > 0 ? FormatTokens(usage.GetRemainingTokens()) : "--";
+            StatusText = usage.TotalTokens > 0
+                ? $"{usage.GetUsagePercentage():F1}% 已使用"
+                : $"已用 {UsedText}";
+        }
+        else if (usage.UsedAmount > 0)
+        {
+            // req-099/bug5：纯“已用金额”型 API 插件（如 OpenAI 仅返回 UsedAmount、无 TotalAmount/Tokens），
+            // 之前落到 else 显示“暂无数据”。此处按“已用 X”展示，恢复其之前的功能。
+            UsedText = $"{usage.UsedAmount:F2} {usage.Unit}";
+            TotalText = "不限";
+            RemainingText = "--";
+            StatusText = $"已用 {UsedText}";
+        }
+        else
+        {
+            StatusText = "暂无数据";
+        }
+
+        // 解析 Extra 中由 MiniMaxBalanceFetcher 填入的余额/账单快照
+        // 其他插件不需处理（Extra 为空字典）
+        if (usage.Extra != null)
+            UpdateBalanceFromExtra(usage.Extra);
+    }
+
+    /// <summary>
+    /// 渲染 MiniMax 通过 DOM/网页 API 抓取的用量到卡片。
+    /// 数据来源：MiniMaxDomExtractor 写入 UsageInfo.Extra 的 mm_* 键
+    /// （5h/周/视频的用量百分比、重置时间、订阅档位、积分、调用汇总）。
+    /// </summary>
+    private void UpdateFromMiniMaxDom(UsageInfo usage)
+    {
+        var extra = usage.Extra!;
+        _isDomExtractMode = true;
+
+        // 小工具：容错读取 double / long / string（Extra 值为 object 装箱）。
+        double D(string k) => extra.TryGetValue(k, out var v) && v != null
+            ? Convert.ToDouble(v) : -1;
+        long L(string k) => extra.TryGetValue(k, out var v) && v != null
+            ? Convert.ToInt64(v) : 0;
+        string S(string k) => extra.TryGetValue(k, out var v) ? v?.ToString() ?? "" : "";
+
+        // 1. 渲染需求（mm_render_kinds）传给 XAML，用于控制“订阅胶囊/5h/周进度条/汇总面板”是否呈现。
+        if (extra.TryGetValue("mm_render_kinds", out var rk) && rk is IEnumerable<string> kinds)
+        {
+            RenderKinds = kinds.ToArray();
+        }
+        else if (rk is IEnumerable<object> kindsObj)
+        {
+            // JsonElement 数组等也会实现 IEnumerable，兼容转换。
+            RenderKinds = kindsObj.Select(x => x?.ToString() ?? "").Where(x => x.Length > 0).ToArray();
+        }
+        else
+        {
+            // req-fix（bug3a）：mm_render_kinds 缺失/类型不符时回退到插件声明的 DefaultRenderKinds，
+            // 避免 RenderKinds 被清空导致 5h/周进度条整段消失。
+            RenderKinds = Provider?.DefaultRenderKinds ?? Array.Empty<string>();
+        }
+
+        // 2. 订阅档位胶囊。
+        IsSubscriptionActive = extra.TryGetValue("mm_subscriptionActive", out var sa) && sa is bool sab && sab;
+        var subTitle = S("mm_subscriptionTitle");
+        SubscriptionTitle = !string.IsNullOrWhiteSpace(subTitle)
+            ? $"Token Plan · {subTitle}"
+            : "Token Plan 订阅";
+
+        // 3. 5h 限额进度条（主进度条，绿色主题）。
+        var p5 = D("mm_5hUsedPercent");
+        PrimaryBarPercent = p5 >= 0 ? Math.Min(100, p5) : 0;
+        UsagePercentage = PrimaryBarPercent; // 遗留逻辑：保留卡片顶部主进度条的取值
+        PrimaryResetText = BuildRemainText(extra, "mm_5hResetAt");
+        // req-028：同时保存 mm_5hResetAt 原始 DateTime，供托盘/悬浮窗倒计时 + 到时自动刷新。
+        Next5hResetAt = extra.TryGetValue("mm_5hResetAt", out var ra) && ra is DateTime radt ? radt : null;
+
+        // 4. 周限额进度条。
+        var pw = D("mm_weeklyUsedPercent");
+        WeeklyBarPercent = pw >= 0 ? Math.Min(100, pw) : 0;
+        WeeklyResetText = BuildRemainText(extra, "mm_weeklyResetAt");
+
+        // 5. 状态行（保留 StatusText，包含 5h + 周概要）。
+        StatusText = (PrimaryBarPercent > 0 || WeeklyBarPercent > 0)
+            ? $"5h 已用 {PrimaryBarPercent:0}% · 本周 已用 {WeeklyBarPercent:0}%"
+            : "已登录";
+
+        // 6. 视频赠送 5h + 周。
+        var v5Used = L("mm_videoIntervalUsed");
+        var v5Total = L("mm_videoIntervalTotal");
+        VideoQuotaText = v5Total > 0 ? $"{v5Used}/{v5Total}" : "--";
+        VideoIntervalPercent = v5Total > 0 ? Math.Min(100, 100.0 * v5Used / v5Total) : 0;
+        var vwUsed = L("mm_videoWeeklyUsed");
+        var vwTotal = L("mm_videoWeeklyTotal");
+        VideoWeeklyText = vwTotal > 0 ? $"{vwUsed}/{vwTotal}" : "--";
+        VideoWeeklyPercent = vwTotal > 0 ? Math.Min(100, 100.0 * vwUsed / vwTotal) : 0;
+
+        // 7. 卡片顶一行的 “已使用 / 总额度 / 剩余额度” 仍保留供未适配卡片主题的插件使用；
+        //    本插件额外叠加为信息性文本，不会被三列 UI 误读。
+        UsedText = PrimaryBarPercent > 0 ? $"{PrimaryBarPercent:0}%" : "--";
+        TotalText = "100%";
+        RemainingText = $"{Math.Max(0, 100 - PrimaryBarPercent):0}%";
+
+        // 8. 汇总面板（req-008：多列布局的 BalanceItem 集合）。
+        // 默认 4 项：累计 / 峰值 / 活跃 / 积分余额。每项 Value / Detail 由 mm_* 字段填充。
+        // 插件可通过 provider.BalanceItems 按 Label 覆盖同名项 / 追加额外项 / 隐藏默认项。
+        var credits = D("mm_remainingCredits");
+        RemainingCredits = credits;
+        var totalTokens = S("mm_totalTokens");
+        var activeDays = L("mm_activeDays");
+        var totalDays = L("mm_totalDays");
+        var mostActive = S("mm_mostActiveDay"); // 格式 "2026-07-01 (552.49M)"
+        // req-047：提取排名百分比（mm_rankingPercent），用于显示"前X%"
+        double? rankingPercent = null;
+        if (extra.TryGetValue("mm_rankingPercent", out var rp) && rp is double rpVal && rpVal > 0)
+            rankingPercent = rpVal;
+        // 订阅到期时间（仅在已订阅时拼接）
+        DateTime? subscriptionEnd = null;
+        if (IsSubscriptionActive && extra.TryGetValue("mm_subscriptionEndTime", out var se) && se is DateTime sed)
+            subscriptionEnd = sed;
+
+        RebuildBalanceItems(totalTokens, mostActive, activeDays, totalDays, credits, subscriptionEnd, rankingPercent);
+
+        // 9. 折线图 / 热力图：用「每日 Token 用量」填充卡片图表数据。
+        UpdateMiniMaxCharts(extra);
+
+        // req-fix-诊断（bug3a/5）：记录卡片渲染门控的运行时值，供下次运行定位“卡片正文空白”。
+        UsageMonitor.Core.Services.FileLogger.Info("CardRender",
+            $"MiniMax: IsDetailExpanded={IsDetailExpanded}, RenderKinds=[{string.Join(",", RenderKinds)}], " +
+            $"Show5h={Show5hBar}, ShowWeekly={ShowWeeklyBar}, 5h%={PrimaryBarPercent:0}, weekly%={WeeklyBarPercent:0}, " +
+            $"CardChartKinds=[{string.Join(",", CardChartKinds)}], HasCardChart={HasCardChart}, " +
+            $"CollapseParts=[{string.Join(",", CollapseVisibleParts)}], Line={CardLineValues.Count}, Heat={HeatMapCells.Count}");
+    }
+
+    /// <summary>
+    /// req-008：组装余额快照多列数据。先拼默认 4 项（累计 / 峰值 / 活跃 / 积分余额），
+    /// 再按 <c>Label</c> 与插件 <see cref="IUsageProvider.BalanceItems"/> 合并：同名项插件胜出，
+    /// 未匹配项追加在默认项之后。插件项 <c>IsVisible=false</c> 可隐藏默认项。
+    /// </summary>
+    /// <param name="rankingPercent">req-047：用量排名百分比，非空时显示"前X%"作为累计的 Detail。</param>
+    private void RebuildBalanceItems(
+        string totalTokens, string mostActive, long activeDays, long totalDays,
+        double credits, DateTime? subscriptionEnd, double? rankingPercent)
+    {
+        // 默认 4 项
+        var defaults = new List<UsageMonitor.Core.Models.BalanceItem>
+        {
+            // req-047：累计项的 Detail 显示排名（"前X%"），无排名时不显示
+            new() {
+                Label = "累计",
+                Value = string.IsNullOrEmpty(totalTokens) ? "--" : totalTokens,
+                Detail = rankingPercent.HasValue ? $"前{rankingPercent.Value:0}%" : null
+            },
+            new() { Label = "峰值", Value = ExtractMostActiveToken(mostActive), Detail = ExtractMostActiveDate(mostActive) },
+            new() { Label = "活跃", Value = totalDays > 0 ? $"{activeDays}/{totalDays}天" : "--" },
+            new()
+            {
+                Label = "积分余额",
+                Value = credits > 0 ? $"{credits:N0}" : "暂无积分",
+                Detail = subscriptionEnd.HasValue ? $"续期至 {subscriptionEnd.Value:yyyy-MM-dd}" : null
+            }
+        };
+
+        // 插件覆盖/追加
+        var provider = Provider;
+        if (provider != null)
+        {
+            foreach (var pluginItem in provider.BalanceItems)
+            {
+                var existing = defaults.FirstOrDefault(d => string.Equals(d.Label, pluginItem.Label, StringComparison.OrdinalIgnoreCase));
+                if (existing != null)
+                {
+                    // 覆盖默认：保留默认项的 INPC 引用（同 Label），仅刷值
+                    if (!string.IsNullOrEmpty(pluginItem.Value)) existing.Value = pluginItem.Value;
+                    if (pluginItem.Detail != null) existing.Detail = pluginItem.Detail;
+                    if (!pluginItem.IsVisible) existing.IsVisible = false;
+                }
+                else
+                {
+                    defaults.Add(new UsageMonitor.Core.Models.BalanceItem
+                    {
+                        Label = pluginItem.Label,
+                        Value = pluginItem.Value ?? "--",
+                        Detail = pluginItem.Detail,
+                        IsVisible = pluginItem.IsVisible
+                    });
+                }
+            }
+        }
+
+        // 标记末项并写入集合：IsLast 决定 XAML 端是否显示该列右侧的 1px 分隔线。
+        for (int i = 0; i < defaults.Count; i++) defaults[i].IsLast = (i == defaults.Count - 1);
+        _balanceItems.Clear();
+        foreach (var item in defaults) _balanceItems.Add(item);
+        OnPropertyChanged(nameof(BalanceItems));
+    }
+
+    /// <summary>从 <c>mm_mostActiveDay</c> 字符串中提取数值部分（如"2026-07-01 (552.49M)" → "552.49M"）。</summary>
+    private static string ExtractMostActiveToken(string? mostActive)
+    {
+        if (string.IsNullOrEmpty(mostActive)) return "--";
+        var open = mostActive.IndexOf('(');
+        var close = mostActive.IndexOf(')');
+        if (open < 0 || close <= open) return "--";
+        return mostActive.Substring(open + 1, close - open - 1).Trim();
+    }
+
+    /// <summary>从 <c>mm_mostActiveDay</c> 字符串中提取日期部分（如"2026-07-01 (552.49M)" → "2026-07-01"）。</summary>
+    private static string? ExtractMostActiveDate(string? mostActive)
+    {
+        if (string.IsNullOrEmpty(mostActive)) return null;
+        var open = mostActive.IndexOf('(');
+        if (open <= 0) return null;
+        return mostActive.Substring(0, open).Trim();
+    }
+
+    /// <summary>
+    /// 用 MiniMax DOM 抓取的「每日 Token 用量」填充卡片折线图与热力图数据。
+    /// <para>
+    /// 数据来源：<c>mm_dailyTokenValues</c>（每日 token，按日期升序）与 <c>mm_dailyTokenDates</c>
+    /// （对应 yyyy-MM-dd，可能缺省）。折线图取当前周期窗口内的趋势（req-007：默认 7 天，可切换为 30 天），
+    /// Y 轴自适应为窗口内最大值；热力图为每个 token&gt;0 的日期生成一个单元（颜色按相对峰值的强度分三档），
+    /// 缺日期时按「最后一个点=今天」向前推断日历。完整数据同时缓存到 <c>_fullDailyValues</c> 与
+    /// <c>_fullDailyDates</c>，供 <see cref="HandlePeriodChanged"/> 按新周期重新切片。
+    /// </para>
+    /// </summary>
+    private void UpdateMiniMaxCharts(Dictionary<string, object> extra)
+    {
+        // 读取每日 token 数值序列（Extra 内存直传，值为 List<long>；兼容其它可枚举形态）。
+        var values = ReadLongList(extra, "mm_dailyTokenValues");
+        var dates = ReadStringList(extra, "mm_dailyTokenDates");
+        // req-034 修复：读取每独立的缓存命中率（提前读取，供热力图和折线图共用）
+        var dailyCacheHitPercents = ReadDoubleList(extra, "mm_dailyCacheHitPercents");
+
+        // req-007：缓存完整数据，供 PeriodChanged 重新切片。values 在这里就已经是完整升序序列。
+        _fullDailyValues = values;
+        _fullDailyDates = dates;
+        // req-034 修复：缓存完整缓存命中率数据，供 SliceCardLineByPeriod 按周期切片
+        _fullDailyCacheHitPercents = dailyCacheHitPercents;
+
+        // req-007：把插件声明的周期切换能力、tooltip 扩展行推到 UI。
+        SupportsPeriodSwitch = false; // 占位默认值，循环结束后会被插件实际声明覆盖。
+        var provider = Provider;
+        if (provider != null)
+        {
+            SupportsPeriodSwitch = provider.SupportsPeriodSwitch;
+            ExtraTooltipLines = provider.ExtraTooltipLines;
+        }
+
+        // 折线图：按当前周期（默认 7d）取窗口内数据，Y 轴自适应为该区间最大值（至少 1，避免除零/全零全平）。
+        if (values.Count >= 2)
+        {
+            var days = UsageMonitor.App.Controls.ChartPeriods.ToDays(CurrentPeriod);
+            var take = Math.Min(days, values.Count);
+            var start = values.Count - take;
+            var recent = new List<double>(take);
+            for (int i = start; i < values.Count; i++) recent.Add(values[i]);
+            CardLineValues = recent;
+            double max = 0;
+            foreach (var r in recent) if (r > max) max = r;
+            CardLineMax = max > 0 ? max : 1;
+
+            // req-007：X 轴 Dates 同步到窗口（仅在 dates 与 values 同长度时）。
+            // ReadStringList 永远返回非 null List，dates 本地变量也不需要 null 检查。
+            if (dates.Count == values.Count)
+            {
+                var slicedDates = new string[take];
+                for (int i = 0; i < take; i++) slicedDates[i] = dates[start + i];
+                Dates = slicedDates;
+
+                // req-034 修复：每独立的缓存命中率同步切片
+                if (dailyCacheHitPercents.Count == values.Count)
+                {
+                    var slicedCacheHit = new double[take];
+                    for (int i = 0; i < take; i++) slicedCacheHit[i] = dailyCacheHitPercents[start + i];
+                    DailyCacheHitPercents = slicedCacheHit;
+                }
+                else
+                {
+                    DailyCacheHitPercents = Array.Empty<double>();
+                }
+            }
+            else
+            {
+                Dates = Array.Empty<string>();
+                DailyCacheHitPercents = Array.Empty<double>();
+            }
+        }
+        else
+        {
+            CardLineValues = Array.Empty<double>();
+            CardLineMax = 1;
+            Dates = Array.Empty<string>();
+        }
+
+        // 热力图（req-009 + req-021）：为每个 token 日期生成单元，背景色按 token 绝对值走 HeatMapTierScale 选档；
+        // token<=0 显式归一为“无用量”色（#f3f4f6），避免热力图色阶表后续变更导致浅红误着色。
+        // 静态冻结 brush（跨线程安全）。
+        var zeroBrush = FreezeBrush(0xF3, 0xF4, 0xF6);
+        HeatMapCells.Clear();
+        if (values.Count > 0)
+        {
+            // 从 extras 读缓存命中率（mm_cacheHitPercent）；为负或缺失时 ComparisonText 留空。
+            double cacheHitPercent = -1;
+            if (extra.TryGetValue("mm_cacheHitPercent", out var chp) && chp != null)
+            {
+                try { cacheHitPercent = Convert.ToDouble(chp); }
+                catch { cacheHitPercent = -1; }
+            }
+            // req-034 修复：存储缓存命中率供折线图 tooltip 使用（属性 setter 会同时更新字段并触发 INPC）
+            CacheHitPercent = cacheHitPercent;
+
+            for (int i = 0; i < values.Count; i++)
+            {
+                var token = values[i];
+                // 日期：优先用真实 date；缺失时按「最后一个点=今天」向前推。
+                string day = i < dates.Count && !string.IsNullOrEmpty(dates[i])
+                    ? dates[i]
+                    : DateTime.Today.AddDays(-(values.Count - 1 - i)).ToString("yyyy-MM-dd");
+                // 与原逻辑保留 percent（为兼容 ProgressToBrush 等历史用法）—— 选 token 绝对值 1.5% 为峰值。
+                long peak = 0;
+                foreach (var v in values) if (v > peak) peak = v;
+                if (peak <= 0) peak = 1;
+                double percent = Math.Min(100.0, 100.0 * token / peak);
+
+                // req-021：token<=0 强制显 “无用量”色（与色阶表首档颜色一致，但与未来修改脱耦）。
+                var bgBrush = token > 0
+                    ? UsageMonitor.App.Helpers.HeatMapTierScale.ResolveBrush(token, "MiniMax")
+                    : zeroBrush;
+
+                // req-034 修复：使用每独立的缓存命中率
+                double dayCacheHit = i < dailyCacheHitPercents.Count ? dailyCacheHitPercents[i] : -1;
+
+                HeatMapCells.Add(new YearHeatMapCell
+                {
+                    Day = day,
+                    Percent = percent,
+                    Token = token, // req-009：供 RecolorHeatMapCells 重算背景色
+                    Background = bgBrush,
+                    ValueText = token > 0 ? FormatTokens(token) : "--",
+                    Unit = "",
+                    ComparisonText = dayCacheHit >= 0
+                        ? $"缓存命中 {dayCacheHit:0.00}%"
+                        : string.Empty
+                });
+            }
+        }
+    }
+
+    /// <summary>从 Extra 读取 List&lt;long&gt;（兼容 List&lt;long&gt; 与其它可枚举装箱），失败返回空列表。</summary>
+    private static List<long> ReadLongList(Dictionary<string, object> extra, string key)
+    {
+        var result = new List<long>();
+        if (!extra.TryGetValue(key, out var v) || v == null) return result;
+        if (v is List<long> ll) return ll;
+        if (v is string) return result; // string 也是 IEnumerable，先排除
+        if (v is System.Collections.IEnumerable en)
+        {
+            foreach (var item in en)
+            {
+                if (item == null) continue;
+                if (long.TryParse(item.ToString(), out var n)) result.Add(n);
+            }
+        }
+        return result;
+    }
+
+    /// <summary>从 Extra 读取 List&lt;string&gt;（兼容 List&lt;string&gt; 与其它可枚举装箱），失败返回空列表。</summary>
+    private static List<string> ReadStringList(Dictionary<string, object> extra, string key)
+    {
+        var result = new List<string>();
+        if (!extra.TryGetValue(key, out var v) || v == null) return result;
+        if (v is List<string> ls) return ls;
+        if (v is string) return result;
+        if (v is System.Collections.IEnumerable en)
+        {
+            foreach (var item in en)
+                result.Add(item?.ToString() ?? "");
+        }
+        return result;
+    }
+
+    /// <summary>req-034 修复：从 Extra 读取 List&lt;double&gt;（兼容 List&lt;double&gt; 与其它可枚举装箱），失败返回空列表。</summary>
+    private static List<double> ReadDoubleList(Dictionary<string, object> extra, string key)
+    {
+        var result = new List<double>();
+        if (!extra.TryGetValue(key, out var v) || v == null) return result;
+        if (v is List<double> ld) return ld;
+        if (v is System.Collections.IEnumerable en)
+        {
+            foreach (var item in en)
+            {
+                if (item is double d) result.Add(d);
+                else if (item != null && double.TryParse(item.ToString(), System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+                    result.Add(parsed);
+            }
+        }
+        return result;
+    }
+
+    // req-009：旧按百分比的 3 档映射（HeatLow / HeatMid / HeatHigh）已被 HeatMapTierScale 取代，
+    // 后者按 token 绝对值分档（默认 MiniMax 6 档：0/20M/100M/200M/300M）。
+    // 所有调用点（UpdateMiniMaxCharts / RecolorHeatMapCells）已改为走 HeatMapTierScale.ResolveBrush。
+    // 旧字段（HeatLow/Mid/High）已删除，避免误用。
+
+    /// <summary>创建并冻结一个 SolidColorBrush（frozen 后可安全跨线程绑定到 UI）。</summary>
+    private static System.Windows.Media.Brush FreezeBrush(byte r, byte g, byte b)
+    {
+        var brush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(r, g, b));
+        brush.Freeze();
+        return brush;
+    }
+
+    /// <summary>
+    /// 根据 Extra 中的 DateTime 重置时间生成“X 小时 X 分钟后重置”形式的文案，
+    /// 与用量页前端 o(remains_time) 逻辑保持一致。
+    /// </summary>
+    /// <param name="extra">Extra 字典</param>
+    /// <param name="key">超时字段名（"mm_5hResetAt" / "mm_weeklyResetAt"）</param>
+    private static string BuildRemainText(Dictionary<string, object> extra, string key)
+    {
+        if (!extra.TryGetValue(key, out var v) || v is not DateTime dt) return "--";
+        var diff = dt - DateTime.Now;
+        if (diff.TotalMinutes < 0) return "即将重置";
+
+        // 参考 JS 函数 o(remains_time)：1 天以上显示"X 天 后重置"，1 小时以上显示"X 小时 Y 分钟后重置"，否则只显示分钟。
+        if (diff.TotalDays >= 1)
+        {
+            var d = (int)Math.Floor(diff.TotalDays);
+            var h = diff.Hours;
+            return h > 0 ? $"{d} 天 {h} 小时后重置" : $"{d} 天后重置";
+        }
+        if (diff.TotalHours >= 1)
+        {
+            var h = (int)Math.Floor(diff.TotalHours);
+            var m = diff.Minutes;
+            return m > 0 ? $"{h} 小时 {m} 分钟后重置" : $"{h} 小时后重置";
+        }
+        var mins = Math.Max(1, (int)Math.Ceiling(diff.TotalMinutes));
+        return $"{mins} 分钟后重置";
+    }
+
+    /// <summary>
+    /// req-008：把账户余额/账单抓取器（MiniMaxBalanceFetcher）的结果组装到余额快照的 BalanceItems 集合。
+    /// <para>
+    /// 场景区分：<c>balanceFetcherStatus</c> 非空时说明本次抓取过，组装 4 个默认项 + 1 个"账户余额"追加项；
+    /// 非 MiniMax / 余额抓取未启用时直接组装 4 个默认占位项。
+    /// 不再使用 <c>HasBalanceInfo</c> 折叠控制（需求要求"模块永远显示"）。
+    /// </para>
+    /// </summary>
+    private void UpdateBalanceFromExtra(Dictionary<string, object> extra)
+    {
+        // 1) 总是先拼默认 4 项（累计 / 峰值 / 活跃 / 积分余额）—— 非 MiniMax 场景下值都是 "--" 占位。
+        var defaultItems = new List<UsageMonitor.Core.Models.BalanceItem>
+        {
+            new() { Label = "累计", Value = "--" },
+            new() { Label = "峰值", Value = "--" },
+            new() { Label = "活跃", Value = "--" },
+            new() { Label = "积分余额", Value = "暂无积分" }
+        };
+
+        if (extra == null || extra.Count == 0)
+        {
+            ReplaceBalanceItems(defaultItems);
+            return;
+        }
+
+        // 2) 状态指示：balanceFetcherStatus - 仅 MiniMax 余额抓取场景会写入。
+        var status = extra.TryGetValue("balanceFetcherStatus", out var sObj) ? sObj?.ToString() : null;
+        if (string.IsNullOrEmpty(status))
+        {
+            // 非余额抓取场景（普通刷新 / API 模式），直接用默认项。
+            ReplaceBalanceItems(defaultItems);
+            return;
+        }
+
+        // 3) MiniMax 余额抓取场景：组装 1 个追加项"账户余额"，由数据源决定 Value。
+        string value;
+        string? detail = null;
+        if (extra.TryGetValue("accountIntervalRemaining", out var irObj) &&
+            extra.TryGetValue("accountIntervalTotal", out var itObj))
+        {
+            var remain = Convert.ToInt64(irObj);
+            var total = Convert.ToInt64(itObj);
+            value = $"{remain:N0} / {total:N0}";
+            detail = "5h窗口剩余";
+        }
+        else if (extra.TryGetValue("accountWeeklyRemaining", out var wrObj) &&
+                 extra.TryGetValue("accountWeeklyTotal", out var wtObj))
+        {
+            var remain = Convert.ToInt64(wrObj);
+            var total = Convert.ToInt64(wtObj);
+            value = $"{remain:N0} / {total:N0}";
+            detail = "周窗口剩余";
+        }
+        else if (status == "no_cookie")
+        {
+            value = "未登录";
+        }
+        else
+        {
+            value = "暂不可用";
+        }
+
+        // 拼接额外上下文（重置时间 / 快照文件名 / 错误消息），多行以换行分隔。
+        var sb = new System.Text.StringBuilder(detail);
+        if (extra.TryGetValue("accountIntervalEndAt", out var endObj) && endObj is DateTime endAt)
+        {
+            if (sb.Length > 0) sb.Append('\n');
+            sb.Append($"重置于 {endAt:HH:mm}");
+        }
+        if (extra.TryGetValue("balancePageSnapshotPath", out var pathObj))
+        {
+            if (sb.Length > 0) sb.Append('\n');
+            sb.Append($"快照: {Path.GetFileName(pathObj?.ToString() ?? "")}");
+        }
+        if (status == "no_cookie" && extra.TryGetValue("balanceFetcherMessage", out var msgObj))
+        {
+            if (sb.Length > 0) sb.Append('\n');
+            sb.Append(msgObj);
+        }
+
+        defaultItems.Add(new UsageMonitor.Core.Models.BalanceItem
+        {
+            Label = "账户余额",
+            Value = value,
+            Detail = sb.Length > 0 ? sb.ToString() : null
+        });
+
+        ReplaceBalanceItems(defaultItems);
+    }
+
+    /// <summary>req-008：原子替换 BalanceItems 集合并通知 UI 刷新。同时标记末项 <c>IsLast=true</c> 让 XAML 隐藏其右侧分隔线。</summary>
+    private void ReplaceBalanceItems(IEnumerable<UsageMonitor.Core.Models.BalanceItem> items)
+    {
+        var list = items as IList<UsageMonitor.Core.Models.BalanceItem> ?? items.ToList();
+        _balanceItems.Clear();
+        for (int i = 0; i < list.Count; i++)
+        {
+            list[i].IsLast = (i == list.Count - 1);
+            _balanceItems.Add(list[i]);
+        }
+        OnPropertyChanged(nameof(BalanceItems));
+    }
+
+    private static string FormatTokens(long count)
+    {
+        if (count < 0) return "不限";
+        if (count >= 1_000_000) return $"{count / 1_000_000.0:F2}M";
+        if (count >= 1_000) return $"{count / 1_000.0:F2}K";
+        return count.ToString();
+    }
+
+    /// <summary>
+    /// 重发出本 VM 所有进度条 Percent 属性的 PropertyChanged。
+    /// 供全局色阶变更后让 XAML 上的 PercentToBrushConverter 重新取色使用。
+    /// </summary>
+    public void RefreshAllPercentProperties()
+    {
+        OnPropertyChanged(nameof(PrimaryBarPercent));
+        OnPropertyChanged(nameof(WeeklyBarPercent));
+        OnPropertyChanged(nameof(VideoIntervalPercent));
+        OnPropertyChanged(nameof(VideoWeeklyPercent));
+    }
+
+    /// <summary>
+    /// 重着色本卡片的"每日 Token"热力图单元（按当前 <see cref="UsageMonitor.App.Helpers.HeatMapTierScale"/> 色阶）。
+    /// <para>
+    /// req-009：按每个 cell 缓存的 <c>Token</c> 走 HeatMapTierScale.ResolveBrush 重算背景；
+    /// providerId 用本卡片的 <c>ProviderId</c>（如 "MiniMax"），未声明时走通用 4 档兑底。
+    /// </para>
+    /// </summary>
+    public void RecolorHeatMapCells()
+    {
+        var pid = ProviderId;
+        foreach (var cell in HeatMapCells)
+        {
+            cell.Background = UsageMonitor.App.Helpers.HeatMapTierScale.ResolveBrush(cell.Token, pid);
+        }
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+    protected void OnPropertyChanged([CallerMemberName] string? name = null)
+        => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+}

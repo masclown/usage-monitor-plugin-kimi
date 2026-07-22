@@ -36,6 +36,8 @@ public partial class App : Application
     private PluginManager _pluginManager = null!;
     private ConfigService _configService = null!;
     private RefreshService _refreshService = null!;
+    /// <summary>req-096 接线：统一鉴权管理器（第四大模块）——登录态计时 + 启动加载/退出持久化。</summary>
+    private UsageMonitor.Core.Services.Auth.AuthManager _authManager = null!;
     private UsageMonitor.Core.Services.Data.DataModule _dataModule = null!;
     private UsageHistoryRepository _historyRepository = null!;
     private MainViewModel _viewModel = null!;
@@ -230,7 +232,12 @@ public partial class App : Application
             FileLogger.Error("App", "Initial LoadFromRepositoryAsync failed", ex);
         }
 
-        _refreshService = new RefreshService(_pluginManager, _configService, _dataModule);
+        // req-096 接线：创建统一鉴权管理器（第四大模块），启动时恢复登录态计时（LoadLoginStatesAsync），
+        // 并作为参数传给 RefreshService，使刷新成功后能记录登录态。退出时由 OnExit 调 SaveLoginStatesAsync 持久化。
+        _authManager = new UsageMonitor.Core.Services.Auth.AuthManager(_configService);
+        _ = _authManager.LoadLoginStatesAsync();
+
+        _refreshService = new RefreshService(_pluginManager, _configService, _dataModule, authManager: _authManager);
 
         // req-088 B6：创建 Taskbar 迷你图注册中心单例 + 注册 4 个内置 Provider。
         // req-098：注入 ConfigService，按用户 TaskbarMiniChartConfigs 过滤 / 覆盖默认 descriptor。
@@ -1007,6 +1014,9 @@ public partial class App : Application
         _trayTooltipWindow?.Close();
         _taskbarHelper?.Dispose();
         _notifyIcon?.Dispose();
+        // req-096 接线：退出时持久化登录态计时（写回 Settings.PersistedLoginStates）。内部同步完成。
+        try { _authManager?.SaveLoginStatesAsync().GetAwaiter().GetResult(); }
+        catch (Exception ex) { FileLogger.Error("App", "req-096 SaveLoginStatesAsync on exit failed", ex); }
         _configService.Save();
         _historyRepository?.Dispose();
         // FileLogger.Stop() 自洽：内部已完成队列排空 + 兜底，无需再单独 Flush，也消除了 Stop/Flush 顺序依赖。

@@ -120,6 +120,32 @@ public class KimiDualModeProvider : IUsageProvider
     /// <inheritdoc />
     public IReadOnlyList<HeatMapTierConfig>? HeatMapTiers => _webProvider.HeatMapTiers;
 
+    // ============== req-100/101/092 契约对齐 ==============
+
+    /// <summary>req-101 B4：Kimi 为 API 计费模式（显示余额/用量），非订阅档位。</summary>
+    public ProviderMode Mode => ProviderMode.Api;
+
+    /// <summary>req-100 B4：Kimi 卡片字段映射，委托网页 Provider（默认字段名）。</summary>
+    public FieldMapping? CardFieldMapping => _webProvider.CardFieldMapping;
+
+    /// <summary>
+    /// req-092 B4：Kimi 标准字段映射——提取通用标准字段 + 保留查询模式（api/web），
+    /// 供字段级差异增量持久化。
+    /// </summary>
+    public IReadOnlyDictionary<string, object>? MapToStandardFields(UsageInfo usage)
+    {
+        if (usage == null) return null;
+        var f = new Dictionary<string, object>
+        {
+            [UsageFields.UsedPercent] = usage.GetUsagePercentage(),
+            [UsageFields.IsSuccess] = usage.IsSuccess,
+            [UsageFields.LastUpdated] = usage.LastUpdated
+        };
+        if (usage.Extra != null && usage.Extra.TryGetValue("query_mode", out var qm) && qm != null)
+            f["kimi_query_mode"] = qm;
+        return f;
+    }
+
     /// <inheritdoc />
     public MetricBarData? CardMetricBarData => _webProvider.CardMetricBarData;
 

@@ -28,9 +28,12 @@ public interface IDataModule
 
     /// <summary>
     /// 保存一次成功刷新的完整用量数据（内部走字段级指纹去重 + 持久化）。
+    /// <para>req-092 B3：若传入 <paramref name="standardFields"/>（插件 <c>MapToStandardFields</c> 的映射结果），
+    /// 则据此做字段级差异检测并仅增量保存变化字段；为 null 时回退到 <c>UsageDataDiffService.ExtractStandardFields</c>。</para>
     /// </summary>
     /// <param name="usage">插件返回的完整用量信息。</param>
-    void SaveUsage(UsageInfo usage);
+    /// <param name="standardFields">req-092：插件映射后的标准字段字典（可空，缺省自动提取）。</param>
+    void SaveUsage(UsageInfo usage, IReadOnlyDictionary<string, object>? standardFields = null);
 
     /// <summary>记录一个"失败/数据缺失"历史点（避免折线断裂）。</summary>
     /// <param name="providerId">Provider 唯一标识。</param>
