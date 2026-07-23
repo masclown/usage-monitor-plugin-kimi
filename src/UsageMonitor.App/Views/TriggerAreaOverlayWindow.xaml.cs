@@ -72,7 +72,7 @@ public partial class TriggerAreaOverlayWindow : Window
         Closed += (_, _) =>
         {
             FlushPendingSave();
-            _saveRectTimer = null;
+            _saveRectTimer = null!;
             _configService.ConfigChanged -= OnConfigChanged;
         };
 

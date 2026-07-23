@@ -32,14 +32,15 @@ public abstract class WebPluginBase : PluginBase, IUsageProvider
     /// <inheritdoc />
     public virtual string? IconPath => null;
 
-    /// <summary>req-101：运行模式，默认 API 模式；Token Plan 插件（如 MiniMax）override 返回 <see cref="ProviderMode.TokenPlan"/>。</summary>
-    public virtual ProviderMode Mode => ProviderMode.Api;
-
     /// <summary>req-101：订阅档位字段名（Token Plan 模式专用），默认 null。</summary>
     public virtual string? SubscriptionTierField => null;
 
-    /// <summary>req-100：卡片字段映射，默认 null（使用默认字段名）。</summary>
-    public virtual FieldMapping? CardFieldMapping => null;
+    /// <summary>req-107 B6 / req-108 Task3：卡片显示声明根，默认 null（宿主回退旧渲染路径）。
+    /// 插件可 override 从 defaults.json 装载（经 PluginDefaultsLoader），驱动声明式渲染。</summary>
+    public virtual CardDeclaration? Card => null;
+
+    /// <summary>req-107 B6 / req-108 Task3：任务栏显示声明根，默认 null（宿主回退旧路径）。</summary>
+    public virtual TaskbarDeclaration? Taskbar => null;
 
     /// <summary>req-092：将插件原始数据映射为标准字段名字典，默认 null（回退 ExtractStandardFields）。</summary>
     public virtual IReadOnlyDictionary<string, object>? MapToStandardFields(UsageInfo usage) => null;

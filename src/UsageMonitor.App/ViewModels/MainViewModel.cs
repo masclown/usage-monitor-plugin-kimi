@@ -9,6 +9,7 @@ using System.Windows.Input;
 using CommunityToolkit.Mvvm.Input;
 using UsageMonitor.App.Controls;
 using UsageMonitor.App.Helpers;
+using UsageMonitor.App.Services;
 using UsageMonitor.Core.Models;
 using UsageMonitor.Core.Plugins;
 using UsageMonitor.Core.Services;
@@ -562,9 +563,9 @@ public partial class MainViewModel : INotifyPropertyChanged
             if (provider == null) continue;
 
             // 添加进度条字段
-            if (provider.CardMetricBarData?.Bars != null)
+            if (vm.DeclarativeBars?.Bars != null)
             {
-                foreach (var bar in provider.CardMetricBarData.Bars)
+                foreach (var bar in vm.DeclarativeBars.Bars)
                 {
                     var isSelected = IsProgressFieldSelected(vm.ProviderId, bar.Label);
                     MultiProgressFieldItems.Add(new Helpers.MultiProgressFieldItem
@@ -580,9 +581,9 @@ public partial class MainViewModel : INotifyPropertyChanged
             }
 
             // 添加数字网格字段
-            if (provider.CardMetricGridData?.Items != null)
+            if (vm.DeclarativeNumber?.Items != null)
             {
-                foreach (var item in provider.CardMetricGridData.Items)
+                foreach (var item in vm.DeclarativeNumber.Items)
                 {
                     var isSelected = IsMetricFieldSelected(vm.ProviderId, item.Label);
                     MultiProgressFieldItems.Add(new Helpers.MultiProgressFieldItem
@@ -679,8 +680,8 @@ public partial class MainViewModel : INotifyPropertyChanged
             var provider = vm.Provider;
             if (provider == null) continue;
 
-            // 获取用户自定义顺序，若无则使用插件声明顺序
-            var chartOrder = GetProviderChartOrder(vm.ProviderId, provider.SupportedCardCharts);
+            // 获取用户自定义顺序，若无则使用插件声明顺序（req-107 B6：优先 Card.Charts，ChartKindExtractor 已做 DeclarativeChartKind→CardChartKind 映射）
+            var chartOrder = GetProviderChartOrder(vm.ProviderId, ChartKindExtractor.ExtractDeclaredChartKinds(provider));
             foreach (var chartKind in chartOrder)
             {
                 ChartOrderItems.Add(new Helpers.ChartOrderItem

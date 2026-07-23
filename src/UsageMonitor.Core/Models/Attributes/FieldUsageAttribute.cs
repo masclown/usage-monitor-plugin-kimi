@@ -3,11 +3,10 @@ using System;
 namespace UsageMonitor.Core.Models.Attributes;
 
 /// <summary>
-/// 字段用途特性（req-100 B6）。
+/// 字段用途特性（req-100 B6，已废弃：req-107 声明式框架后由 CardDeclaration + UsageFieldMetadata 替代，保留类型以避免破坏外部引用）。
 /// <para>
-/// 标注在 SDK 字段组契约类（如 <c>CardContract</c>、<c>MiniRingChartContract</c>）的属性上，
-/// 声明该字段的用途（<see cref="FieldUsage.Data"/> / <see cref="FieldUsage.Theme"/> / <see cref="FieldUsage.Setting"/>）。
-/// 主程序可通过反射读取此特性，对未匹配字段按用途分类展示（见 req-100 B7）。
+/// 标注在字段属性上声明该字段的用途（<see cref="FieldUsage.Data"/> / <see cref="FieldUsage.Theme"/> / <see cref="FieldUsage.Setting"/>）；
+/// 已无生产消费方，保留为 SDK 兼容层。
 /// </para>
 /// </summary>
 [AttributeUsage(AttributeTargets.Property, AllowMultiple = false, Inherited = true)]

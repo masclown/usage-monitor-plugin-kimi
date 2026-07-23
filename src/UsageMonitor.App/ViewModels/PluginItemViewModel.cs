@@ -9,6 +9,7 @@ using System.Windows.Input;
 using CommunityToolkit.Mvvm.Input;
 using UsageMonitor.App.Controls;
 using UsageMonitor.App.Helpers;
+using UsageMonitor.App.Services;
 using UsageMonitor.Core.Models;
 using UsageMonitor.Core.Plugins;
 using UsageMonitor.Core.Services;
@@ -123,7 +124,7 @@ public class PluginItemViewModel : INotifyPropertyChanged
         // 重新调用 provider.ConfigFields 拉取与新模式匹配的字段列表。
         var configWindow = new Views.PluginConfigWindow(
             DisplayName, ConfigFields, config, _provider.LoginConfig,
-            _provider.SupportedCardCharts, currentCharts, _configService, _provider);
+            ChartKindExtractor.ExtractDeclaredChartKinds(_provider), currentCharts, _configService, _provider);
         configWindow.Owner = System.Windows.Application.Current.Windows
             .OfType<Window>().FirstOrDefault(w => w.IsActive);
 

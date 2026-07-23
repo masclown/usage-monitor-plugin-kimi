@@ -23,6 +23,8 @@ public sealed class DataModule : IDataModule
     private readonly UsageHistoryRepository? _repository;
     /// <summary>req-092 B3 接线：字段级差异检测引擎，用于提取标准字段与对比新旧值。</summary>
     private readonly IUsageDataDiffService _diffService = new UsageDataDiffService();
+    /// <summary>req-107 B8：时序明细仓储（懒初始化，与历史库同文件），供声明式图表取数。</summary>
+    private UsageDetailRepository? _detailRepository;
 
     /// <summary>
     /// 创建数据模块。传入仓库时启用 SQLite 持久化（内部据此创建 Store）。
@@ -84,6 +86,62 @@ public sealed class DataModule : IDataModule
             var newFields = standardFields ?? _diffService.ExtractStandardFields(usage);
             _ = SaveIncrementalDiffAsync(usage.ProviderId, newFields);
         }
+
+        // req-107 B8：把插件提供的每日时序数据（Extra 中 mm_dailyToken* ）写入 usage_daily_trend，供声明式折线/热力图取数。
+        PopulateDailyTrendFromExtra(usage);
+    }
+
+    /// <summary>
+    /// req-107 B8：从 <see cref="UsageInfo.Extra"/> 的 <c>mm_dailyTokenDates</c> / <c>mm_dailyTokenValues</c> /
+    /// <c>mm_dailyCacheHitPercents</c>（由 MiniMaxDomExtractor 从 date_model_usage 提取）写入 <c>usage_daily_trend</c>。
+    /// <para>仅当日期与数值列表齐备且等长时写入（date_model_usage 路径）；daily_token_usage 回退路径（无日期）不写表。失败仅日志，不影响主流程。</para>
+    /// </summary>
+    private void PopulateDailyTrendFromExtra(UsageInfo usage)
+    {
+        if (_repository == null || usage.Extra == null) return;
+        try
+        {
+            if (!usage.Extra.TryGetValue("mm_dailyTokenDates", out var datesObj) || datesObj is not List<string> dates || dates.Count == 0)
+                return;
+            if (!usage.Extra.TryGetValue("mm_dailyTokenValues", out var valuesObj) || valuesObj is not List<long> values || values.Count == 0)
+                return;
+            usage.Extra.TryGetValue("mm_dailyCacheHitPercents", out var cacheObj);
+            var cacheList = cacheObj as List<double>;
+            if (values.Count != dates.Count) return; // 数据不齐时不写，避免日期/数值错位
+
+            var repo = EnsureDetailRepository();
+            if (repo == null) return;
+            var rows = new List<DailyTrendRow>(dates.Count);
+            for (var i = 0; i < dates.Count; i++)
+            {
+                double? cache = (cacheList != null && i < cacheList.Count && cacheList[i] >= 0) ? cacheList[i] : null;
+                rows.Add(new DailyTrendRow(dates[i], values[i], cache));
+            }
+            repo.UpsertDailyTrendBatch(usage.ProviderId, "default", rows);
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Warn("DataModule", $"PopulateDailyTrendFromExtra({usage.ProviderId}) failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>req-107 B8：懒初始化明细仓储（与历史库同一 SQLite 文件）并幂等建表。</summary>
+    private UsageDetailRepository? EnsureDetailRepository()
+    {
+        if (_repository == null) return null;
+        if (_detailRepository == null)
+        {
+            _detailRepository = new UsageDetailRepository(_repository.DbFilePath);
+            _detailRepository.EnsureSchema();
+        }
+        return _detailRepository;
+    }
+
+    /// <summary>req-107 B8：声明式图表取数服务（按需创建）；无持久化仓库时返回 null。</summary>
+    public ChartDataService? GetChartDataService()
+    {
+        var repo = EnsureDetailRepository();
+        return repo != null ? new ChartDataService(repo) : null;
     }
 
     /// <summary>

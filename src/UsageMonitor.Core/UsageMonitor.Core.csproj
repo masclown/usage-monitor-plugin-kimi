@@ -5,6 +5,8 @@
     <RootNamespace>UsageMonitor.Core</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+  <!-- req-107 B6：IUsageProvider 收敛过渡期，抑制过时接口成员警告 -->
+    <NoWarn>$(NoWarn);CS0618</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

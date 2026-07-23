@@ -67,6 +67,9 @@ public abstract class HttpUsageProviderBase : IUsageProvider
     public virtual IReadOnlyList<string> DefaultRenderKinds => Array.Empty<string>();
 
     /// <inheritdoc />
+    public virtual IReadOnlyList<string>? CollapseVisibleParts => null;
+
+    /// <inheritdoc />
     public virtual IReadOnlyList<CardChartKind> SupportedCardCharts => new[]
     {
         CardChartKind.Line,

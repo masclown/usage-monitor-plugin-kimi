@@ -23,7 +23,7 @@ public static class KimiConfig
     /// </summary>
     /// <param name="config">插件配置</param>
     /// <returns>查询模式字符串</returns>
-    public static string GetQueryMode(ProviderConfig config)
+    public static string GetQueryMode(ProviderConfig? config)
     {
         // req-fix-Kimi-GetQueryModeNull：处理 null config（GetValue 抛 NRE）。
         // 场景：PluginConfigWindow 打开时调用 KimiConfig.GetQueryMode 检查模式，

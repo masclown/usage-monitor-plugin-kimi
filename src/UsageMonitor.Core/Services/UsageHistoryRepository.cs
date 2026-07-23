@@ -102,6 +102,9 @@ public class UsageHistoryRepository : IDisposable
     /// <summary>最近一次读写操作的错误信息（null 表示正常），供上层感知 DB 健康。</summary>
     public string? LastError { get; private set; }
 
+    /// <summary>数据库文件路径（req-107 B8：供 <c>UsageDetailRepository</c> 复用同一 SQLite 文件）。</summary>
+    public string DbFilePath => _dbFilePath;
+
     /// <summary>
     /// 创建仓库实例。dbFilePath 通常传 %AppData%/UsageMonitor/history.db
     /// </summary>

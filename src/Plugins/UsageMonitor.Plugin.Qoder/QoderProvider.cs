@@ -40,6 +40,9 @@ public class QoderProvider : IUsageProvider
     public IReadOnlyList<string> DefaultRenderKinds => _webProvider.DefaultRenderKinds;
 
     /// <inheritdoc />
+    IReadOnlyList<string>? IDefaultRenderKindsProvider.CollapseVisibleParts => _webProvider.CollapseVisibleParts;
+
+    /// <inheritdoc />
     public IReadOnlyList<CardChartKind> SupportedCardCharts => _webProvider.SupportedCardCharts;
 
     /// <inheritdoc />

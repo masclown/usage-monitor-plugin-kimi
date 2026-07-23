@@ -559,4 +559,41 @@ public partial class SettingsWindow : Window
         vm.SaveChartOrder();
         e.Handled = true;
     }
+
+    /// <summary>
+    /// req-107 B9：设置界面“校验插件”按钮——选择插件 defaults.json 即校验，
+    /// 复用与 <c>--validate-plugin</c> 命令行相同的 <see cref="UsageMonitor.Core.Plugins.PluginValidator"/> 校验代码。
+    /// </summary>
+    private void OnValidatePluginClick(object sender, RoutedEventArgs e)
+    {
+        var dlg = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = "选择插件显示声明文件 (defaults.json)",
+            Filter = "插件显示声明 (*.json)|*.json|所有文件 (*.*)|*.*",
+            CheckFileExists = true
+        };
+        if (dlg.ShowDialog(this) != true) return;
+
+        try
+        {
+            var json = File.ReadAllText(dlg.FileName);
+            var sdkVersion = typeof(SettingsWindow).Assembly.GetName().Version ?? new Version(0, 24, 3);
+            var result = UsageMonitor.Core.Plugins.PluginValidator.Validate(json, sdkVersion);
+            System.Windows.MessageBox.Show(
+                this,
+                result.ToReport(),
+                result.IsValid ? "插件校验通过" : "插件校验失败",
+                System.Windows.MessageBoxButton.OK,
+                result.IsValid ? System.Windows.MessageBoxImage.Information : System.Windows.MessageBoxImage.Warning);
+        }
+        catch (Exception ex)
+        {
+            System.Windows.MessageBox.Show(
+                this,
+                $"校验异常：{ex.Message}",
+                "插件校验",
+                System.Windows.MessageBoxButton.OK,
+                System.Windows.MessageBoxImage.Error);
+        }
+    }
 }

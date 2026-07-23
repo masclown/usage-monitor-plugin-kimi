@@ -64,7 +64,9 @@ public class Program
 
         foreach (var plugin in pluginManager.Plugins)
         {
+#pragma warning disable CS0618 // LoginConfig 已过时；LoginHelper 职责即读取登录配置，向后兼容保留
             var loginConfig = plugin.Provider.LoginConfig;
+#pragma warning restore CS0618
             if (loginConfig != null)
             {
                 found = true;
@@ -100,7 +102,9 @@ public class Program
             return 1;
         }
 
+#pragma warning disable CS0618 // LoginConfig 已过时；向后兼容保留
         var loginConfig = plugin.Provider.LoginConfig;
+#pragma warning restore CS0618
         if (loginConfig == null)
         {
             Console.WriteLine($"[ERROR] Provider={providerId} Action=GetLoginConfig Message=Provider does not support browser login");

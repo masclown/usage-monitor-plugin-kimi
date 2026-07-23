@@ -196,23 +196,38 @@ public class MiniMaxProvider : WebPluginBase
 
     // ============== req-100/101/092 契约对齐 ==============
 
-    /// <summary>req-101 B4：MiniMax 为 Token Plan（订阅制）模式，卡片显示订阅档位而非余额。</summary>
-    public override ProviderMode Mode => ProviderMode.TokenPlan;
-
     /// <summary>req-101 B4：订阅档位名称从 Extra["mm_subscriptionTitle"] 读取。</summary>
     public override string? SubscriptionTierField => "mm_subscriptionTitle";
 
-    /// <summary>req-100 B4：MiniMax 卡片字段映射——5h 已用百分比为主指标，重置时间/积分余额指向对应 Extra 键。</summary>
-    public override FieldMapping? CardFieldMapping => new FieldMapping
+    /// <summary>req-108 Task3：MiniMax 显示声明清单缓存（从随 DLL 部署的 defaults.json 懒装载一次，经 PluginValidator 校验）。</summary>
+    private PluginManifest? _manifest;
+    private bool _manifestLoaded;
+    private PluginManifest? Manifest
     {
-        PercentField = "mm_5hUsedPercent",
-        ResetTimeField = "mm_5hResetAt",
-        BalanceField = "mm_remainingCredits"
-    };
+        get
+        {
+            if (!_manifestLoaded)
+            {
+                _manifest = UsageMonitor.Core.Services.PluginDefaultsLoader
+                    .LoadFromAssemblyDirectory(typeof(MiniMaxProvider).Assembly.Location);
+                _manifestLoaded = true;
+            }
+            return _manifest;
+        }
+    }
+
+    /// <summary>req-108 Task3：MiniMax 卡片显示声明根——从 defaults.json 装载。
+    /// <para>声明驱动渲染的第一步：宿主读取本属性以获知 MiniMax 的图表/数据组/切片器声明；
+    /// defaults.json 缺失或校验失败时返回 null，宿主回退旧渲染路径（过渡期兼容）。</para></summary>
+    public override CardDeclaration? Card => Manifest?.Card;
+
+    /// <summary>req-108 Task3：MiniMax 任务栏显示声明根——与 <see cref="Card"/> 同源 defaults.json。</summary>
+    public override TaskbarDeclaration? Taskbar => Manifest?.Taskbar;
 
     /// <summary>
-    /// req-092 B4：将 MiniMax DOM 提取的 mm_*（camelCase）标准化为 <see cref="UsageFields"/> 标准字段名，
+    /// req-108 Task1：将 MiniMax DOM 提取的 mm_*（camelCase）对齐到 req-107 统一 <see cref="UsageFields"/> 标准字段（去 mm_ 前缀），
     /// 供字段级差异增量持久化（usage_field_versions）。仅当对应 Extra 键存在且非空时写入。
+    /// <para>渲染侧仍读 <see cref="UsageInfo.Extra"/>（mm_* 键），本方法仅影响落库标准字段键；迁移后首次刷新会因键名变化全量重存一次（beta 可接受，无数据丢失）。</para>
     /// </summary>
     public override IReadOnlyDictionary<string, object>? MapToStandardFields(UsageInfo usage)
     {
@@ -226,11 +241,11 @@ public class MiniMaxProvider : WebPluginBase
         var extra = usage.Extra;
         if (extra != null)
         {
-            if (extra.TryGetValue("mm_5hUsedPercent", out var v5) && v5 != null) f[UsageFields.Mm5hUsedPercent] = v5;
-            if (extra.TryGetValue("mm_weeklyUsedPercent", out var vw) && vw != null) f[UsageFields.MmWeeklyUsedPercent] = vw;
-            if (extra.TryGetValue("mm_remainingCredits", out var vc) && vc != null) f[UsageFields.MmRemainingCredits] = vc;
-            if (extra.TryGetValue("mm_subscriptionTitle", out var vt) && vt != null) f[UsageFields.MmSubscriptionTitle] = vt;
-            if (extra.TryGetValue("mm_subscriptionActive", out var va) && va != null) f[UsageFields.MmSubscriptionActive] = va;
+            if (extra.TryGetValue("mm_5hUsedPercent", out var v5) && v5 != null) f[UsageFields.FiveHourUsedPercent] = v5;
+            if (extra.TryGetValue("mm_weeklyUsedPercent", out var vw) && vw != null) f[UsageFields.WeeklyUsedPercent] = vw;
+            if (extra.TryGetValue("mm_remainingCredits", out var vc) && vc != null) f[UsageFields.RemainingCredits] = vc;
+            if (extra.TryGetValue("mm_subscriptionTitle", out var vt) && vt != null) f[UsageFields.SubscriptionTier] = vt;
+            if (extra.TryGetValue("mm_subscriptionActive", out var va) && va != null) f[UsageFields.SubscriptionActive] = va;
         }
         return f;
     }

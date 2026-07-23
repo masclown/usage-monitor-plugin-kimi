@@ -16,6 +16,25 @@ public class DeepseekDualModeProvider : IUsageProvider
     /// <inheritdoc />
     public string ProviderId => "deepseek";
 
+    /// <summary>req-108 Task3：Deepseek 卡片显示声明根——从随 DLL 的 defaults.json 懒装载。</summary>
+    private UsageMonitor.Core.Models.PluginManifest? _manifest;
+    private bool _manifestLoaded;
+    private UsageMonitor.Core.Models.PluginManifest? Manifest
+    {
+        get
+        {
+            if (!_manifestLoaded)
+            {
+                _manifest = UsageMonitor.Core.Services.PluginDefaultsLoader
+                    .LoadFromAssemblyDirectory(typeof(DeepseekDualModeProvider).Assembly.Location);
+                _manifestLoaded = true;
+            }
+            return _manifest;
+        }
+    }
+    public UsageMonitor.Core.Models.CardDeclaration? Card => Manifest?.Card;
+    public UsageMonitor.Core.Models.TaskbarDeclaration? Taskbar => Manifest?.Taskbar;
+
     /// <inheritdoc />
     public string DisplayName => "DeepSeek";
 
@@ -79,6 +98,9 @@ public class DeepseekDualModeProvider : IUsageProvider
 
     /// <inheritdoc />
     public IReadOnlyList<string> DefaultRenderKinds => _webProvider.DefaultRenderKinds;
+
+    /// <inheritdoc />
+    IReadOnlyList<string>? IDefaultRenderKindsProvider.CollapseVisibleParts => _webProvider.CollapseVisibleParts;
 
     /// <inheritdoc />
     public IReadOnlyList<CardChartKind> SupportedCardCharts => _webProvider.SupportedCardCharts;

@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Linq;
 using System.Windows.Forms;
 using System.Windows.Threading;
 using System.Drawing;
@@ -31,6 +32,11 @@ public partial class App : Application
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
     private static extern bool DestroyIcon(IntPtr handle);
+
+    /// <summary>req-107 B9：关联父控制台（WPF GUI 子系统默认无控制台，--validate-plugin 需输出报告到调用方控制台）。</summary>
+    [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+    private static extern bool AttachConsole(int dwProcessId);
+    private const int ATTACH_PARENT_PROCESS = -1;
 
     private NotifyIcon? _notifyIcon;
     private PluginManager _pluginManager = null!;
@@ -70,6 +76,57 @@ public partial class App : Application
     /// </summary>
     private readonly HashSet<string> _pendingLoginPrompts = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// req-107 B9：处理 <c>--validate-plugin [path]</c> 命令行自检。
+    /// <para>path 可为 defaults.json 文件或其所在插件目录；缺省时用当前目录的 defaults.json。
+    /// 校验报告输出到控制台，退出码 0=通过、1=失败，供 validate-plugin.bat / CI 集成。</para>
+    /// </summary>
+    /// <param name="args">启动参数。</param>
+    /// <returns>是否为自检请求（true 时调用方应立即返回，不启动 UI）。</returns>
+    private static bool TryHandleValidatePlugin(string[] args)
+    {
+        const string flag = "--validate-plugin";
+        var idx = Array.IndexOf(args, flag);
+        if (idx < 0) return false;
+        // WPF GUI 子系统默认无控制台：关联调用方（cmd / bat）控制台使报告可见；重定向场景 AttachConsole 失败则回退 AllocConsole。
+        AttachConsole(ATTACH_PARENT_PROCESS);
+        UsageMonitor.Core.Plugins.PluginValidationResult? result = null;
+        try
+        {
+            var path = (idx + 1 < args.Length && !string.IsNullOrWhiteSpace(args[idx + 1]))
+                ? args[idx + 1]
+                : Path.Combine(Directory.GetCurrentDirectory(), "defaults.json");
+            if (Directory.Exists(path)) path = Path.Combine(path, "defaults.json");
+
+            var sdkVersion = typeof(App).Assembly.GetName().Version ?? new Version(0, 24, 3);
+            Console.WriteLine($"UsageMonitor 插件校验器 (SDK {sdkVersion})");
+            Console.WriteLine($"目标: {path}");
+            if (!File.Exists(path))
+            {
+                Console.WriteLine($"[ERROR] 文件不存在: {path}");
+                Console.Out.Flush();
+                Environment.Exit(1); // 命令行自检模式：直接终止进程（不走 WPF 调度器关闭，避免退出码被覆盖）
+                return true;
+            }
+
+            var json = File.ReadAllText(path);
+            result = UsageMonitor.Core.Plugins.PluginValidator.Validate(json, sdkVersion);
+            Console.Write(result.ToReport());
+            Console.Out.Flush();
+            Environment.ExitCode = result.IsValid ? 0 : 1;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[ERROR] 校验异常: {ex.Message}");
+            Console.Out.Flush();
+            Environment.Exit(1);
+        }
+        Console.Out.Flush();
+        Environment.Exit(result != null && result.IsValid ? 0 : 1); // 命令行自检模式：直接终止进程并返回退出码
+        return true;
+    }
+
+
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
@@ -88,6 +145,10 @@ public partial class App : Application
             }
             // 不调用 Handled = true，让 WPF 默认行为继续以防状态破坏。
         };
+
+        // req-107 B9：--validate-plugin 命令行自检入口（主程序当校验器，与运行期装载共用 PluginValidator）。
+        // 在任何 UI/服务初始化前拦截处理并退出，避免启动完整应用。
+        if (TryHandleValidatePlugin(e.Args)) return;
 
         // Initialize file logger first so all subsequent startup is captured
         FileLogger.Info("App", $"=== UsageMonitor startup (PID={Environment.ProcessId}) ===");
@@ -158,17 +219,7 @@ public partial class App : Application
                 .GetValueOrDefault(plugin.Provider.ProviderId, true);
         }
 
-        // req-066 A8：从插件装配 HeatMapTiers 默认色阶（AppSettings 不再硬编码 minimax 默认值）
-        foreach (var plugin in _pluginManager.Plugins)
-        {
-            var pid = plugin.Provider.ProviderId;
-            if (plugin.Provider.HeatMapTiers != null && plugin.Provider.HeatMapTiers.Count > 0
-                && !_configService.Settings.ProviderHeatMapTiers.ContainsKey(pid))
-            {
-                _configService.Settings.ProviderHeatMapTiers[pid] =
-                    new List<HeatMapTierConfig>(plugin.Provider.HeatMapTiers);
-            }
-        }
+        // req-107 B8：插件默认热力图色阶由 Card.Chart.ColorTiers 声明驱动，App 端不再从 HeatMapTiers 接口成员装配
 
         // 创建用量历史持久化仓库（SQLite，%AppData%/UsageMonitor/history.db）
         _historyRepository = UsageHistoryRepository.CreateDefault();
@@ -535,7 +586,7 @@ public partial class App : Application
                 plugin.Provider.ConfigFields,
                 _configService.GetProviderConfig(providerId, plugin.Provider),
                 plugin.Provider.LoginConfig,
-                plugin.Provider.SupportedCardCharts,
+                ChartKindExtractor.ExtractDeclaredChartKinds(plugin.Provider),
                 _configService.GetProviderCardChartKinds(providerId),
                 _configService);
 

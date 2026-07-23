@@ -112,6 +112,13 @@ public class AppSettings
     public Dictionary<string, List<CardChartKind>> ProviderCardChartKinds { get; set; } = new();
 
     /// <summary>
+    /// req-107 B7：账号级用户定制（key = <c>ProviderId:AccountId</c>，见 <see cref="AccountCustomization.MakeKey"/>）。
+    /// <para>主程序最终视图 = 插件 defaults.json 默认 + 本账号级覆盖；同 Provider 多账号互不影响（供 req-109 多账号 UI）。
+    /// 旧的 Provider 级零散字典（<see cref="ProviderCardCharts"/> / <see cref="ProviderCardChartKinds"/> 等）过渡期保留兼容读取，逐步合并到本结构。</para>
+    /// </summary>
+    public Dictionary<string, AccountCustomization> AccountCustomizations { get; set; } = new(System.StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
     /// 托盘悬浮窗位置（屏幕坐标系，单位：像素）。
     /// <list type="bullet">
     /// <item><description>null = 从未拖拽过，使用默认行为（弹出于托盘图标/光标附近）</description></item>
@@ -809,6 +816,58 @@ public class ConfigService : IConfigService
                 return new List<CardChartKind>(migrated);
             }
             return new List<CardChartKind>();
+        }
+    }
+
+    /// <summary>
+    /// req-107 #10：获取指定 Provider 的有效账号定制（合并默认 + 旧字典兼容层）。
+    /// <para>
+    /// 返回 <see cref="AccountCustomization"/>：先读 <see cref="AppSettings.AccountCustomizations"/>
+    /// （key = <c>ProviderId:AccountId</c>），再用旧字典（<see cref="AppSettings.ProviderCardChartKinds"/>、
+    /// <see cref="AppSettings.ProviderChartOrder"/>、<see cref="AppSettings.SelectedProgressFields"/>、
+    /// <see cref="AppSettings.SelectedMetricFields"/>）填充未在账号定制中设置的字段。
+    /// 保证 App 端统一读“合并后视图”，逐步迁移旧数据。
+    /// </para>
+    /// <para>不返回 null：调用方可直接使用合并结果。</para>
+    /// </summary>
+    public AccountCustomization GetEffectiveAccountCustomization(string providerId, string accountId = "default")
+    {
+        lock (_ioLock)
+        {
+            var key = AccountCustomization.MakeKey(providerId, accountId);
+            // 先拷贝账号定制（避免调用方修改内部）
+            var effective = new AccountCustomization();
+            if (_settings.AccountCustomizations.TryGetValue(key, out var acct) && acct != null)
+            {
+                effective.VisibleCharts = acct.VisibleCharts != null ? new List<string>(acct.VisibleCharts) : null;
+                effective.ChartOrders = new Dictionary<string, int>(acct.ChartOrders);
+                effective.CurrentDataGroupIds = new Dictionary<string, string>(acct.CurrentDataGroupIds);
+                effective.ChartColorTierSources = new Dictionary<string, string>(acct.ChartColorTierSources);
+                effective.Nickname = acct.Nickname;
+                effective.UseNickname = acct.UseNickname;
+                effective.ChartTitles = new Dictionary<string, string>(acct.ChartTitles);
+                effective.VisibleProgressFields = acct.VisibleProgressFields != null ? new List<string>(acct.VisibleProgressFields) : null;
+                effective.VisibleMetricFields = acct.VisibleMetricFields != null ? new List<string>(acct.VisibleMetricFields) : null;
+            }
+
+            // 旧字典兼容填充：仅在账号定制未设置时填入（避免覆盖用户主动的选择）
+            if (effective.VisibleCharts == null && _settings.ProviderCardChartKinds.TryGetValue(providerId, out var kinds) && kinds.Count > 0)
+            {
+                effective.VisibleCharts = kinds.Select(k => k.ToString()).ToList();
+            }
+            if (effective.ChartOrders.Count == 0 && _settings.ProviderChartOrder.TryGetValue(providerId, out var order) && order.Count > 0)
+            {
+                for (var i = 0; i < order.Count; i++) effective.ChartOrders[order[i].ToString()] = i;
+            }
+            if (effective.VisibleProgressFields == null && _settings.SelectedProgressFields.TryGetValue(providerId, out var prog) && prog.Count > 0)
+            {
+                effective.VisibleProgressFields = new List<string>(prog);
+            }
+            if (effective.VisibleMetricFields == null && _settings.SelectedMetricFields.TryGetValue(providerId, out var met) && met.Count > 0)
+            {
+                effective.VisibleMetricFields = new List<string>(met);
+            }
+            return effective;
         }
     }
 

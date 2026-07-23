@@ -212,8 +212,18 @@
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
 
-                <TextBlock Grid.Row="0" Text="{helpers:Loc settings.plugins.title}" FontSize="{DynamicResource FontSizeTitle}" FontWeight="Bold"
-                           Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,16" />
+                <Grid Grid.Row="0" Margin="0,0,0,16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="{helpers:Loc settings.plugins.title}" FontSize="{DynamicResource FontSizeTitle}" FontWeight="Bold"
+                               Foreground="{DynamicResource TextPrimaryBrush}" VerticalAlignment="Center" />
+                    <!-- req-107 B9：设置界面“校验插件”按钮，选文件即校验，与命令行自检共用 PluginValidator -->
+                    <Button Grid.Column="1" Content="校验插件…" Click="OnValidatePluginClick"
+                            Style="{StaticResource GhostButtonStyle}" VerticalAlignment="Center"
+                            ToolTip="选择插件 defaults.json，校验字段名 / 图表约束 / slicer / SDK 版本兼容" />
+                </Grid>
 
                 <ListView Grid.Row="1" ItemsSource="{Binding PluginItems}"
                           Background="Transparent" BorderThickness="0"

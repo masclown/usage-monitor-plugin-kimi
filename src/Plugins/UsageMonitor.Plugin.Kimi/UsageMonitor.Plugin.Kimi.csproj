@@ -19,4 +19,9 @@
     <PackageReference Include="Microsoft.Playwright" Version="1.50.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- req-108 Task3：显示声明 defaults.json（随构建复制到输出目录，供 PluginDefaultsLoader 装载） -->
+    <None Include="defaults.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

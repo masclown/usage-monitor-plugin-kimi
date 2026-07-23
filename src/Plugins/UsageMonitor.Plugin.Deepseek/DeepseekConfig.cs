@@ -23,8 +23,9 @@ public static class DeepseekConfig
     /// </summary>
     /// <param name="config">插件配置</param>
     /// <returns>查询模式字符串</returns>
-    public static string GetQueryMode(ProviderConfig config)
+    public static string GetQueryMode(ProviderConfig? config)
     {
+        if (config == null) return ModeApi;
         var mode = config.GetValue(ModeKey)?.Trim().ToLowerInvariant();
         return mode switch
         {

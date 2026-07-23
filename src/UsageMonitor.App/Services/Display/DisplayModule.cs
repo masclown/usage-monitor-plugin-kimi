@@ -65,11 +65,11 @@ public sealed class DisplayModule : IDisplayModule
     {
         foreach (var plugin in _pluginManager.Plugins)
         {
-            // 读取已保存的显示模式与卡片图表多选（未配置时回退插件声明的默认 SupportedCardCharts）
+            // 读取已保存的显示模式与卡片图表多选（未配置时回退插件声明：req-107 B6 优先 Card.Charts）
             var savedMode = TaskbarModeResolver.Resolve(_configService.Settings, plugin.Provider.ProviderId);
             var savedCardCharts = _configService.GetProviderCardChartKinds(plugin.Provider.ProviderId);
             if (savedCardCharts.Count == 0)
-                savedCardCharts = plugin.Provider.SupportedCardCharts.ToList();
+                savedCardCharts = ChartKindExtractor.ExtractDeclaredChartKinds(plugin.Provider).ToList();
 
             // req-fix-DualModeProvider：装配时把当前 config 注入双模式 provider，让 ConfigFields getter 按 mode 返回字段。
             var currentConfig = _configService.GetProviderConfig(plugin.Provider.ProviderId, plugin.Provider);
@@ -135,9 +135,8 @@ public sealed class DisplayModule : IDisplayModule
                 CardChartKinds = savedCardCharts,
                 RenderKinds = plugin.Provider.DefaultRenderKinds,
                 CollapseVisibleParts = plugin.Provider.CollapseVisibleParts ?? Array.Empty<string>(),
+                // req-107 B8：SupportsPeriodSwitch / ExtraTooltipLines 接口成员已收敛为 [Obsolete]，周期切换能力交由 Card.Line.Slicer(Period)、tooltip 扩展行交由 Card.Chart.Tooltip；VM 初始化不再从接口读取。
                 Provider = plugin.Provider,
-                SupportsPeriodSwitch = plugin.Provider.SupportsPeriodSwitch,
-                ExtraTooltipLines = plugin.Provider.ExtraTooltipLines
             };
             usageVm.AttachConfigService(_configService);
             Usages.Add(usageVm);

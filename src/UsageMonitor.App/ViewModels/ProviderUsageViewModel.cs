@@ -9,6 +9,7 @@ using System.Windows.Input;
 using CommunityToolkit.Mvvm.Input;
 using UsageMonitor.App.Controls;
 using UsageMonitor.App.Helpers;
+using UsageMonitor.App.Services;
 using UsageMonitor.Core.Models;
 using UsageMonitor.Core.Plugins;
 using UsageMonitor.Core.Services;
@@ -506,15 +507,14 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
     public bool HasCardChart => _cardChartKinds != null && _cardChartKinds.Count > 0;
 
     /// <summary>
-    /// req-005-019：实际可渲染的卡片图表集合 = 「Provider 声明的 <see cref="IUsageProvider.SupportedCardCharts"/>」
-    /// 与「用户多选 <see cref="CardChartKinds"/>」的交集。供 req-005-018 的 DataTemplateSelector / 卡片图表区
-    /// 按此过滤，避免渲染插件并不支持的图表类型；Provider 未声明支持集合时回退为用户多选本身（向后兼容）。
-    /// </summary>
+    /// req-107 B6 + req-005-019：实际可渲染的卡片图表集合 = 「Provider 声明的 <see cref="IUsageProvider.Card"/> 声明的 Charts」
+    /// 与「用户多选 <see cref="CardChartKinds"/>」的交集。声明驱动：Card 存在时按 Card.Charts 提取 CardChartKind（映射 DeclarativeChartKind → CardChartKind）；
+    /// 旧插件（无 Card 声明）回退 <see cref="IUsageProvider.SupportedCardCharts"/>（向后兼容）。</summary>
     public IReadOnlyList<CardChartKind> EnabledCharts
     {
         get
         {
-            var supported = Provider?.SupportedCardCharts;
+            var supported = ChartKindExtractor.ExtractDeclaredChartKinds(Provider);
             if (supported == null || supported.Count == 0) return _cardChartKinds;
             return _cardChartKinds.Where(supported.Contains).ToList();
         }
@@ -588,6 +588,122 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
     // ============== REQ-083 SDK v2 新增可选属性（委托给 Provider） ==============
 
     /// <summary>
+    /// req-107 B8 渲染消费方：从插件 <see cref="IUsageProvider.Card"/> 显示声明（defaults.json）构建的声明式进度条数据。
+    /// <para>遍历 Card 声明的 Bar 数据组，按 <see cref="FieldReference"/> 字段名经 <see cref="ResolveFieldValue"/> 解析为值，
+    /// 动态生成进度条（取代硬编码 5h/周/视频）。无 Card 声明时为 null，宿主回退旧渲染路径。</para>
+    /// </summary>
+    public UsageMonitor.Core.Models.MetricBarData? DeclarativeBars
+    {
+        get => _declarativeBars;
+        private set { _declarativeBars = value; OnPropertyChanged(); }
+    }
+    private UsageMonitor.Core.Models.MetricBarData? _declarativeBars;
+
+    /// <summary>req-107 B8：渲染消费方（折线图）——Card 声明含 Line chart 时从 CardLineValues 构建 LineChartData；无声明返回 null。</summary>
+    public UsageMonitor.Core.Models.LineChartData? DeclarativeLineChart
+    {
+        get
+        {
+            if (Provider?.Card == null) return null;
+            if (!Provider.Card.Charts.Any(c => c.Kind == DeclarativeChartKind.Line)) return null;
+            var values = _cardLineValues ?? Array.Empty<double>();
+            var max = _cardLineMax > 0 ? _cardLineMax : (double?)null;
+            return new UsageMonitor.Core.Models.LineChartData(values, max);
+        }
+    }
+
+    /// <summary>req-107 B8：折线图实际渲染值——优先声明式（Card 声明 Line 时），否则用旧 CardLineValues（向后兼容）。
+    /// 绑定 <c>MiniLineChartControl.Values</c> 时单绑定即可，无需 MultiBinding fallback。
+    /// <para>**过渡期**优先源：①Card 声明（Line chart） ②<see cref="CardLineValues"/>（旧路径，已被 SliceCardLineByPeriod 填入）。
+    /// **最终态**：Card 声明路径 + 周期切片由声明驱动后，将移除 CardLineValues。</para></summary>
+    public IReadOnlyList<double> EffectiveCardLineValues => DeclarativeLineChart?.Values ?? _cardLineValues;
+
+    /// <summary>req-107 B8：折线图 X 轴日期——与 <see cref="EffectiveCardLineValues"/> 同源（声明式 / 旧路径）。</summary>
+    public IReadOnlyList<string> EffectiveCardLineDates => _dates;
+
+    /// <summary>req-107 B8：折线图 Y 轴上限——优先声明式，否则用旧 CardLineMax。</summary>
+    public double EffectiveCardLineMax => DeclarativeLineChart?.MaxValue ?? _cardLineMax;
+
+    /// <summary>req-107 B8：热力图实际单元格——统一从声明式数据（_fullDailyValues/_fullDailyDates/_fullDailyCacheHitPercents）构建。
+    /// <para>声明式接管：Card 声明含 HeatMap chart 时，EffectiveHeatMapCells 从全量数据按日生成 YearHeatMapCell，
+    /// 含 Day/Percent/Token/Background/ValueText/ComparisonText，YearHeatMapControl 直接绑定。
+    /// RecolorHeatMapCells 通过 cell.Token 重算背景色仍兼容（声明式构建时已写入 Token）。</para></summary>
+    public System.Collections.ObjectModel.ObservableCollection<UsageMonitor.App.Controls.YearHeatMapCell> EffectiveHeatMapCells
+    {
+        get
+        {
+            var dh = DeclarativeHeatMap;
+            if (dh != null && HeatMapCells.Count > 0) return HeatMapCells; // 声明式路径由 RebuildDeclarativeHeatMap 填 HeatMapCells
+            return HeatMapCells;
+        }
+    }
+
+    /// <summary>req-107 B8：声明驱动卡片是否有 Card 声明（true 时各图表属性接管渲染；false 回退旧路径）。</summary>
+    public bool HasDeclarativeCardCharts => Provider?.Card != null && Provider.Card.Charts.Count > 0;
+
+    /// <summary>req-107 B8：渲染消费方（热力图）——Card 声明含 HeatMap chart 时从 HeatMapCells 构建 HeatMapData；无声明返回 null。</summary>
+    public UsageMonitor.Core.Models.HeatMapData? DeclarativeHeatMap
+    {
+        get
+        {
+            if (Provider?.Card == null) return null;
+            if (!Provider.Card.Charts.Any(c => c.Kind == DeclarativeChartKind.HeatMap)) return null;
+            if (HeatMapCells.Count == 0) return null;
+            var cells = HeatMapCells.Select(c => c.Percent).ToList();
+            return new UsageMonitor.Core.Models.HeatMapData(cells, HeatMapCells.Count, 1, MinValue: 0, MaxValue: 100);
+        }
+    }
+
+    /// <summary>req-107 B8：渲染消费方（数字图）——Card 声明含 Number chart 时从声明字段取值并构建 MetricGridData；无声明返回 null。</summary>
+    public UsageMonitor.Core.Models.MetricGridData? DeclarativeNumber
+    {
+        get
+        {
+            if (Provider?.Card == null) return null;
+            var numberChart = Provider.Card.Charts.FirstOrDefault(c => c.Kind == DeclarativeChartKind.Number);
+            if (numberChart == null) return null;
+            var firstGroup = numberChart.DataGroups.FirstOrDefault();
+            var valueField = firstGroup?.Fields.FirstOrDefault(f => f.Role == FieldRole.Value)?.FieldName;
+            if (valueField == null) return null;
+            var val = ResolveFieldValue(valueField);
+            if (!val.HasValue) return null;
+            var label = DeclarativeFieldLabel(valueField);
+            return new UsageMonitor.Core.Models.MetricGridData(new[]
+            {
+                new UsageMonitor.Core.Models.MetricGridItem(label, $"{val.Value:0}")
+            });
+        }
+    }
+
+    /// <summary>req-107 B8：从 Card 声明重建声明式进度条（字段标签由 SDK 元数据/i18n 提供，插件零翻译）。</summary>
+    private void RebuildDeclarativeBars()
+    {
+        var card = Provider?.Card;
+        DeclarativeBars = UsageMonitor.App.Services.Display.DeclarativeChartBuilder.BuildMetricBars(
+            card, ResolveFieldValue, labelResolver: DeclarativeFieldLabel);
+    }
+
+    /// <summary>req-107 B8：字段取值器——标准字段名 → 当前值（过渡期映射到已刷新的 VM 属性，后续可改从标准字段字典泛化解析）。</summary>
+    private double? ResolveFieldValue(string fieldName) => fieldName switch
+    {
+        UsageMonitor.Core.Models.UsageFields.FiveHourUsedPercent => PrimaryBarPercent,
+        UsageMonitor.Core.Models.UsageFields.WeeklyUsedPercent => WeeklyBarPercent,
+        UsageMonitor.Core.Models.UsageFields.VideoQuota => VideoIntervalPercent,
+        UsageMonitor.Core.Models.UsageFields.RemainingCredits => RemainingCredits,
+        _ => null
+    };
+
+    /// <summary>req-107 B8：字段显示标签解析（过渡期内置中文标签，后续接 I18n + SDK 元数据 LabelKey）。</summary>
+    private static string DeclarativeFieldLabel(string fieldName) => fieldName switch
+    {
+        UsageMonitor.Core.Models.UsageFields.FiveHourUsedPercent => "5h 限额",
+        UsageMonitor.Core.Models.UsageFields.WeeklyUsedPercent => "本周限额",
+        UsageMonitor.Core.Models.UsageFields.VideoQuota => "视频赠送",
+        UsageMonitor.Core.Models.UsageFields.RemainingCredits => "剩余积分",
+        _ => fieldName
+    };
+
+    /// <summary>
     /// Provider 注入的"V2 度量进度条组"数据（REQ-083）。
     /// 返回 null 时主窗口 <c>ChartCardTemplateSelector</c> 自动回退到旧 CardLimitBarsTemplate。
     /// req-104：按用户选择的字段过滤。
@@ -596,7 +712,9 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
     {
         get
         {
-            var data = Provider?.CardMetricBarData;
+            // req-107 B8：三插件已完成声明式迁移（MiniMax/Kimi/Deepseek），优先用 Card 声明构建的 DeclarativeBars；
+            // 旧插件无 Card 声明时 DeclarativeBars 为 null，宿主走主窗口旧 XAML 模板（不在本 VM 范围内）。
+            var data = DeclarativeBars;
             if (data == null || ConfigService == null) return data;
 
             // req-104：按用户选择过滤进度条字段
@@ -620,7 +738,8 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
     {
         get
         {
-            var data = Provider?.CardMetricGridData;
+            // req-107 B8：三插件已迁移到 DeclarativeNumber（Card 声明根），回退路径已废弃。
+            var data = DeclarativeNumber;
             if (data == null || ConfigService == null) return data;
 
             // req-104：按用户选择过滤数字网格字段
@@ -634,12 +753,6 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
             return new UsageMonitor.Core.Models.MetricGridData(filteredItems);
         }
     }
-
-    /// <summary>
-    /// Provider 注入的"V2 TooltipContent 生成委托"（REQ-083）。
-    /// 返回 null 时主窗口沿用旧 ExtraTooltipLines 拼接逻辑。
-    /// </summary>
-    public System.Func<int, UsageMonitor.Core.Models.TooltipContent>? LineTooltipProvider => Provider?.LineTooltipProvider;
 
     /// <summary>req-034 修复：缓存命中率（0-100），供折线图 tooltip 显示。负值表示无数据。</summary>
     public double CacheHitPercent
@@ -747,7 +860,7 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
             OnPropertyChanged();
             OnPropertyChanged(nameof(CardMetricBarData));
             OnPropertyChanged(nameof(CardMetricGridData));
-            OnPropertyChanged(nameof(LineTooltipProvider));
+            OnPropertyChanged(nameof(EffectiveCardLineValues));
         }
     }
     private UsageMonitor.Core.Plugins.IUsageProvider? _provider;
@@ -767,14 +880,7 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         IsLoading = true;
         try
         {
-            // 通知插件（默认 no-op：MiniMax 重写为记录 period；其他插件保持原状）
-            var provider = Provider;
-            if (provider != null)
-            {
-                _ = provider.SetPeriodAsync(period);
-            }
-
-            // 按周期切片缓存的完整数据到折线图
+            // req-107 B8：SetPeriodAsync 接口成员已收敛，VM 端按 period 切片缓存数据即可
             SliceCardLineByPeriod(period);
         }
         catch (Exception ex)
@@ -1013,6 +1119,9 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         VideoWeeklyText = vwTotal > 0 ? $"{vwUsed}/{vwTotal}" : "--";
         VideoWeeklyPercent = vwTotal > 0 ? Math.Min(100, 100.0 * vwUsed / vwTotal) : 0;
 
+        // 6b. req-107 B8 渲染消费方：从 Card 显示声明（defaults.json）构建声明式进度条，驱动 V2 MetricBarTemplate。
+        RebuildDeclarativeBars();
+
         // 7. 卡片顶一行的 “已使用 / 总额度 / 剩余额度” 仍保留供未适配卡片主题的插件使用；
         //    本插件额外叠加为信息性文本，不会被三列 UI 误读。
         UsedText = PrimaryBarPercent > 0 ? $"{PrimaryBarPercent:0}%" : "--";
@@ -1156,113 +1265,67 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         // req-034 修复：缓存完整缓存命中率数据，供 SliceCardLineByPeriod 按周期切片
         _fullDailyCacheHitPercents = dailyCacheHitPercents;
 
-        // req-007：把插件声明的周期切换能力、tooltip 扩展行推到 UI。
-        SupportsPeriodSwitch = false; // 占位默认值，循环结束后会被插件实际声明覆盖。
-        var provider = Provider;
-        if (provider != null)
-        {
-            SupportsPeriodSwitch = provider.SupportsPeriodSwitch;
-            ExtraTooltipLines = provider.ExtraTooltipLines;
-        }
+        // req-107 B8：SupportsPeriodSwitch / ExtraTooltipLines 接口成员已收敛为 [Obsolete]，周期切换能力交由 Card.Line.Slicer(Period)、tooltip 扩展行交由 Card.Chart.Tooltip；本方法不再重复从接口读取。
 
-        // 折线图：按当前周期（默认 7d）取窗口内数据，Y 轴自适应为该区间最大值（至少 1，避免除零/全零全平）。
-        if (values.Count >= 2)
-        {
-            var days = UsageMonitor.App.Controls.ChartPeriods.ToDays(CurrentPeriod);
-            var take = Math.Min(days, values.Count);
-            var start = values.Count - take;
-            var recent = new List<double>(take);
-            for (int i = start; i < values.Count; i++) recent.Add(values[i]);
-            CardLineValues = recent;
-            double max = 0;
-            foreach (var r in recent) if (r > max) max = r;
-            CardLineMax = max > 0 ? max : 1;
+        // req-107 B8 进度：折线图数据由 Effective* 派生属性接管（声明式优先 + _cardLineValues 回退），
+        // 周期切片由 SliceCardLineByPeriod（HandlePeriodChanged / 初始刷新）统一处理；本方法不再重复写入折线图。
+        // 保留：全量缓存 _fullDailyValues/_fullDailyDates/_fullDailyCacheHitPercents 以供切片，热力图 HeatMapCells 装配。
+        // 初始化：先按当前周期切一次，确保首次渲染即有数据（HandlePeriodChanged 会再切一次，无副作用）。
+        SliceCardLineByPeriod(CurrentPeriod);
 
-            // req-007：X 轴 Dates 同步到窗口（仅在 dates 与 values 同长度时）。
-            // ReadStringList 永远返回非 null List，dates 本地变量也不需要 null 检查。
-            if (dates.Count == values.Count)
-            {
-                var slicedDates = new string[take];
-                for (int i = 0; i < take; i++) slicedDates[i] = dates[start + i];
-                Dates = slicedDates;
+        // req-107 B8：声明式热力图装配（从全量缓存 _fullDailyValues/_fullDailyDates/_fullDailyCacheHitPercents 按日生成 YearHeatMapCell）。
+        // 取代原 UpdateMiniMaxCharts 内的内联装配。RecolorHeatMapCells 依赖 cell.Token 仍兼容。
+        RebuildDeclarativeHeatMap();
+    }
 
-                // req-034 修复：每独立的缓存命中率同步切片
-                if (dailyCacheHitPercents.Count == values.Count)
-                {
-                    var slicedCacheHit = new double[take];
-                    for (int i = 0; i < take; i++) slicedCacheHit[i] = dailyCacheHitPercents[start + i];
-                    DailyCacheHitPercents = slicedCacheHit;
-                }
-                else
-                {
-                    DailyCacheHitPercents = Array.Empty<double>();
-                }
-            }
-            else
-            {
-                Dates = Array.Empty<string>();
-                DailyCacheHitPercents = Array.Empty<double>();
-            }
-        }
-        else
-        {
-            CardLineValues = Array.Empty<double>();
-            CardLineMax = 1;
-            Dates = Array.Empty<string>();
-        }
+    /// <summary>
+    /// req-107 B8：从全量日数据构建热力图单元（声明式装配）。
+    /// <para>Cell 含 Day/Percent/Token/Background/ValueText/ComparisonText；YearHeatMapControl 直接绑定；
+    /// <see cref="RecolorHeatMapCells"/> 通过 cell.Token 重算背景色兼容。</para>
+    /// </summary>
+    private void RebuildDeclarativeHeatMap()
+    {
+        var values = _fullDailyValues;
+        var dates = _fullDailyDates;
+        var dailyCacheHitPercents = _fullDailyCacheHitPercents;
 
-        // 热力图（req-009 + req-021）：为每个 token 日期生成单元，背景色按 token 绝对值走 HeatMapTierScale 选档；
-        // token<=0 显式归一为“无用量”色（#f3f4f6），避免热力图色阶表后续变更导致浅红误着色。
-        // 静态冻结 brush（跨线程安全）。
+        // req-009 + req-021：每个 token 日期生成单元，背景色按 token 绝对值走 HeatMapTierScale；token<=0 强制 "无用量"色。
         var zeroBrush = FreezeBrush(0xF3, 0xF4, 0xF6);
         HeatMapCells.Clear();
-        if (values.Count > 0)
+        if (values.Count == 0) return;
+
+        // 从 mm_cacheHitPercent 读全局缓存命中（负数/缺失视为无数据）；属性 setter 会触发 INPC 供折线图 tooltip 使用。
+        double cacheHitPercent = -1;
+        // 注：此处无法访问 extras（已在外层调用），使用 _cacheHitPercent 字段的现有值（由 UpdateFromMiniMaxDom 此前赋值）。
+        if (_cacheHitPercent > 0) cacheHitPercent = _cacheHitPercent;
+
+        // 计算峰值（用于 Percent 归一）
+        long peak = 0;
+        foreach (var v in values) if (v > peak) peak = v;
+        if (peak <= 0) peak = 1;
+
+        for (int i = 0; i < values.Count; i++)
         {
-            // 从 extras 读缓存命中率（mm_cacheHitPercent）；为负或缺失时 ComparisonText 留空。
-            double cacheHitPercent = -1;
-            if (extra.TryGetValue("mm_cacheHitPercent", out var chp) && chp != null)
+            var token = values[i];
+            string day = i < dates.Count && !string.IsNullOrEmpty(dates[i])
+                ? dates[i]
+                : DateTime.Today.AddDays(-(values.Count - 1 - i)).ToString("yyyy-MM-dd");
+            double percent = Math.Min(100.0, 100.0 * token / peak);
+            var bgBrush = token > 0 ? UsageMonitor.App.Helpers.HeatMapTierScale.ResolveBrush(token, ProviderId) : zeroBrush;
+            double dayCacheHit = i < dailyCacheHitPercents.Count ? dailyCacheHitPercents[i] : -1;
+
+            HeatMapCells.Add(new YearHeatMapCell
             {
-                try { cacheHitPercent = Convert.ToDouble(chp); }
-                catch { cacheHitPercent = -1; }
-            }
-            // req-034 修复：存储缓存命中率供折线图 tooltip 使用（属性 setter 会同时更新字段并触发 INPC）
-            CacheHitPercent = cacheHitPercent;
-
-            for (int i = 0; i < values.Count; i++)
-            {
-                var token = values[i];
-                // 日期：优先用真实 date；缺失时按「最后一个点=今天」向前推。
-                string day = i < dates.Count && !string.IsNullOrEmpty(dates[i])
-                    ? dates[i]
-                    : DateTime.Today.AddDays(-(values.Count - 1 - i)).ToString("yyyy-MM-dd");
-                // 与原逻辑保留 percent（为兼容 ProgressToBrush 等历史用法）—— 选 token 绝对值 1.5% 为峰值。
-                long peak = 0;
-                foreach (var v in values) if (v > peak) peak = v;
-                if (peak <= 0) peak = 1;
-                double percent = Math.Min(100.0, 100.0 * token / peak);
-
-                // req-021：token<=0 强制显 “无用量”色（与色阶表首档颜色一致，但与未来修改脱耦）。
-                var bgBrush = token > 0
-                    ? UsageMonitor.App.Helpers.HeatMapTierScale.ResolveBrush(token, "MiniMax")
-                    : zeroBrush;
-
-                // req-034 修复：使用每独立的缓存命中率
-                double dayCacheHit = i < dailyCacheHitPercents.Count ? dailyCacheHitPercents[i] : -1;
-
-                HeatMapCells.Add(new YearHeatMapCell
-                {
-                    Day = day,
-                    Percent = percent,
-                    Token = token, // req-009：供 RecolorHeatMapCells 重算背景色
-                    Background = bgBrush,
-                    ValueText = token > 0 ? FormatTokens(token) : "--",
-                    Unit = "",
-                    ComparisonText = dayCacheHit >= 0
-                        ? $"缓存命中 {dayCacheHit:0.00}%"
-                        : string.Empty
-                });
-            }
+                Day = day,
+                Percent = percent,
+                Token = token,
+                Background = bgBrush,
+                ValueText = token > 0 ? FormatTokens(token) : "--",
+                Unit = "",
+                ComparisonText = dayCacheHit >= 0 ? $"缓存命中 {dayCacheHit:0.00}%" : string.Empty
+            });
         }
+        OnPropertyChanged(nameof(EffectiveHeatMapCells));
     }
 
     /// <summary>从 Extra 读取 List&lt;long&gt;（兼容 List&lt;long&gt; 与其它可枚举装箱），失败返回空列表。</summary>

@@ -274,9 +274,8 @@ private readonly ConcurrentDictionary<string, int> _consecutiveFailures = new();
                 // req-015：传完整 usage，Store 内部走 InsertUsagePointIfChangedAsync（业务指纹比对去重）。
                 if (usage.IsSuccess)
                 {
-                    // req-092 B3 接线：传入插件 MapToStandardFields 映射结果（默认 null 时 DataModule 回退 ExtractStandardFields），
-                    // 使字段级差异增量持久化生效。
-                    _dataModule.SaveUsage(usage, plugin.Provider.MapToStandardFields(usage));
+                    // req-092：传 null 走 DataModule 内部 ExtractStandardFields 自动提取（req-107 B8 后插件声明式 metadata 直接可用）。
+                    _dataModule.SaveUsage(usage);
                     // req-096 接线：首次成功刷新时记录登录态获取时间（幂等，不覆盖已有 AcquiredAt），
                     // 使 AuthManager 的“登录态计时”真正生效；轻量记录，不触发浏览器登录。
                     _authManager?.EnsureLoginStateRecorded(providerId);
@@ -288,6 +287,7 @@ private readonly ConcurrentDictionary<string, int> _consecutiveFailures = new();
                     // req-091-002：usage.IsSuccess=false 但无异常的场景
                     // （Web 插件 DOM 提取失败 / API 鉴权失效等）
                     // 按 ErrorMessage 关键字兜底判定（避免漏掉 LoginExpired）
+#pragma warning disable CS0618 // ErrorMessage 已过时，req-091 兵底分类向后兼容保留
                     var fallbackKind = ClassifyByErrorMessage(usage.ErrorMessage);
                     FileLogger.Warn("RefreshService",
                         $"[req-091] Provider {providerId} returned IsSuccess=false, kind={fallbackKind}: {usage.ErrorMessage}");
@@ -297,6 +297,7 @@ private readonly ConcurrentDictionary<string, int> _consecutiveFailures = new();
                         fallbackKind,
                         null,
                         usage.ErrorMessage ?? "未知错误"));
+#pragma warning restore CS0618
                 }
 
                 // req-013：成功刷新后异步写入“刷新聚合”记录，供历史窗口展示每次刷新。

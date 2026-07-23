@@ -31,6 +31,25 @@ public class KimiDualModeProvider : IUsageProvider
     /// <inheritdoc />
     public string? IconPath => null;
 
+    /// <summary>req-108 Task3：Kimi 卡片显示声明根——从随 DLL 的 defaults.json 懒装载（经 PluginDefaultsLoader）。</summary>
+    private UsageMonitor.Core.Models.PluginManifest? _manifest;
+    private bool _manifestLoaded;
+    private UsageMonitor.Core.Models.PluginManifest? Manifest
+    {
+        get
+        {
+            if (!_manifestLoaded)
+            {
+                _manifest = UsageMonitor.Core.Services.PluginDefaultsLoader
+                    .LoadFromAssemblyDirectory(typeof(KimiDualModeProvider).Assembly.Location);
+                _manifestLoaded = true;
+            }
+            return _manifest;
+        }
+    }
+    public UsageMonitor.Core.Models.CardDeclaration? Card => Manifest?.Card;
+    public UsageMonitor.Core.Models.TaskbarDeclaration? Taskbar => Manifest?.Taskbar;
+
     /// <summary>
     /// req-fix-Kimi ConfigFields 按模式动态返回字段。
     /// <para>
@@ -97,6 +116,9 @@ public class KimiDualModeProvider : IUsageProvider
     public IReadOnlyList<string> DefaultRenderKinds => _webProvider.DefaultRenderKinds;
 
     /// <inheritdoc />
+    IReadOnlyList<string>? IDefaultRenderKindsProvider.CollapseVisibleParts => _webProvider.CollapseVisibleParts;
+
+    /// <inheritdoc />
     public IReadOnlyList<CardChartKind> SupportedCardCharts => _webProvider.SupportedCardCharts;
 
     /// <inheritdoc />
@@ -121,12 +143,6 @@ public class KimiDualModeProvider : IUsageProvider
     public IReadOnlyList<HeatMapTierConfig>? HeatMapTiers => _webProvider.HeatMapTiers;
 
     // ============== req-100/101/092 契约对齐 ==============
-
-    /// <summary>req-101 B4：Kimi 为 API 计费模式（显示余额/用量），非订阅档位。</summary>
-    public ProviderMode Mode => ProviderMode.Api;
-
-    /// <summary>req-100 B4：Kimi 卡片字段映射，委托网页 Provider（默认字段名）。</summary>
-    public FieldMapping? CardFieldMapping => _webProvider.CardFieldMapping;
 
     /// <summary>
     /// req-092 B4：Kimi 标准字段映射——提取通用标准字段 + 保留查询模式（api/web），

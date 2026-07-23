@@ -13,4 +13,9 @@
     <ProjectReference Include="..\..\UsageMonitor.Core\UsageMonitor.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- req-108 Task3：显示声明 defaults.json（随构建复制到输出目录） -->
+    <None Include="defaults.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

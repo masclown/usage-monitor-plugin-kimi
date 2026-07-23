@@ -36,7 +36,7 @@ public sealed class ChartCardTemplateSelector : DataTemplateSelector
             var hasV2 = Kind switch
             {
                 SelectorKind.LimitBars => GetMetricBarData(item) != null,
-                SelectorKind.Balance => GetMetricGridData(item) != null,
+                SelectorKind.Balance => (GetDeclarativeNumber(item) ?? GetMetricGridData(item)) is not null,
                 _ => false
             };
 
@@ -68,6 +68,14 @@ public sealed class ChartCardTemplateSelector : DataTemplateSelector
     {
         if (vm == null) return null;
         var prop = vm.GetType().GetProperty("CardMetricGridData");
+        return prop?.GetValue(vm) as MetricGridData;
+    }
+
+    /// <summary>req-107 B8：声明式数字图表（Card 声明含 Number chart 时）。优先级高于 CardMetricGridData（默认余额快照），无声明时返回 null。</summary>
+    private static MetricGridData? GetDeclarativeNumber(object? vm)
+    {
+        if (vm == null) return null;
+        var prop = vm.GetType().GetProperty("DeclarativeNumber");
         return prop?.GetValue(vm) as MetricGridData;
     }
 }

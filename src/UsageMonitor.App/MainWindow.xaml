@@ -417,13 +417,13 @@
                      CurrentPeriod / IsLoading 五个绑定，X 轴 + 周期切换按钮仅在
                      SupportsPeriodSwitch=true 时呈现。 -->
                 <controls:MiniLineChartControl Height="132" Margin="0,0,0,8"
-                    Values="{Binding CardLineValues}" MaxValue="{Binding CardLineMax}" StrokeThickness="2.4"
+                    Values="{Binding EffectiveCardLineValues}" MaxValue="{Binding EffectiveCardLineMax}" StrokeThickness="2.4"
                     ProviderName="{Binding DisplayName}"
                     ValueUnit="%"
                     LowBrush="{DynamicResource UsageLowBrush}"
                     MidBrush="{DynamicResource UsageMidBrush}"
                     HighBrush="{DynamicResource UsageHighBrush}"
-                    Dates="{Binding Dates}"
+                    Dates="{Binding EffectiveCardLineDates}"
                     ExtraTooltipLines="{Binding ExtraTooltipLines}"
                     CacheHitPercent="{Binding CacheHitPercent}"
                     DailyCacheHitPercents="{Binding DailyCacheHitPercents}"
@@ -454,7 +454,7 @@
                     Visibility="{Binding CardChartKinds, Converter={StaticResource CardChartKindsContains}, ConverterParameter=Ring}" />
                 <!-- 热力图：MiniMax 每日 Token 用量日历（GitHub 贡献图风格） -->
                 <controls:YearHeatMapControl Height="170" Margin="0,0,0,8"
-                    Cells="{Binding HeatMapCells}"
+                    Cells="{Binding EffectiveHeatMapCells}"
                     EmptyCellBrush="{DynamicResource TrackBrush}"
                     TextBrush="{DynamicResource TextSecondaryBrush}"
                     ProviderId="{Binding ProviderId}"

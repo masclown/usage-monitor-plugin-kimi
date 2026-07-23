@@ -51,9 +51,11 @@ public class AuthManager
         }
 
         // 向后兼容：根据 LoginConfig 推断
+#pragma warning disable CS0618 // LoginConfig 已过时，向后兼容推断保留
         return provider.LoginConfig != null
             ? new[] { AuthKind.Cookie }
             : new[] { AuthKind.ApiKey };
+#pragma warning restore CS0618
     }
 
     /// <summary>

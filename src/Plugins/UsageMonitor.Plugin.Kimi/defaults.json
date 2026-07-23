@@ -1,0 +1,81 @@
+{
+  "schemaVersion": 1,
+  "minSdkVersion": "0.24.3",
+  "providerId": "Kimi",
+  "displayName": "Kimi",
+  "card": {
+    "baseInfo": {
+      "fields": [
+        { "fieldName": "subscription_tier", "role": "Meta" },
+        { "fieldName": "account_display_name", "role": "Meta" },
+        { "fieldName": "subscription_end_at", "role": "Reset" }
+      ]
+    },
+    "charts": [
+      {
+        "chartId": "kimi.chart.usage_bar",
+        "kind": "Bar",
+        "defaultOrder": 1,
+        "slicer": { "mode": "DataGroup", "interaction": "Scroll", "default": "kimi.bar.total" },
+        "tooltip": { "fields": ["used_percent"] },
+        "colorTiers": { "ref": "global:usage-tier-default" },
+        "dataGroups": [
+          {
+            "id": "kimi.bar.total",
+            "fields": [
+              { "fieldName": "used_percent", "role": "Value" },
+              { "fieldName": "weekly_upper_limit", "role": "Upper" }
+            ]
+          },
+          {
+            "id": "kimi.bar.code",
+            "fields": [
+              { "fieldName": "code_used_percent", "role": "Value" },
+              { "fieldName": "weekly_upper_limit", "role": "Upper" }
+            ]
+          },
+          {
+            "id": "kimi.bar.5h",
+            "fields": [
+              { "fieldName": "five_hour_used_percent", "role": "Value" },
+              { "fieldName": "five_hour_upper_limit", "role": "Upper" }
+            ]
+          },
+          {
+            "id": "kimi.bar.7day",
+            "fields": [
+              { "fieldName": "seven_day_used_percent", "role": "Value" },
+              { "fieldName": "weekly_upper_limit", "role": "Upper" }
+            ]
+          }
+        ]
+      },
+      {
+        "chartId": "kimi.chart.remaining_number",
+        "kind": "Number",
+        "defaultOrder": 2,
+        "dataGroups": [
+          { "id": "kimi.number.remaining", "fields": [{ "fieldName": "remaining_credits", "role": "Value" }] }
+        ]
+      }
+    ]
+  },
+  "taskbar": {
+    "baseInfo": {
+      "fields": [
+        { "fieldName": "subscription_tier", "role": "Meta" }
+      ]
+    },
+    "miniCharts": [
+      {
+        "chartId": "kimi.mini.ring",
+        "kind": "MiniRingChart",
+        "slicer": { "mode": "DataGroup", "interaction": "Scroll", "default": "kimi.taskbar.total" },
+        "dataGroups": [
+          { "id": "kimi.taskbar.total", "fields": [{ "fieldName": "used_percent", "role": "Value" }] },
+          { "id": "kimi.taskbar.code", "fields": [{ "fieldName": "code_used_percent", "role": "Value" }] }
+        ]
+      }
+    ]
+  }
+}

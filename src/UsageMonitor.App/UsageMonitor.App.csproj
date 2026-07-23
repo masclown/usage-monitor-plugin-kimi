@@ -9,13 +9,13 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
 
-    <!-- 项目版本号（0.24.3-beta）：Provider用量数据参考文档(deepseek/kimi/minimax/qoder/trae/workbuddy) / SDK统一字段参考文档；用于程序集元数据 + 文件属性。 -->
+    <!-- 项目版本号（0.25.0-beta）：插件SDK 2.0架构重构(能力接口体系/声明式提取架构/插件默认配置/插件校验器) / 数据层大幅扩展(ChartDataService/SchemaGenerator/SchemaMigrationService/UsageDetailRepository) / 模型层重构(删除Contracts SDK+FieldMapping/ProviderMode，新增CardDeclaration/ChartKindSpec/DataGroup/PluginManifest等) / IUsageProvider大幅精简 / UsageFields大幅扩展；用于程序集元数据 + 文件属性。 -->
     <!-- 显式设置 5 个属性，避免被 SDK 衍生规则变动影响。 -->
-    <Version>0.24.3-beta</Version>
-    <AssemblyVersion>0.24.3.0</AssemblyVersion>
-    <FileVersion>0.24.3.0</FileVersion>
-    <InformationalVersion>0.24.3-beta</InformationalVersion>
-    <ProductVersion>0.24.3-beta</ProductVersion>
+    <Version>0.25.0-beta</Version>
+    <AssemblyVersion>0.25.0.0</AssemblyVersion>
+    <FileVersion>0.25.0.0</FileVersion>
+    <InformationalVersion>0.25.0-beta</InformationalVersion>
+    <ProductVersion>0.25.0-beta</ProductVersion>
     <AssemblyTitle>UsageMonitor</AssemblyTitle>
     <Product>UsageMonitor</Product>
     <Company>UsageMonitor</Company>
@@ -23,7 +23,8 @@
     <!-- req-055：DPI感知manifest，支持多显示器PerMonitorV2 -->
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <!-- req-086-3.4：App 层作为兼容层继续使用旧字段，抑制 CS0618 警告 -->
-    <NoWarn>$(NoWarn);CS0618</NoWarn>
+    <!-- req-055：app.manifest 有意声明 PerMonitorV2 DPI，抑制 WinForms 分析器 WFAC010 -->
+    <NoWarn>$(NoWarn);CS0618;WFAC010</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

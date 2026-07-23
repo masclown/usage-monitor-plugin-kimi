@@ -29,7 +29,7 @@
                 <!-- 动态表单区域（代码根据 ConfigFields 填充） -->
                 <StackPanel x:Name="FormPanel" />
 
-                <!-- 卡片图表分组（根据插件声明的 SupportedCardCharts 动态生成复选框，支持多选） -->
+                <!-- 卡片图表分组（req-107 B6 收敛：插件声明的 SupportedCardCharts 已统一由 ChartKindExtractor 读取，优先 Card 声明的 Charts，回退旧属性） -->
                 <StackPanel x:Name="CardChartSection">
                     <Separator Margin="0,8,0,14" />
                     <TextBlock Text="{helpers:Loc pluginconfig.cardchart.title}" FontSize="15" FontWeight="SemiBold"

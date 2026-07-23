@@ -186,7 +186,7 @@ public partial class TaskbarWindow : Window
 
     private void OnRootBorderMouseEnter(object sender, System.Windows.Input.MouseEventArgs e) { }
     private void OnRootBorderMouseLeave(object sender, System.Windows.Input.MouseEventArgs e) { }
-    private async void OnRefreshAllClick(object sender, RoutedEventArgs e) { }
+    private void OnRefreshAllClick(object sender, RoutedEventArgs e) { }
 
     /// <summary>
     /// req-029：安全包装单个 Provider 刷新调用——捕捉异常 + 写日志。
