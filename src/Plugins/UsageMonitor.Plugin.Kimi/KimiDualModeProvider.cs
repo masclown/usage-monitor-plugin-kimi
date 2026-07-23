@@ -197,6 +197,9 @@ public class KimiDualModeProvider : IUsageProvider
     {
         var result = await _apiProvider.GetUsageAsync(config, ct);
         result.Extra["query_mode"] = "api";
+        // req-109：多卡片路由占位（默认 account/card）
+        result.AccountId ??= "default";
+        result.CardId ??= "default-card";
         return result;
     }
 
@@ -207,6 +210,9 @@ public class KimiDualModeProvider : IUsageProvider
     {
         var result = await _webProvider.GetUsageAsync(config, ct);
         result.Extra["query_mode"] = "web";
+        // req-109：多卡片路由占位（默认 account/card）
+        result.AccountId ??= "default";
+        result.CardId ??= "default-card";
 
         // 网页模式失败时，提示可切换到 API 模式
         if (!result.IsSuccess)

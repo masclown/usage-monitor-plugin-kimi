@@ -169,7 +169,8 @@ public class MiniChartItemViewModel : INotifyPropertyChanged
     /// </summary>
     private string ResolveTooltipTemplate(string template)
     {
-        var result = template;
+        // req-105：先按 descriptor.ToolTipFields 剔除未启用字段的占位符（未来扩展点落地）。
+        var result = StripDisabledTooltipFields(template);
         var displayName = UsageVm?.DisplayName ?? ProviderId;
         result = result.Replace("{ProviderName}", displayName);
         if (UsagePercent.HasValue)
@@ -183,6 +184,27 @@ public class MiniChartItemViewModel : INotifyPropertyChanged
         // req-105：用动态倒计时文案替换占位符；无数据时移除占位符。
         result = result.Replace("{RefreshCountdown}", RefreshCountdownText);
         result = result.Replace("{Timestamp}", DateTime.Now.ToString("HH:mm:ss"));
+        return result;
+    }
+
+    /// <summary>
+    /// req-105：按 <see cref="MiniChartDescriptor.ToolTipFields"/> 剔除未启用字段的占位符。
+    /// <para>字段名 → 占位符映射：ProviderName→{ProviderName}；CurrentValue→{Value}/{Percent}；
+    /// RefreshCountdown→{RefreshCountdown}。{Timestamp} 为元数据始终保留。未列出的字段占位符被替换为空串。</para>
+    /// </summary>
+    private string StripDisabledTooltipFields(string template)
+    {
+        var fields = Descriptor.ToolTipFields;
+        if (fields == null || fields.Count == 0) return template;
+        var set = new System.Collections.Generic.HashSet<string>(fields, StringComparer.OrdinalIgnoreCase);
+        var result = template;
+        if (!set.Contains("ProviderName")) result = result.Replace("{ProviderName}", "");
+        if (!set.Contains("CurrentValue"))
+        {
+            result = result.Replace("{Value}", "");
+            result = result.Replace("{Percent}", "");
+        }
+        if (!set.Contains("RefreshCountdown")) result = result.Replace("{RefreshCountdown}", "");
         return result;
     }
 

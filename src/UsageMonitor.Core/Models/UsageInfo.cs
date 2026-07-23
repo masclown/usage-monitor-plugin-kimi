@@ -18,6 +18,12 @@ public class UsageInfo
     /// <summary>服务商显示名称</summary>
     public string ProviderName { get; set; } = string.Empty;
 
+    /// <summary>req-109：账号 ID（req-109 拓展，多账号路由用）。null = 向后兼容（DisplayModule 用 FirstOrDefault 回退）。</summary>
+    public string? AccountId { get; set; }
+
+    /// <summary>req-109：卡片 ID（多卡片路由用）。null = 向后兼容。</summary>
+    public string? CardId { get; set; }
+
     // ===================== req-086-3.4：新字段（推荐使用） =====================
 
     /// <summary>
@@ -192,6 +198,26 @@ public class UsageInfo
         {
             ProviderId = providerId,
             ProviderName = providerName,
+            IsSuccess = false,
+            ErrorMessage = errorMessage,
+            Error = UsageError.Unknown(errorMessage),
+            LastUpdated = DateTime.Now
+        };
+#pragma warning restore CS0618
+    }
+
+    /// <summary>
+    /// req-109：创建错误状态 UsageInfo（包含账号/卡片路由信息）。
+    /// </summary>
+    public static UsageInfo CreateError(string providerId, string providerName, string errorMessage, string? accountId, string? cardId)
+    {
+#pragma warning disable CS0618
+        return new UsageInfo
+        {
+            ProviderId = providerId,
+            ProviderName = providerName,
+            AccountId = accountId,
+            CardId = cardId,
             IsSuccess = false,
             ErrorMessage = errorMessage,
             Error = UsageError.Unknown(errorMessage),

@@ -434,6 +434,10 @@ public class MiniMaxProvider : WebPluginBase
 
             // FALLBACK: API call.
             var usage = await QueryRemainsAsync(baseUrl, apiKey, cookie);
+            // req-109：设置多卡片路由信息。当前插件不区分账号/卡片（GetUsageAsync 仅按 Provider 粒度），
+            // RefreshService 会克隆本 usage 到所有 (Account, Card) 元组；这里设默认值是占位/安全网。
+            usage.AccountId ??= "default";
+            usage.CardId ??= "default-card";
             return usage;
         }
         catch (HttpRequestException ex)

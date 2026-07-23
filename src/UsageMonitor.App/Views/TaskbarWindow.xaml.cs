@@ -150,6 +150,22 @@ public partial class TaskbarWindow : Window
             // req-099 修复（Bug4）：仅显示已启用且有对应卡片 VM 的迷你图，跳过未启用/无数据的 Provider，避免任务栏空环。
             if (!usages.TryGetValue(descriptor.ProviderId, out var usageVm) || usageVm == null)
                 continue;
+            // req-109：按用户配置的 VisibleMiniCharts 过滤。
+            //   - visibleMiniCharts == null → 全部可见（向后兼容）
+            //   - descriptor.ChartId == null → 旧注册路径，不按 chartId 过滤（仅 Provider 粒度：空集合则隐藏）
+            //   - descriptor.ChartId != null → 按 chartId 精确过滤（不在列表则隐藏）
+            var visibleMiniCharts = _viewModel.GetEffectiveVisibleMiniCharts(descriptor.ProviderId);
+            if (visibleMiniCharts != null)
+            {
+                if (descriptor.ChartId != null)
+                {
+                    if (!visibleMiniCharts.Contains(descriptor.ChartId)) continue;
+                }
+                else if (visibleMiniCharts.Count == 0)
+                {
+                    continue;
+                }
+            }
             VisibleMiniCharts.Add(new MiniChartItemViewModel(descriptor, usageVm));
         }
     }
@@ -180,8 +196,9 @@ public partial class TaskbarWindow : Window
     private void OnUsageVmPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (sender is not ProviderUsageViewModel vm) return;
-        var item = VisibleMiniCharts.FirstOrDefault(x => x.ProviderId == vm.ProviderId);
-        item?.RefreshFromUsageVm();
+        // req-109：一个 Provider 可能有多个 Mini 图表（按 chartId 注册），全部刷新。
+        foreach (var item in VisibleMiniCharts.Where(x => x.ProviderId == vm.ProviderId))
+            item.RefreshFromUsageVm();
     }
 
     private void OnRootBorderMouseEnter(object sender, System.Windows.Input.MouseEventArgs e) { }

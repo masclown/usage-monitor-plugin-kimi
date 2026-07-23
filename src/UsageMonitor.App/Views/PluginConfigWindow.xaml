@@ -29,6 +29,29 @@
                 <!-- 动态表单区域（代码根据 ConfigFields 填充） -->
                 <StackPanel x:Name="FormPanel" />
 
+                <!-- req-109：账号管理（同 Provider 多账号 UI）
+                     提供 + 添加账号 / 编辑昵称 / 使用昵称 / 删除账号
+                     仅当 _configService 与 providerId 都有值时显示 -->
+                <StackPanel x:Name="AccountSection">
+                    <Separator Margin="0,8,0,14" />
+                    <Grid Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0">
+                            <TextBlock Text="账号" FontSize="15" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,4" />
+                            <TextBlock Text="同一 Provider 支持多个账号（API / 订阅 / 测试号）。每账号独立卡片配置。"
+                                       FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
+                                       TextWrapping="Wrap" />
+                        </StackPanel>
+                        <Button x:Name="AddAccountButton" Grid.Column="1" Content="+ 添加账号" Click="OnAddAccountClick"
+                                Style="{StaticResource AccentSoftButtonStyle}" VerticalAlignment="Center" />
+                    </Grid>
+                    <StackPanel x:Name="AccountListPanel" />
+                </StackPanel>
+
                 <!-- 卡片图表分组（req-107 B6 收敛：插件声明的 SupportedCardCharts 已统一由 ChartKindExtractor 读取，优先 Card 声明的 Charts，回退旧属性） -->
                 <StackPanel x:Name="CardChartSection">
                     <Separator Margin="0,8,0,14" />

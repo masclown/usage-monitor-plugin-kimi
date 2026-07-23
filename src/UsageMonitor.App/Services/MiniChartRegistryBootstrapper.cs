@@ -49,9 +49,25 @@ public static class MiniChartRegistryBootstrapper
             // 未声明迷你图能力的插件（如纯 API 的 OpenAI/MiMo）跳过。
             if (supported == null || supported.Count == 0) continue;
 
-            if (TryBuildDescriptor(provider.ProviderId, userConfigs, out var desc))
+            // req-109：优先按 taskbar.miniCharts 声明逐个注册（带 ChartId，供渲染端按 chartId 精确过滤）。
+            var taskbar = provider.Taskbar;
+            if (taskbar != null && taskbar.MiniCharts.Count > 0)
             {
-                registry.Register(desc);
+                foreach (var mini in taskbar.MiniCharts)
+                {
+                    if (TryBuildDescriptorForMiniChart(provider.ProviderId, mini, userConfigs, out var desc))
+                    {
+                        registry.Register(desc);
+                        registered++;
+                    }
+                }
+                continue;
+            }
+
+            // 回退：旧注册路径（单 descriptor，无 ChartId）。
+            if (TryBuildDescriptor(provider.ProviderId, userConfigs, out var fallbackDesc))
+            {
+                registry.Register(fallbackDesc);
                 registered++;
             }
         }
@@ -102,4 +118,57 @@ public static class MiniChartRegistryBootstrapper
         };
         return true;
     }
+
+    /// <summary>
+    /// req-109：按 <c>taskbar.miniCharts</c> 声明的单个 Mini 图表构建 descriptor（带 ChartId）。
+    /// <para>用户配置（<see cref="AppSettings.TaskbarMiniChartConfigs"/>）仍可覆盖内容类型 / Logo；
+    /// ChartId 始终来自声明，供渲染端按 chartId 精确过滤。</para>
+    /// </summary>
+    private static bool TryBuildDescriptorForMiniChart(
+        string providerId,
+        UsageMonitor.Core.Models.MiniChartDeclaration mini,
+        Dictionary<string, TaskbarMiniChartConfig> userConfigs,
+        out MiniChartDescriptor descriptor)
+    {
+        // 用户显式 IsVisible=false 时跳过整个 Provider 的迷你图（与旧路径一致）。
+        if (userConfigs.TryGetValue(providerId, out var cfg) && !cfg.IsVisible)
+        {
+            descriptor = null!;
+            return false;
+        }
+
+        var contentKind = cfg?.ContentKind ?? MiniChartContentKind.PrimaryMetric;
+        var secondaryKind = cfg?.SecondaryKind;
+        var showLogo = cfg?.ShowLogo ?? true;
+
+        descriptor = new MiniChartDescriptor
+        {
+            ProviderId = providerId,
+            ChartId = mini.ChartId,
+            Kind = MapDeclarativeKindToMiniChartKind(mini.Kind),
+            Style = MiniChartStyle.Compact,
+            DataSource = (double?)null,
+            ColorTier = null,
+            Tooltip = MiniChartTooltip.Default,
+            ContentKind = contentKind,
+            SecondaryKind = secondaryKind,
+            ShowLogo = showLogo
+        };
+        return true;
+    }
+
+    /// <summary>
+    /// req-109：<see cref="UsageMonitor.Core.Models.DeclarativeChartKind"/> → <see cref="MiniChartKind"/> 映射。
+    /// </summary>
+    private static MiniChartKind MapDeclarativeKindToMiniChartKind(UsageMonitor.Core.Models.DeclarativeChartKind kind)
+        => kind switch
+        {
+            UsageMonitor.Core.Models.DeclarativeChartKind.MiniRingChart => MiniChartKind.MiniRingChart,
+            UsageMonitor.Core.Models.DeclarativeChartKind.Ring => MiniChartKind.MiniRingChart,
+            UsageMonitor.Core.Models.DeclarativeChartKind.MiniText => MiniChartKind.MiniText,
+            UsageMonitor.Core.Models.DeclarativeChartKind.Line => MiniChartKind.MiniLineChart,
+            UsageMonitor.Core.Models.DeclarativeChartKind.Bar => MiniChartKind.MiniBarChart,
+            UsageMonitor.Core.Models.DeclarativeChartKind.HeatMap => MiniChartKind.MiniHeatMap,
+            _ => MiniChartKind.MiniText,
+        };
 }

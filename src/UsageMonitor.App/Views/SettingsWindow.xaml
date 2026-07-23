@@ -14,6 +14,7 @@
     <Window.Resources>
         <!-- req-073：分区模板选择器 -->
         <helpers:SettingsSectionSelector x:Key="SectionSelector" />
+            <helpers:TooltipFieldContainsConverter x:Key="TooltipFieldContainsConverter" />
 
         <!-- req-073：导航项选中态样式（VS Code 风格左侧导航） -->
         <Style x:Key="NavItemStyle" TargetType="ListBoxItem">
@@ -965,6 +966,151 @@
             </StackPanel>
         </DataTemplate>
 
+        <!-- req-107 B6 演进：卡片图表与数据组 -->
+        <DataTemplate x:Key="SettingsSection_CardCharts">
+            <StackPanel Margin="4">
+                <TextBlock Text="卡片图表与数据组" FontSize="{DynamicResource FontSizeTitle}" FontWeight="Bold"
+                           Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,8" />
+                <TextBlock TextWrapping="Wrap" FontSize="12" Margin="0,0,0,12"
+                           Foreground="{DynamicResource TextSecondaryBrush}" LineHeight="18">
+                    <Run Text="按 Provider 配置每张卡片中的图表与各图表的数据组：可见性 + 显示顺序。" />
+                    <LineBreak />
+                    <Run Text="未勾选任何图表时显示 defaults.json 声明的全部图表；勾选后仅显示勾选的图表（顺序按列表）。" />
+                </TextBlock>
+                <Grid Margin="0,0,0,12">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Provider:" VerticalAlignment="Center" Margin="0,0,8,0"
+                               Foreground="{DynamicResource TextSecondaryBrush}" FontSize="13" />
+                    <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding CardChartConfigProviders}"
+                              SelectedItem="{Binding SelectedCardChartProviderId, Mode=TwoWay}"
+                              MinWidth="200" HorizontalAlignment="Left" />
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="账号:" VerticalAlignment="Center" Margin="0,8,8,0"
+                               Foreground="{DynamicResource TextSecondaryBrush}" FontSize="13" />
+                    <ComboBox Grid.Row="1" Grid.Column="1" ItemsSource="{Binding CardChartConfigAccounts}"
+                              SelectedItem="{Binding SelectedCardChartConfigAccountId, Mode=TwoWay}"
+                              MinWidth="200" HorizontalAlignment="Left" Margin="0,8,0,0" />
+                </Grid>
+                <ListBox x:Name="CardChartItemsListBox" ItemsSource="{Binding CardChartConfigItems}" Margin="0,0,0,12"
+                         AllowDrop="True"
+                         Background="Transparent" BorderThickness="0"
+                         PreviewMouseLeftButtonDown="CardChartItemsListBox_PreviewMouseLeftButtonDown"
+                         PreviewMouseMove="CardChartItemsListBox_PreviewMouseMove"
+                         Drop="CardChartItemsListBox_Drop"
+                         DragEnter="CardChartItemsListBox_DragEnter">
+                    <ListBox.ItemContainerStyle>
+                        <Style TargetType="ListBoxItem">
+                            <Setter Property="Padding" Value="0" />
+                            <Setter Property="Margin" Value="0,0,0,10" />
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                            <Setter Property="Cursor" Value="Hand" />
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="ListBoxItem">
+                                        <ContentPresenter />
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </ListBox.ItemContainerStyle>
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Border Background="{DynamicResource SurfaceBrush}" CornerRadius="{DynamicResource RadiusButton}"
+                                    Padding="12,10" Margin="0,0,0,10" BorderBrush="{DynamicResource TrackBrush}" BorderThickness="1">
+                                <StackPanel>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <CheckBox Grid.Column="0" IsChecked="{Binding IsVisible, Mode=TwoWay}"
+                                                  VerticalAlignment="Center" Margin="0,0,12,0" />
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding ChartId}" FontSize="14" FontWeight="SemiBold" />
+                                            <TextBlock Text="{Binding ChartKind}" FontSize="11"
+                                                       Foreground="{DynamicResource TextTertiaryBrush}" />
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                            <Button Content="Up" Padding="6,2" Margin="0,0,4,0"
+                                                    Command="{Binding DataContext.MoveCardChartUpCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                    CommandParameter="{Binding}"
+                                                    Style="{StaticResource AccentSoftButtonStyle}" />
+                                            <Button Content="Down" Padding="6,2"
+                                                    Command="{Binding DataContext.MoveCardChartDownCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                    CommandParameter="{Binding}"
+                                                    Style="{StaticResource AccentSoftButtonStyle}" />
+                                        </StackPanel>
+                                    </Grid>
+                                    <ItemsControl Margin="28,8,0,0" ItemsSource="{Binding DataGroups}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Grid Margin="0,2,0,2">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto" />
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <CheckBox Grid.Column="0" IsChecked="{Binding IsVisible, Mode=TwoWay}"
+                                                              VerticalAlignment="Center" Margin="0,0,8,0" />
+                                                    <TextBlock Grid.Column="1" Text="{Binding DataGroupId}" FontSize="13"
+                                                               VerticalAlignment="Center" />
+                                                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                                        <Button Content="Up" Padding="4,1" Margin="0,0,2,0"
+                                                                Command="{Binding DataContext.MoveDataGroupUpCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
+                                                                CommandParameter="{Binding}"
+                                                                Style="{StaticResource AccentSoftButtonStyle}" />
+                                                        <Button Content="Down" Padding="4,1"
+                                                                Command="{Binding DataContext.MoveDataGroupDownCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
+                                                                CommandParameter="{Binding}"
+                                                                Style="{StaticResource AccentSoftButtonStyle}" />
+                                                    </StackPanel>
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <!-- req-105：Tooltip 显示字段（多选 SDK 字段名） -->
+                                    <StackPanel Margin="28,8,0,0">
+                                        <TextBlock Text="Tooltip 显示字段" FontSize="12"
+                                                   Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,4,0,4" />
+                                        <ItemsControl x:Name="TooltipFieldsControl" ItemsSource="{x:Static helpers:TooltipFieldCatalog.CommonFields}">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <WrapPanel Orientation="Horizontal" />
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <CheckBox Content="{Binding Display}" Margin="0,0,12,4"
+                                                              IsChecked="{Binding IsChecked, RelativeSource={RelativeSource AncestorType=ItemsControl}, Converter={StaticResource TooltipFieldContainsConverter}, ConverterParameter={Binding FieldName}, Mode=OneWay}"
+                                                              Click="OnTooltipFieldToggleClick"
+                                                              Tag="{Binding FieldName}" />
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                <StackPanel Orientation="Horizontal">
+                    <Button Content="保存配置" Padding="14,6"
+                            Click="OnSaveCardChartConfigClick"
+                            Style="{StaticResource AccentButtonStyle}" />
+                    <TextBlock Text="（保存后立即生效）" FontSize="12"
+                               VerticalAlignment="Center" Margin="12,0,0,0"
+                               Foreground="{DynamicResource TextTertiaryBrush}" />
+                </StackPanel>
+            </StackPanel>
+        </DataTemplate>
+
         <!-- req-098：任务栏迷你图表设置页 -->
         <DataTemplate x:Key="SettingsSection_TaskbarMiniChart">
             <StackPanel Margin="4">
@@ -1028,6 +1174,52 @@
 
                 <TextBlock Text="提示：取消勾选后该 Provider 不再出现在任务栏；图表类型与内容变更后任务栏下次刷新即可生效。"
                            FontSize="11" Foreground="{DynamicResource TextTertiaryBrush}" Margin="0,8,0,0" />
+
+                <!-- req-109：Mini 图表可见性裁剪（per Provider × per Account） -->
+                <Separator Margin="0,16,0,8" />
+                <TextBlock Text="Mini 图表可见性（按 Provider × 账号）" FontSize="14" FontWeight="SemiBold"
+                           Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,8" />
+                <TextBlock TextWrapping="Wrap" FontSize="12" Margin="0,0,0,8"
+                           Foreground="{DynamicResource TextSecondaryBrush}" LineHeight="18">
+                    <Run Text="未勾选时任务栏显示 defaults.json 声明的全部 Mini 图表；勾选后仅显示勾选的图表。" />
+                    <LineBreak />
+                    <Run Text="点击「保存 Mini 配置」后即时生效。" />
+                </TextBlock>
+                <ItemsControl x:Name="MiniChartItemsListBox" ItemsSource="{Binding CardMiniChartItems}" Margin="0,0,0,12">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border Background="{DynamicResource SurfaceBrush}" CornerRadius="{DynamicResource RadiusButton}"
+                                    Padding="12,8" Margin="0,0,0,6" BorderBrush="{DynamicResource TrackBrush}" BorderThickness="1">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <CheckBox Grid.Column="0" IsChecked="{Binding IsVisible, Mode=TwoWay}"
+                                              VerticalAlignment="Center" Margin="0,0,8,0" />
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding ChartId}" FontSize="13" FontWeight="SemiBold" />
+                                        <TextBlock Text="{Binding Kind}" FontSize="11"
+                                                   Foreground="{DynamicResource TextTertiaryBrush}" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <Button Content="Up" Padding="6,2" Margin="0,0,4,0"
+                                                Command="{Binding DataContext.MoveMiniChartUpCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                CommandParameter="{Binding}"
+                                                Style="{StaticResource AccentSoftButtonStyle}" />
+                                        <Button Content="Down" Padding="6,2"
+                                                Command="{Binding DataContext.MoveMiniChartDownCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                CommandParameter="{Binding}"
+                                                Style="{StaticResource AccentSoftButtonStyle}" />
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <Button Content="保存 Mini 配置" Padding="14,6" Click="OnSaveMiniChartConfigClick"
+                        Style="{StaticResource AccentButtonStyle}" />
             </StackPanel>
         </DataTemplate>
     </Window.Resources>
@@ -1106,6 +1298,9 @@
                                     </DataTrigger>
                                     <DataTrigger Binding="{Binding CurrentSection}" Value="{x:Static helpers:SettingsSection.MultiProgress}">
                                         <Setter Property="ContentTemplate" Value="{StaticResource SettingsSection_MultiProgress}" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding CurrentSection}" Value="{x:Static helpers:SettingsSection.CardCharts}">
+                                        <Setter Property="ContentTemplate" Value="{StaticResource SettingsSection_CardCharts}" />
                                     </DataTrigger>
                                     <DataTrigger Binding="{Binding CurrentSection}" Value="{x:Static helpers:SettingsSection.TaskbarMiniChart}">
                                         <Setter Property="ContentTemplate" Value="{StaticResource SettingsSection_TaskbarMiniChart}" />

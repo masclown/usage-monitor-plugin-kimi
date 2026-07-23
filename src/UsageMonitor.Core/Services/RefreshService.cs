@@ -135,10 +135,24 @@ private readonly ConcurrentDictionary<string, int> _consecutiveFailures = new();
             await Task.WhenAll(tasks);
 
             // 触发数据更新事件
-            var allUsages = enabledPlugins
-                .Where(p => p.LastUsage != null)
-                .Select(p => p.LastUsage!)
-                .ToList();
+            // req-109：每个 Provider 的 LastUsage 克隆到 (Provider, Account, Card) 三元组 × N 份，让 DisplayModule 按 3 段路由。
+            var allUsages = new List<UsageInfo>();
+            foreach (var p in enabledPlugins.Where(p => p.LastUsage != null))
+            {
+                var source = p.LastUsage!;
+                allUsages.Add(source);
+                var accounts = _configService.GetAccounts(p.Provider.ProviderId);
+                if (accounts.Count == 0) continue;
+                foreach (var account in accounts)
+                {
+                    var cards = _configService.GetCards(p.Provider.ProviderId, account.AccountId);
+                    foreach (var card in cards)
+                    {
+                        if (account.AccountId == "default" && card.CardId == "default-card") continue;
+                        allUsages.Add(CloneUsageForCard(source, account.AccountId, card.CardId));
+                    }
+                }
+            }
 
             UsageRefreshed?.Invoke(this, new UsageRefreshedEventArgs(allUsages));
         }
@@ -352,9 +366,56 @@ private readonly ConcurrentDictionary<string, int> _consecutiveFailures = new();
         // 复用单插件刷新逻辑（内部会写 LastUsage 并在成功时记录历史点）。
         await RefreshPluginAsync(plugin, "manual", ct);
 
-        // 触发与全量刷新相同的事件，App.OnUsageRefreshed 据此更新卡片 UI 与托盘提示。
-        if (plugin.LastUsage != null)
-            UsageRefreshed?.Invoke(this, new UsageRefreshedEventArgs(new[] { plugin.LastUsage }));
+        // req-109：克隆单数据源 usage 到 (Provider, Account, Card) 三元组 × N 份，让 DisplayModule 按 3 段路由到每张卡片。
+        // 注：当前插件不区分账号/卡片（GetUsageAsync 仅按 Provider 粒度），所以 N 张卡片显示同一份数据。
+        //     Phase 4 完整版后，插件可按 (accountId, cardId) 区分数据源。
+        if (plugin.LastUsage == null) return;
+        var sourceUsage = plugin.LastUsage;
+        var usageList = new List<UsageInfo> { sourceUsage };
+        var accounts = _configService.GetAccounts(providerId);
+        if (accounts.Count > 0)
+        {
+            foreach (var account in accounts)
+            {
+                var cards = _configService.GetCards(providerId, account.AccountId);
+                foreach (var card in cards)
+                {
+                    if (account.AccountId == "default" && card.CardId == "default-card") continue;
+                    usageList.Add(CloneUsageForCard(sourceUsage, account.AccountId, card.CardId));
+                }
+            }
+        }
+
+        UsageRefreshed?.Invoke(this, new UsageRefreshedEventArgs(usageList));
+    }
+
+    /// <summary>
+    /// req-109：克隆一份 UsageInfo 并设置 (AccountId, CardId) 路由信息。
+    /// 浅拷贝 Extra 字典，避免跨卡片数据共享导致 INPC 误触发。
+    /// </summary>
+    private static UsageInfo CloneUsageForCard(UsageInfo source, string accountId, string cardId)
+    {
+        return new UsageInfo
+        {
+            ProviderId = source.ProviderId,
+            ProviderName = source.ProviderName,
+            AccountId = accountId,
+            CardId = cardId,
+            Quantity = source.Quantity,
+            Error = source.Error,
+#pragma warning disable CS0618
+            UsedAmount = source.UsedAmount,
+            TotalAmount = source.TotalAmount,
+            Unit = source.Unit,
+            UsedTokens = source.UsedTokens,
+            TotalTokens = source.TotalTokens,
+            ErrorMessage = source.ErrorMessage,
+#pragma warning restore CS0618
+            ExpireDate = source.ExpireDate,
+            Extra = source.Extra != null ? new System.Collections.Generic.Dictionary<string, object>(source.Extra) : new(),
+            LastUpdated = source.LastUpdated,
+            IsSuccess = source.IsSuccess,
+        };
     }
 
     /// <summary>

@@ -114,12 +114,155 @@ public partial class PluginConfigWindow : Window
         TitleText.Text = $"{pluginName} 配置";
         BuildForm();
         BuildCardChartSection();
+        BuildAccountSection();
 
         // 当插件声明了登录需求时，显示通用的"获取登录态"按钮
         if (_loginConfig != null)
         {
             GetCookieButton.Content = _loginConfig.UiButtonText ?? "🌐 获取登录态";
             GetCookieButton.Visibility = Visibility.Visible;
+        }
+    }
+
+    /// <summary>
+    /// req-109：账号管理 UI。列出该 Provider 下现有账号，提供 + 添加账号 / 编辑昵称 / 删除。
+    /// <para>仅当 <see cref="_configService"/> 与 <see cref="_provider"/> 都非空时显示。保存按钮由现有 <c>OnSaveClick</c> 一次性统一持久化。</para>
+    /// </summary>
+    private void BuildAccountSection()
+    {
+        if (_configService == null || _provider == null)
+        {
+            AccountSection.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        var providerId = _provider.ProviderId;
+        var accounts = _configService.GetAccounts(providerId);
+        // 无账号时提供一个引导行：引导用户添加第一个账号
+        if (accounts.Count == 0)
+        {
+            // 自动添加一个 default 账号（首次打开时让用户可见列表，不再空白）
+            // 注：仍需用户点击"+ 添加账号"才能持久化；此处不自动 add。
+        }
+
+        AccountListPanel.Children.Clear();
+        foreach (var account in accounts)
+        {
+            AccountListPanel.Children.Add(BuildAccountRow(providerId, account));
+        }
+    }
+
+    /// <summary>构建单行账号 UI（昵称 TextBox + UseNickname CheckBox + 删除 Button）。</summary>
+    private FrameworkElement BuildAccountRow(string providerId, UsageMonitor.Core.Models.Account account)
+    {
+        var border = new Border
+        {
+            Background = (System.Windows.Media.Brush)FindResource("SurfaceBrush"),
+            CornerRadius = (System.Windows.CornerRadius)FindResource("RadiusButton"),
+            Padding = new Thickness(10, 6, 10, 6),
+            Margin = new Thickness(0, 0, 0, 6)
+        };
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        // 账号 ID（只读标签）
+        var idLabel = new TextBlock
+        {
+            Text = $"账号：{account.AccountId}{(account.IsDefault ? "（默认）" : "")}",
+            FontSize = 12,
+            Foreground = (System.Windows.Media.Brush)FindResource("TextSecondaryBrush"),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 8, 0)
+        };
+        Grid.SetColumn(idLabel, 0);
+        grid.Children.Add(idLabel);
+
+        // 昵称 TextBox
+        var nickBox = new WpfTextBox
+        {
+            Text = account.Nickname ?? string.Empty,
+            MinWidth = 140,
+            Margin = new Thickness(0, 0, 8, 0)
+        };
+        nickBox.TextChanged += (_, _) =>
+        {
+            account.Nickname = string.IsNullOrWhiteSpace(nickBox.Text) ? null : nickBox.Text.Trim();
+            TryUpdateAccount(account);
+        };
+        Grid.SetColumn(nickBox, 1);
+        grid.Children.Add(nickBox);
+
+        // 删除按钮
+        var delBtn = new WpfButton
+        {
+            Content = "删除",
+            Margin = new Thickness(0, 0, 0, 0),
+            Style = (Style)FindResource("GhostButtonStyle")
+        };
+        delBtn.Click += (_, _) =>
+        {
+            try
+            {
+                _configService!.RemoveAccount(providerId, account.AccountId);
+            }
+            catch (System.InvalidOperationException ex)
+            {
+                System.Windows.MessageBox.Show(this, ex.Message, "提示",
+                    System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
+                return;
+            }
+            BuildAccountSection();
+        };
+        Grid.SetColumn(delBtn, 2);
+        grid.Children.Add(delBtn);
+
+        border.Child = grid;
+        return border;
+    }
+
+    /// <summary>安全更新账号（不抛异常）。</summary>
+    private void TryUpdateAccount(UsageMonitor.Core.Models.Account account)
+    {
+        if (_configService == null) return;
+        try { _configService.UpdateAccount(account); }
+        catch { /* 静默失败：用户继续编辑后下次点击保存时一起写入 */ }
+    }
+
+    /// <summary>req-109：+ 添加账号 按钮点击处理（分配唯一 AccountId，弹出昵称输入对话框）。</summary>
+    private void OnAddAccountClick(object sender, RoutedEventArgs e)
+    {
+        if (_configService == null || _provider == null) return;
+        var providerId = _provider.ProviderId;
+        var defaultNickname = $"账号 {_configService.GetAccounts(providerId).Count + 1}";
+        var inputBox = new WpfTextBox { Text = defaultNickname, MinWidth = 200 };
+        var dialog = new Window
+        {
+            Title = "添加账号",
+            Width = 360,
+            Height = 160,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Owner = this,
+            ResizeMode = ResizeMode.NoResize,
+            Background = (System.Windows.Media.Brush)FindResource("AppBackgroundBrush")
+        };
+        var stack = new StackPanel { Margin = new Thickness(16) };
+        stack.Children.Add(new TextBlock { Text = "为新账号设置昵称（Provider 内唯一）：", Margin = new Thickness(0, 0, 0, 8) });
+        stack.Children.Add(inputBox);
+        var btnRow = new StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal, HorizontalAlignment = System.Windows.HorizontalAlignment.Right, Margin = new Thickness(0, 12, 0, 0) };
+        var okBtn = new WpfButton { Content = "确定", IsDefault = true, Margin = new Thickness(0, 0, 8, 0), Style = (Style)FindResource("PrimaryButtonStyle") };
+        var cancelBtn = new WpfButton { Content = "取消", IsCancel = true, Style = (Style)FindResource("GhostButtonStyle") };
+        btnRow.Children.Add(okBtn);
+        btnRow.Children.Add(cancelBtn);
+        stack.Children.Add(btnRow);
+        dialog.Content = stack;
+        okBtn.Click += (_, _) => dialog.DialogResult = true;
+        if (dialog.ShowDialog() == true)
+        {
+            var nickname = string.IsNullOrWhiteSpace(inputBox.Text) ? null : inputBox.Text.Trim();
+            _configService.AddAccount(providerId, nickname);
+            BuildAccountSection();
         }
     }
 

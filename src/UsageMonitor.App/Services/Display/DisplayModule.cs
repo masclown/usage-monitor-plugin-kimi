@@ -65,6 +65,15 @@ public sealed class DisplayModule : IDisplayModule
     {
         foreach (var plugin in _pluginManager.Plugins)
         {
+            // req-109：枚举 (Account, Card) 二元组派生 N 张卡片（每 Provider 可有 N 个）。
+            //   - 无 Accounts 配置 → 走单卡向后兼容路径（(default, default-card)）
+            //   - 有 Accounts → 对每个账号取卡片列表，逐卡片创建 VM
+            var accounts = _configService.GetAccounts(plugin.Provider.ProviderId);
+            var cardTuples = accounts.Count > 0
+                ? accounts.SelectMany(a => _configService.GetCards(plugin.Provider.ProviderId, a.AccountId)
+                    .Select(c => (AccountId: a.AccountId, CardId: c.CardId))).ToList()
+                : new List<(string AccountId, string CardId)> { ("default", "default-card") };
+
             // 读取已保存的显示模式与卡片图表多选（未配置时回退插件声明：req-107 B6 优先 Card.Charts）
             var savedMode = TaskbarModeResolver.Resolve(_configService.Settings, plugin.Provider.ProviderId);
             var savedCardCharts = _configService.GetProviderCardChartKinds(plugin.Provider.ProviderId);
@@ -107,8 +116,8 @@ public sealed class DisplayModule : IDisplayModule
                 }
                 else if (e.PropertyName == nameof(PluginItemViewModel.CardChartKinds))
                 {
-                    var target = Usages.FirstOrDefault(u => u.ProviderId == item.ProviderId);
-                    if (target != null) target.CardChartKinds = item.CardChartKinds;
+                    var targets = Usages.Where(u => u.ProviderId == item.ProviderId);
+                    foreach (var t in targets) t.CardChartKinds = item.CardChartKinds;
                 }
             };
             PluginItems.Add(item);
@@ -121,25 +130,32 @@ public sealed class DisplayModule : IDisplayModule
             Action? reLoginAction = supportsReLogin && _reLoginHandler != null
                 ? () => _reLoginHandler(providerId)
                 : null;
-            var usageVm = new ProviderUsageViewModel(
-                item.OpenConfigDialog,
-                // 卡片右上角"⟳ 刷新"按钮回调：仅刷新当前服务商，复用刷新事件链路更新 UI/托盘。
-                () => _refreshService.RefreshProviderAsync(providerId),
-                reLoginAction)
+
+            // req-109：每个 (Account, Card) 二元组派生一个 ProviderUsageViewModel
+            foreach (var (accountId, cardId) in cardTuples)
             {
-                ProviderId = plugin.Provider.ProviderId,
-                DisplayName = plugin.Provider.DisplayName,
-                IconPath = ProviderUsageViewModel.ResolveIconPath(plugin.Provider.ProviderId),
-                IsEnabled = plugin.IsEnabled,
-                DisplayMode = savedMode,
-                CardChartKinds = savedCardCharts,
-                RenderKinds = plugin.Provider.DefaultRenderKinds,
-                CollapseVisibleParts = plugin.Provider.CollapseVisibleParts ?? Array.Empty<string>(),
-                // req-107 B8：SupportsPeriodSwitch / ExtraTooltipLines 接口成员已收敛为 [Obsolete]，周期切换能力交由 Card.Line.Slicer(Period)、tooltip 扩展行交由 Card.Chart.Tooltip；VM 初始化不再从接口读取。
-                Provider = plugin.Provider,
-            };
-            usageVm.AttachConfigService(_configService);
-            Usages.Add(usageVm);
+                var usageVm = new ProviderUsageViewModel(
+                    item.OpenConfigDialog,
+                    () => _refreshService.RefreshProviderAsync(providerId),
+                    reLoginAction,
+                    accountId: accountId,
+                    cardId: cardId)
+                {
+                    ProviderId = plugin.Provider.ProviderId,
+                    DisplayName = plugin.Provider.DisplayName,
+                    IconPath = ProviderUsageViewModel.ResolveIconPath(plugin.Provider.ProviderId),
+                    IsEnabled = plugin.IsEnabled,
+                    DisplayMode = savedMode,
+                    CardChartKinds = savedCardCharts,
+                    RenderKinds = plugin.Provider.DefaultRenderKinds,
+                    CollapseVisibleParts = plugin.Provider.CollapseVisibleParts ?? Array.Empty<string>(),
+                    // req-107 B8：SupportsPeriodSwitch / ExtraTooltipLines 接口成员已收敛为 [Obsolete]；
+                    // 周期切换能力交由 Card.Line.Slicer(Period)、tooltip 扩展行交由 Card.Chart.Tooltip；VM 初始化不再从接口读取。
+                    Provider = plugin.Provider,
+                };
+                usageVm.AttachConfigService(_configService);
+                Usages.Add(usageVm);
+            }
         }
 
         RebuildEnabledCards();
@@ -149,7 +165,13 @@ public sealed class DisplayModule : IDisplayModule
     public void RenderCard(UsageInfo data)
     {
         if (data == null) return;
-        var vm = Usages.FirstOrDefault(u => u.ProviderId == data.ProviderId);
+        // req-109：当 UsageInfo.AccountId/CardId 填充时按 3 段路由；null 时回退到首匹配（向后兼容）。
+        ProviderUsageViewModel? vm = (data.AccountId != null && data.CardId != null)
+            ? Usages.FirstOrDefault(u =>
+                string.Equals(u.ProviderId, data.ProviderId, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(u.AccountIdSafe, data.AccountId, StringComparison.Ordinal) &&
+                string.Equals(u.CardIdSafe, data.CardId, StringComparison.Ordinal))
+            : Usages.FirstOrDefault(u => string.Equals(u.ProviderId, data.ProviderId, StringComparison.OrdinalIgnoreCase));
         vm?.UpdateFromUsage(data);
     }
 

@@ -40,6 +40,12 @@ public class AppSettings
     /// </summary>
     public List<LoginStateInfo> PersistedLoginStates { get; set; } = new();
 
+    /// <summary>
+    /// req-109：所有账号实体（多账号 UI 数据源）。每个 (ProviderId, AccountId) 唯一。
+    /// <para>账号管理 UI 按用户决定放 <c>PluginConfigWindow</c> 内（认证层不变，仍按二段 key 鉴权）。</para>
+    /// </summary>
+    public List<Models.Account> Accounts { get; set; } = new();
+
     /// <summary>历史数据保留点数（默认 60，可调 30/60/120）</summary>
     public int HistoryPointCount { get; set; } = 60;
 
@@ -820,21 +826,21 @@ public class ConfigService : IConfigService
     }
 
     /// <summary>
-    /// req-107 #10：获取指定 Provider 的有效账号定制（合并默认 + 旧字典兼容层）。
+    /// req-109：获取指定 (ProviderId, AccountId, CardId) 的有效账号定制（合并默认 + 旧字典兼容层）。
     /// <para>
     /// 返回 <see cref="AccountCustomization"/>：先读 <see cref="AppSettings.AccountCustomizations"/>
-    /// （key = <c>ProviderId:AccountId</c>），再用旧字典（<see cref="AppSettings.ProviderCardChartKinds"/>、
+    /// （key = <c>ProviderId:AccountId:CardId</c>），再用旧字典（<see cref="AppSettings.ProviderCardChartKinds"/>、
     /// <see cref="AppSettings.ProviderChartOrder"/>、<see cref="AppSettings.SelectedProgressFields"/>、
     /// <see cref="AppSettings.SelectedMetricFields"/>）填充未在账号定制中设置的字段。
     /// 保证 App 端统一读“合并后视图”，逐步迁移旧数据。
     /// </para>
     /// <para>不返回 null：调用方可直接使用合并结果。</para>
     /// </summary>
-    public AccountCustomization GetEffectiveAccountCustomization(string providerId, string accountId = "default")
+    public AccountCustomization GetEffectiveAccountCustomization(string providerId, string accountId = "default", string cardId = "default-card")
     {
         lock (_ioLock)
         {
-            var key = AccountCustomization.MakeKey(providerId, accountId);
+            var key = AccountCustomization.MakeKey(providerId, accountId, cardId);
             // 先拷贝账号定制（避免调用方修改内部）
             var effective = new AccountCustomization();
             if (_settings.AccountCustomizations.TryGetValue(key, out var acct) && acct != null)
@@ -848,6 +854,13 @@ public class ConfigService : IConfigService
                 effective.ChartTitles = new Dictionary<string, string>(acct.ChartTitles);
                 effective.VisibleProgressFields = acct.VisibleProgressFields != null ? new List<string>(acct.VisibleProgressFields) : null;
                 effective.VisibleMetricFields = acct.VisibleMetricFields != null ? new List<string>(acct.VisibleMetricFields) : null;
+                effective.VisibleDataGroups = CopyStringToListDict(acct.VisibleDataGroups);
+                effective.DataGroupOrders = CopyStringToIntDictDict(acct.DataGroupOrders);
+                // req-105 + Mini 任务栏同构（req-109）
+                effective.VisibleTooltipFields = CopyStringToListDict(acct.VisibleTooltipFields);
+                effective.VisibleMiniCharts = acct.VisibleMiniCharts != null ? new List<string>(acct.VisibleMiniCharts) : null;
+                effective.VisibleMiniDataGroups = CopyStringToListDict(acct.VisibleMiniDataGroups);
+                effective.MiniDataGroupOrders = CopyStringToIntDictDict(acct.MiniDataGroupOrders);
             }
 
             // 旧字典兼容填充：仅在账号定制未设置时填入（避免覆盖用户主动的选择）
@@ -871,6 +884,53 @@ public class ConfigService : IConfigService
         }
     }
 
+    /// <summary>深拷贝 string→List&lt;string&gt;? 字典（用于 VisibleDataGroups）。</summary>
+    private static Dictionary<string, List<string>?> CopyStringToListDict(Dictionary<string, List<string>?> src)
+    {
+        var dst = new Dictionary<string, List<string>?>(src.Count);
+        foreach (var kv in src)
+        {
+            dst[kv.Key] = kv.Value != null ? new List<string>(kv.Value) : null;
+        }
+        return dst;
+    }
+
+    /// <summary>深拷贝 string→Dictionary&lt;string,int&gt; 字典（用于 DataGroupOrders）。</summary>
+    private static Dictionary<string, Dictionary<string, int>> CopyStringToIntDictDict(Dictionary<string, Dictionary<string, int>> src)
+    {
+        var dst = new Dictionary<string, Dictionary<string, int>>(src.Count);
+        foreach (var kv in src)
+        {
+            dst[kv.Key] = new Dictionary<string, int>(kv.Value);
+        }
+        return dst;
+    }
+
+    /// <summary>
+    /// req-109 B6 演进：持久化指定 (ProviderId, AccountId, CardId) 的卡片图表配置。
+    /// <para>CardId 仅在显示/配置层使用（认证层 AuthManager 仍按二段 key 鉴权）。</para>
+    /// </summary>
+    public void SetCardChartConfiguration(string providerId, AccountCustomization config, string accountId = "default", string cardId = "default-card")
+    {
+        lock (_ioLock)
+        {
+            var key = AccountCustomization.MakeKey(providerId, accountId, cardId);
+            if (!_settings.AccountCustomizations.TryGetValue(key, out var acct) || acct == null)
+            {
+                acct = new AccountCustomization();
+                _settings.AccountCustomizations[key] = acct;
+            }
+            acct.VisibleCharts = config.VisibleCharts != null ? new List<string>(config.VisibleCharts) : null;
+            acct.ChartOrders = new Dictionary<string, int>(config.ChartOrders);
+            acct.CurrentDataGroupIds = new Dictionary<string, string>(config.CurrentDataGroupIds);
+            acct.VisibleDataGroups = CopyStringToListDict(config.VisibleDataGroups);
+            acct.DataGroupOrders = CopyStringToIntDictDict(config.DataGroupOrders);
+            // req-105：每张图表的 Tooltip 字段随卡片配置一起持久化
+            acct.VisibleTooltipFields = CopyStringToListDict(config.VisibleTooltipFields);
+        }
+        Save();
+    }
+
     /// <summary>
     /// 设置指定 Provider 的「卡片图表类型集合」（多选）并持久化。
     /// 同步回写旧单选字段（取首元素，无则 None），避免两套配置漂移。
@@ -882,6 +942,28 @@ public class ConfigService : IConfigService
             var list = kinds != null ? new List<CardChartKind>(kinds) : new List<CardChartKind>();
             _settings.ProviderCardChartKinds[providerId] = list;
             _settings.ProviderCardCharts[providerId] = list.Count > 0 ? list[0] : CardChartKind.None;
+        }
+        Save();
+    }
+
+    /// <summary>
+    /// req-109：持久化指定 (ProviderId, AccountId, CardId) 的 Mini 图表配置（Mini 任务栏同构）。
+    /// <para>仅持久化 Mini 图表专属字段（VisibleMiniCharts/VisibleMiniDataGroups/MiniDataGroupOrders）；
+    /// 其它字段（VisibleCharts 等）走 <see cref="SetCardChartConfiguration"/>。</para>
+    /// </summary>
+    public void SetMiniChartConfiguration(string providerId, AccountCustomization config, string accountId = "default", string cardId = "default-card")
+    {
+        lock (_ioLock)
+        {
+            var key = AccountCustomization.MakeKey(providerId, accountId, cardId);
+            if (!_settings.AccountCustomizations.TryGetValue(key, out var acct) || acct == null)
+            {
+                acct = new AccountCustomization();
+                _settings.AccountCustomizations[key] = acct;
+            }
+            acct.VisibleMiniCharts = config.VisibleMiniCharts != null ? new List<string>(config.VisibleMiniCharts) : null;
+            acct.VisibleMiniDataGroups = CopyStringToListDict(config.VisibleMiniDataGroups);
+            acct.MiniDataGroupOrders = CopyStringToIntDictDict(config.MiniDataGroupOrders);
         }
         Save();
     }
@@ -952,5 +1034,235 @@ public class ConfigService : IConfigService
         var bytes = Convert.FromBase64String(cipherText);
         var decrypted = ProtectedData.Unprotect(bytes, null, DataProtectionScope.CurrentUser);
         return Encoding.UTF8.GetString(decrypted);
+    }
+
+    // =====================================================================
+    // req-109：账号 CRUD
+    // =====================================================================
+
+    /// <summary>获取指定 Provider 下的所有账号（未过滤，按 Persistence 顺序返回）。</summary>
+    public IReadOnlyList<Models.Account> GetAccounts(string providerId)
+    {
+        lock (_ioLock)
+        {
+            return _settings.Accounts
+                .Where(a => string.Equals(a.ProviderId, providerId, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+        }
+    }
+
+    /// <summary>按复合键查找账号（Provider + AccountId）。</summary>
+    public Models.Account? GetAccount(string providerId, string accountId)
+    {
+        lock (_ioLock)
+        {
+            return _settings.Accounts.FirstOrDefault(a =>
+                string.Equals(a.ProviderId, providerId, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(a.AccountId, NormalizeAccountId(accountId), StringComparison.Ordinal));
+        }
+    }
+
+    /// <summary>
+    /// 添加账号。第一个账号自动设 IsDefault=true；同 (ProviderId, AccountId) 已存在则抛 <see cref="InvalidOperationException"/>。
+    /// <para>认证层不受影响——不创建/修改 LoginStateInfo，登录态在 AuthManager 内部维护。</para>
+    /// </summary>
+    public Models.Account AddAccount(string providerId, string? nickname)
+    {
+        lock (_ioLock)
+        {
+            var newId = GenerateUniqueAccountId(providerId);
+            var account = new Models.Account
+            {
+                ProviderId = providerId,
+                AccountId = newId,
+                Nickname = string.IsNullOrWhiteSpace(nickname) ? null : nickname.Trim(),
+                CreatedAt = DateTime.Now,
+                IsDefault = !_settings.Accounts.Any(a => string.Equals(a.ProviderId, providerId, StringComparison.OrdinalIgnoreCase))
+            };
+            _settings.Accounts.Add(account);
+            Save();
+            return account;
+        }
+    }
+
+    /// <summary>更新账号（昵称 / UseNickname）。</summary>
+    public void UpdateAccount(Models.Account account)
+    {
+        if (account == null) throw new ArgumentNullException(nameof(account));
+        lock (_ioLock)
+        {
+            var existing = GetAccount(account.ProviderId, account.AccountId);
+            if (existing == null)
+                throw new InvalidOperationException($"账号不存在：{account.ProviderId}:{account.AccountId}");
+            existing.Nickname = account.Nickname;
+            existing.UseNickname = account.UseNickname;
+            existing.IsDefault = account.IsDefault;
+            Save();
+        }
+    }
+
+    /// <summary>
+    /// 删除账号。同步清理该账号下的所有 LoginStateInfo 与 AccountCustomization（认证层保持不变）。
+    /// <para>若该 Provider 仅剩一个账号，则抛异常（避免误删导致无账号状态）。</para>
+    /// </summary>
+    public void RemoveAccount(string providerId, string accountId)
+    {
+        lock (_ioLock)
+        {
+            // 先查找目标：账号不存在则静默返回（与 AddAccount / GetAccount 行为一致）。
+            var norm = NormalizeAccountId(accountId);
+            var toRemove = _settings.Accounts.FirstOrDefault(a =>
+                string.Equals(a.ProviderId, providerId, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(a.AccountId, norm, StringComparison.Ordinal));
+            if (toRemove == null) return;
+            // 仅在确实要删时校验“仅剩一个”。
+            var accounts = _settings.Accounts
+                .Where(a => string.Equals(a.ProviderId, providerId, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            if (accounts.Count <= 1)
+                throw new InvalidOperationException($"Provider {providerId} 仅剩一个账号，不可删除");
+            _settings.Accounts.Remove(toRemove);
+            // 同步清理该账号的登录态元数据（不删加密凭据本身）
+            _settings.PersistedLoginStates.RemoveAll(s =>
+                string.Equals(s.ProviderId, providerId, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(s.AccountId, norm, StringComparison.Ordinal));
+            Save();
+        }
+    }
+
+    private string GenerateUniqueAccountId(string providerId)
+    {
+        var norm = NormalizeAccountId("default");
+        var existing = _settings.Accounts
+            .Where(a => string.Equals(a.ProviderId, providerId, StringComparison.OrdinalIgnoreCase))
+            .Select(a => a.AccountId)
+            .ToHashSet(StringComparer.Ordinal);
+        if (!existing.Contains(norm)) return norm;
+        for (var i = 2; i < 1000; i++)
+        {
+            var candidate = $"account-{i}";
+            if (!existing.Contains(candidate)) return candidate;
+        }
+        return Guid.NewGuid().ToString("N");
+    }
+
+    private static string NormalizeAccountId(string id)
+        => string.IsNullOrEmpty(id) ? "default" : id;
+
+    // =====================================================================
+    // req-109：卡片 CRUD（每账号多卡片基础）
+    // =====================================================================
+
+    /// <summary>获取指定账号下的所有卡片（按 DisplayOrder 升序）。</summary>
+    public IReadOnlyList<Models.CardConfig> GetCards(string providerId, string accountId)
+    {
+        lock (_ioLock)
+        {
+            var acct = GetAccountCustomization(providerId, accountId);
+            return (acct?.Cards ?? new List<Models.CardConfig>())
+                .OrderBy(c => c.DisplayOrder)
+                .ToList();
+        }
+    }
+
+    /// <summary>添加卡片。自动分配唯一 CardId（首个为 "default-card"）+ DisplayOrder 追加到末尾。</summary>
+    public Models.CardConfig AddCard(string providerId, string accountId, string? title)
+    {
+        lock (_ioLock)
+        {
+            var acct = GetOrCreateAccountCustomization(providerId, accountId);
+            var newCardId = GenerateUniqueCardId(acct);
+            var card = new Models.CardConfig
+            {
+                CardId = newCardId,
+                Title = string.IsNullOrWhiteSpace(title) ? null : title.Trim(),
+                DisplayOrder = acct.Cards.Count
+            };
+            acct.Cards.Add(card);
+            Save();
+            return card;
+        }
+    }
+
+    /// <summary>更新卡片（标题 / DisplayOrder / Customization）。</summary>
+    public void UpdateCard(string providerId, string accountId, Models.CardConfig card)
+    {
+        if (card == null) throw new ArgumentNullException(nameof(card));
+        lock (_ioLock)
+        {
+            var acct = GetAccountCustomization(providerId, accountId);
+            var existing = acct?.Cards.FirstOrDefault(c => c.CardId == card.CardId);
+            if (existing == null)
+                throw new InvalidOperationException($"卡片不存在：{providerId}:{accountId}:{card.CardId}");
+            existing.Title = card.Title;
+            existing.DisplayOrder = card.DisplayOrder;
+            existing.Customization = card.Customization ?? new AccountCustomization();
+            Save();
+        }
+    }
+
+    /// <summary>删除卡片。同步清理该卡片下的 AccountCustomization（按三段 key 移除）。</summary>
+    public void RemoveCard(string providerId, string accountId, string cardId)
+    {
+        lock (_ioLock)
+        {
+            var acct = GetAccountCustomization(providerId, accountId);
+            if (acct == null) return;
+            var toRemove = acct.Cards.FirstOrDefault(c => c.CardId == cardId);
+            if (toRemove == null) return;
+            acct.Cards.Remove(toRemove);
+            // 同步清理该卡片下的扁平字段定制
+            var key = AccountCustomization.MakeKey(providerId, accountId, cardId);
+            _settings.AccountCustomizations.Remove(key);
+            Save();
+        }
+    }
+
+    /// <summary>更新卡片 DisplayOrder（拖拽排序后批量调用）。</summary>
+    public void ReorderCards(string providerId, string accountId, IReadOnlyList<string> orderedCardIds)
+    {
+        if (orderedCardIds == null) throw new ArgumentNullException(nameof(orderedCardIds));
+        lock (_ioLock)
+        {
+            var acct = GetAccountCustomization(providerId, accountId);
+            if (acct == null) throw new InvalidOperationException($"账号定制不存在：{providerId}:{accountId}");
+            for (var i = 0; i < orderedCardIds.Count; i++)
+            {
+                var card = acct.Cards.FirstOrDefault(c => c.CardId == orderedCardIds[i]);
+                if (card != null) card.DisplayOrder = i;
+            }
+            Save();
+        }
+    }
+
+    private string GenerateUniqueCardId(AccountCustomization acct)
+    {
+        var existing = acct.Cards.Select(c => c.CardId).ToHashSet(StringComparer.Ordinal);
+        const string first = "default-card";
+        if (!existing.Contains(first)) return first;
+        for (var i = 2; i < 1000; i++)
+        {
+            var candidate = $"card-{i}";
+            if (!existing.Contains(candidate)) return candidate;
+        }
+        return Guid.NewGuid().ToString("N");
+    }
+
+    private AccountCustomization GetAccountCustomization(string providerId, string accountId)
+    {
+        var key = AccountCustomization.MakeKey(providerId, accountId); // 二段（账号级，跨卡片共享昵称 / UseNickname）
+        _settings.AccountCustomizations.TryGetValue(key, out var acct);
+        return acct ?? new AccountCustomization();
+    }
+
+    private AccountCustomization GetOrCreateAccountCustomization(string providerId, string accountId)
+    {
+        var key = AccountCustomization.MakeKey(providerId, accountId);
+        if (!_settings.AccountCustomizations.TryGetValue(key, out var acct) || acct == null)
+        {
+            acct = new AccountCustomization();
+            _settings.AccountCustomizations[key] = acct;
+        }
+        return acct;
     }
 }

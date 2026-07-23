@@ -86,6 +86,9 @@ public partial class SettingsWindow : Window
 
         // req-098：初始化任务栏迷你图表配置项
         RefreshTaskbarMiniChartOptionsIfNeeded();
+
+        // req-107 B6 演进：刷新卡片图表与数据组配置项
+        RefreshCardChartConfigProvidersIfNeeded();
     }
 
     /// <summary>
@@ -348,6 +351,99 @@ public partial class SettingsWindow : Window
             vm.RefreshTaskbarMiniChartOptions();
     }
 
+    private void RefreshCardChartConfigProvidersIfNeeded()
+    {
+        if (DataContext is MainViewModel vm)
+            vm.RefreshCardChartConfigProviders();
+    }
+
+    // =====================================================================
+    // req-107 B6 演进：卡片图表与数据组拖拽事件处理器
+    // =====================================================================
+
+    private System.Windows.Point _cardChartDragStartPoint;
+    private bool _cardChartIsDragging;
+
+    /// <summary>
+    /// req-105：Tooltip 字段勾选切换（ToolBox 里的每个 CheckBox）。
+    /// 从可视树向上找到 <see cref="CardChartConfigItem"/>，从 Tag 读字段名，调 VM。
+    /// </summary>
+    private void OnTooltipFieldToggleClick(object sender, System.Windows.RoutedEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.CheckBox cb || cb.Tag is not string fieldName) return;
+        var chart = FindAncestor<ViewModels.CardChartConfigItem>(cb);
+        if (DataContext is not MainViewModel vm) return;
+        vm.ToggleTooltipField(chart, fieldName);
+    }
+
+    /// <summary>req-109：保存 Mini 图表配置（可见性裁剪 + 排序）。</summary>
+    private void OnSaveMiniChartConfigClick(object sender, System.Windows.RoutedEventArgs e)
+    {
+        if (DataContext is not MainViewModel vm) return;
+        vm.SaveMiniChartConfig();
+        System.Windows.MessageBox.Show(this, "Mini 图表配置已保存", "提示",
+            System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
+    }
+
+    private static T? FindAncestor<T>(System.Windows.DependencyObject? start) where T : class
+    {
+        var current = start;
+        while (current != null)
+        {
+            if (current is FrameworkElement fe && fe.DataContext is T match) return match;
+            current = System.Windows.Media.VisualTreeHelper.GetParent(current);
+        }
+        return null;
+    }
+
+    private void CardChartItemsListBox_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        _cardChartDragStartPoint = e.GetPosition(null);
+        _cardChartIsDragging = false;
+    }
+
+    private void CardChartItemsListBox_PreviewMouseMove(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        if (e.LeftButton != MouseButtonState.Pressed || _cardChartIsDragging)
+            return;
+        var currentPos = e.GetPosition(null);
+        var diff = _cardChartDragStartPoint - currentPos;
+        if (Math.Abs(diff.X) > SystemParameters.MinimumHorizontalDragDistance ||
+            Math.Abs(diff.Y) > SystemParameters.MinimumVerticalDragDistance)
+        {
+            if (sender is not System.Windows.Controls.ListBox lb) return;
+            var dragged = FindVisualParent<System.Windows.Controls.ListBoxItem>(e.OriginalSource as DependencyObject);
+            if (dragged?.DataContext is not ViewModels.CardChartConfigItem item) return;
+            _cardChartIsDragging = true;
+            var dragData = new System.Windows.DataObject("CardChartConfigItem", item);
+            System.Windows.DragDrop.DoDragDrop(lb, dragData, System.Windows.DragDropEffects.Move);
+            _cardChartIsDragging = false;
+        }
+    }
+
+    private void CardChartItemsListBox_DragEnter(object sender, System.Windows.DragEventArgs e)
+    {
+        e.Effects = e.Data.GetDataPresent("CardChartConfigItem")
+            ? System.Windows.DragDropEffects.Move
+            : System.Windows.DragDropEffects.None;
+        e.Handled = true;
+    }
+
+    private void CardChartItemsListBox_Drop(object sender, System.Windows.DragEventArgs e)
+    {
+        if (!e.Data.GetDataPresent("CardChartConfigItem")) return;
+        if (DataContext is not MainViewModel vm) return;
+        if (e.Data.GetData("CardChartConfigItem") is not ViewModels.CardChartConfigItem dropped) return;
+        var target = FindVisualParent<System.Windows.Controls.ListBoxItem>(e.OriginalSource as DependencyObject);
+        if (target?.DataContext is not ViewModels.CardChartConfigItem targetItem) return;
+        var items = vm.CardChartConfigItems;
+        var oldIndex = items.IndexOf(dropped);
+        var newIndex = items.IndexOf(targetItem);
+        if (oldIndex < 0 || newIndex < 0 || oldIndex == newIndex) return;
+        items.Move(oldIndex, newIndex);
+        e.Handled = true;
+    }
+
     // =====================================================================
     // REQ-103 卡片排序拖拽事件处理器
     // =====================================================================
@@ -595,5 +691,17 @@ public partial class SettingsWindow : Window
                 System.Windows.MessageBoxButton.OK,
                 System.Windows.MessageBoxImage.Error);
         }
+    }
+
+    /// <summary>
+    /// req-107 B6 演进：设置界面「保存配置」按钮——把当前 Provider 的卡片图表与数据组配置写回 ConfigService。
+    /// </summary>
+    private void OnSaveCardChartConfigClick(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is not MainViewModel vm) return;
+        vm.SaveCardChartConfig();
+        vm.ReloadCardChartConfigItems();
+        System.Windows.MessageBox.Show(this, "卡片图表配置已保存", "提示",
+            System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
     }
 }

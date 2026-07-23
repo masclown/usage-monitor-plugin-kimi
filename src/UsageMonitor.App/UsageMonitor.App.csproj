@@ -9,13 +9,13 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
 
-    <!-- 项目版本号（0.25.0-beta）：插件SDK 2.0架构重构(能力接口体系/声明式提取架构/插件默认配置/插件校验器) / 数据层大幅扩展(ChartDataService/SchemaGenerator/SchemaMigrationService/UsageDetailRepository) / 模型层重构(删除Contracts SDK+FieldMapping/ProviderMode，新增CardDeclaration/ChartKindSpec/DataGroup/PluginManifest等) / IUsageProvider大幅精简 / UsageFields大幅扩展；用于程序集元数据 + 文件属性。 -->
+    <!-- 项目版本号（0.26.0-beta）：Account实体模型/CardConfig卡片配置模型/Tooltip字段目录系统 / ConfigService大幅增强(+320行) / MainViewModel增强(+330行) / 设置窗口与插件配置窗口大幅增强 / RefreshService/DisplayModule/MiniChartRegistryBootstrapper增强 / AccountEntityTests/CardChartConfigTests测试；用于程序集元数据 + 文件属性。 -->
     <!-- 显式设置 5 个属性，避免被 SDK 衍生规则变动影响。 -->
-    <Version>0.25.0-beta</Version>
-    <AssemblyVersion>0.25.0.0</AssemblyVersion>
-    <FileVersion>0.25.0.0</FileVersion>
-    <InformationalVersion>0.25.0-beta</InformationalVersion>
-    <ProductVersion>0.25.0-beta</ProductVersion>
+    <Version>0.26.0-beta</Version>
+    <AssemblyVersion>0.26.0.0</AssemblyVersion>
+    <FileVersion>0.26.0.0</FileVersion>
+    <InformationalVersion>0.26.0-beta</InformationalVersion>
+    <ProductVersion>0.26.0-beta</ProductVersion>
     <AssemblyTitle>UsageMonitor</AssemblyTitle>
     <Product>UsageMonitor</Product>
     <Company>UsageMonitor</Company>

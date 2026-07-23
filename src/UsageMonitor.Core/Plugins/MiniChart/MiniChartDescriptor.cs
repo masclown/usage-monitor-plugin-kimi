@@ -26,6 +26,12 @@ public sealed class MiniChartDescriptor
     /// <summary>Provider 唯一标识（必填，对应 IUsageProvider.ProviderId）。</summary>
     public required string ProviderId { get; init; }
 
+    /// <summary>
+    /// req-109：Mini 图表唯一 ID（对应 <c>taskbar.miniCharts[].chartId</c>，如 "mm.mini.ring"）。
+    /// <para>null = 旧注册路径（未按 mini chart 声明注册，向后兼容）；非 null 时供渲染端按 chartId 精确过滤。</para>
+    /// </summary>
+    public string? ChartId { get; init; }
+
     /// <summary>图类型枚举（必填）。</summary>
     public required MiniChartKind Kind { get; init; }
 

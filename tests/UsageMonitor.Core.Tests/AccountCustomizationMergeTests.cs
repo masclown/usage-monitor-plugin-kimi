@@ -33,11 +33,13 @@ public class AccountCustomizationMergeTests : IDisposable
     }
 
     [Fact]
-    public void MakeKey_FormatsAsProviderIdColonAccountId()
+    public void MakeKey_FormatsAsProviderIdColonAccountIdColonCardId()
     {
-        AccountCustomization.MakeKey("minimax").Should().Be("minimax:default");
-        AccountCustomization.MakeKey("minimax", "acc1").Should().Be("minimax:acc1");
-        AccountCustomization.MakeKey("minimax", "").Should().Be("minimax:default");
+        // 三段 key：CardId 缺省 "default-card"
+        AccountCustomization.MakeKey("minimax").Should().Be("minimax:default:default-card");
+        AccountCustomization.MakeKey("minimax", "acc1").Should().Be("minimax:acc1:default-card");
+        AccountCustomization.MakeKey("minimax", "acc1", "card-2").Should().Be("minimax:acc1:card-2");
+        AccountCustomization.MakeKey("minimax", "").Should().Be("minimax:default:default-card");
     }
 
     [Fact]
@@ -60,7 +62,7 @@ public class AccountCustomizationMergeTests : IDisposable
     {
         var svc = CreateConfigService();
         // 账号定制（用户主动选择）
-        svc.Settings.AccountCustomizations["minimax:default"] = new AccountCustomization
+        svc.Settings.AccountCustomizations[AccountCustomization.MakeKey("minimax", "default", "default-card")] = new AccountCustomization
         {
             VisibleCharts = new System.Collections.Generic.List<string> { "Line", "HeatMap" },
             VisibleProgressFields = new System.Collections.Generic.List<string> { "five_hour_used_percent" },
@@ -70,7 +72,7 @@ public class AccountCustomizationMergeTests : IDisposable
         svc.Settings.ProviderCardChartKinds["minimax"] = new System.Collections.Generic.List<CardChartKind> { CardChartKind.Ring };
         svc.Settings.SelectedProgressFields["minimax"] = new System.Collections.Generic.List<string> { "weekly_used_percent" };
 
-        var eff = svc.GetEffectiveAccountCustomization("minimax");
+        var eff = svc.GetEffectiveAccountCustomization("minimax", "default", "default-card");
 
         eff.VisibleCharts.Should().BeEquivalentTo(new[] { "Line", "HeatMap" }); // 账号定制优先
         eff.VisibleProgressFields.Should().BeEquivalentTo(new[] { "five_hour_used_percent" });
@@ -100,18 +102,18 @@ public class AccountCustomizationMergeTests : IDisposable
     public void Effective_DifferentAccountId_ReturnsSeparateCustomization()
     {
         var svc = CreateConfigService();
-        svc.Settings.AccountCustomizations["deepseek:work"] = new AccountCustomization
+        svc.Settings.AccountCustomizations[AccountCustomization.MakeKey("deepseek", "work", "default-card")] = new AccountCustomization
         {
             Nickname = "工作号",
             UseNickname = true
         };
-        svc.Settings.AccountCustomizations["deepseek:personal"] = new AccountCustomization
+        svc.Settings.AccountCustomizations[AccountCustomization.MakeKey("deepseek", "personal", "default-card")] = new AccountCustomization
         {
             Nickname = "私人号",
             UseNickname = true
         };
 
-        svc.GetEffectiveAccountCustomization("deepseek", "work").Nickname.Should().Be("工作号");
-        svc.GetEffectiveAccountCustomization("deepseek", "personal").Nickname.Should().Be("私人号");
+        svc.GetEffectiveAccountCustomization("deepseek", "work", "default-card").Nickname.Should().Be("工作号");
+        svc.GetEffectiveAccountCustomization("deepseek", "personal", "default-card").Nickname.Should().Be("私人号");
     }
 }

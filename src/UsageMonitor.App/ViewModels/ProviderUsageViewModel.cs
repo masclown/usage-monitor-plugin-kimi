@@ -22,6 +22,10 @@ namespace UsageMonitor.App.ViewModels;
 public class ProviderUsageViewModel : INotifyPropertyChanged
 {
     private string _providerId = string.Empty;
+    // req-109：每张卡片独立三元组 (Provider, Account, Card)；默认 "default"/"default-card"
+    // 保持向后兼容——DisplayModule 未传时退回单卡片语义。
+    private string _accountId = "default";
+    private string _cardId = "default-card";
     private string _displayName = string.Empty;
     private string _statusText = "未查询";
     private double _usagePercentage;
@@ -102,11 +106,13 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
     /// req-091-005：点击卡片「🔑 重新登录」按钮时触发的回调。
     /// 不传时按钮隐藏（用 IUsageProvider.LoginConfig 是否为 null 判定）。
     /// </param>
-    public ProviderUsageViewModel(Action? openConfigAction = null, Func<Task>? refreshCardAction = null, Action? reLoginAction = null)
+    public ProviderUsageViewModel(Action? openConfigAction = null, Func<Task>? refreshCardAction = null, Action? reLoginAction = null, string accountId = "default", string cardId = "default-card")
     {
         _openConfigAction = openConfigAction;
         _refreshCardAction = refreshCardAction;
         _reLoginAction = reLoginAction;
+        _accountId = string.IsNullOrEmpty(accountId) ? "default" : accountId;
+        _cardId = string.IsNullOrEmpty(cardId) ? "default-card" : cardId;
         ConfigCommand = new RelayCommand(OpenConfig, () => _openConfigAction != null);
         RefreshCardCommand = new AsyncRelayCommand(RefreshCardAsync, () => _refreshCardAction != null);
         ReLoginCommand = new RelayCommand(ReLogin, () => _reLoginAction != null);
@@ -214,6 +220,12 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
     private Task RefreshCardAsync() => _refreshCardAction?.Invoke() ?? Task.CompletedTask;
 
     public string ProviderId { get => _providerId; set { _providerId = value; OnPropertyChanged(); } }
+
+    /// <summary>req-109：账号 ID（DisplayModule 3 段路由用）。空字符串时安全返回 "default"。</summary>
+    public string AccountIdSafe => string.IsNullOrEmpty(_accountId) ? "default" : _accountId;
+
+    /// <summary>req-109：卡片 ID（DisplayModule 3 段路由用）。空字符串时安全返回 "default-card"。</summary>
+    public string CardIdSafe => string.IsNullOrEmpty(_cardId) ? "default-card" : _cardId;
     public string DisplayName { get => _displayName; set { _displayName = value; OnPropertyChanged(); } }
 
     /// <summary>Provider 图标的文件路径，用于在卡片、任务栏、悬浮窗中显示 logo</summary>
@@ -585,6 +597,22 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         set { _extraTooltipLines = value; OnPropertyChanged(); }
     }
 
+    /// <summary>
+    /// req-105：返回指定图表的有效 Tooltip 显示字段（供卡片 Tooltip 渲染端消费）。
+    /// <para>优先用户配置的 <c>VisibleTooltipFields[chartId]</c>（非 null 时）；否则回退 defaults.json 声明的 <c>chart.Tooltip.Fields</c>。</para>
+    /// </summary>
+    public IReadOnlyList<string> GetEffectiveTooltipFieldsForChart(string chartId)
+    {
+        if (ConfigService == null || string.IsNullOrEmpty(_providerId) || string.IsNullOrEmpty(chartId))
+            return Array.Empty<string>();
+        var eff = ConfigService.GetEffectiveAccountCustomization(_providerId, _accountId, _cardId);
+        if (eff.VisibleTooltipFields != null && eff.VisibleTooltipFields.TryGetValue(chartId, out var userFields) && userFields != null)
+            return userFields;
+        // 回退：defaults.json 声明的 chart.Tooltip.Fields
+        var chart = Provider?.Card?.Charts.FirstOrDefault(c => c.ChartId == chartId);
+        return chart?.Tooltip?.Fields ?? (IReadOnlyList<string>)Array.Empty<string>();
+    }
+
     // ============== REQ-083 SDK v2 新增可选属性（委托给 Provider） ==============
 
     /// <summary>
@@ -679,8 +707,31 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
     private void RebuildDeclarativeBars()
     {
         var card = Provider?.Card;
+        var (visibleCharts, visibleDataGroups) = GetEffectiveChartFilters();
         DeclarativeBars = UsageMonitor.App.Services.Display.DeclarativeChartBuilder.BuildMetricBars(
-            card, ResolveFieldValue, labelResolver: DeclarativeFieldLabel);
+            card, ResolveFieldValue, labelResolver: DeclarativeFieldLabel,
+            visibleChartIds: visibleCharts, visibleDataGroupIds: visibleDataGroups);
+    }
+
+    /// <summary>req-107 B6 演进：从 ConfigService 拉取当前 Provider 的有效可见图表/数据组，过滤传给 DeclarativeChartBuilder。
+    /// <para>null = 沿用 defaults.json 全部可见（未配置）。</para>
+    /// </summary>
+    private (IReadOnlyCollection<string>? Charts, IReadOnlyDictionary<string, IReadOnlyCollection<string>>? DataGroups) GetEffectiveChartFilters()
+    {
+        if (ConfigService == null || string.IsNullOrEmpty(_providerId))
+            return (null, null);
+        var eff = ConfigService.GetEffectiveAccountCustomization(_providerId, _accountId, _cardId);
+        if (eff.VisibleCharts == null && (eff.VisibleDataGroups == null || eff.VisibleDataGroups.Count == 0))
+            return (null, null);
+        var dict = new Dictionary<string, IReadOnlyCollection<string>>();
+        if (eff.VisibleDataGroups != null)
+        {
+            foreach (var kv in eff.VisibleDataGroups)
+            {
+                if (kv.Value != null) dict[kv.Key] = kv.Value;
+            }
+        }
+        return (eff.VisibleCharts, dict.Count > 0 ? dict : null);
     }
 
     /// <summary>req-107 B8：字段取值器——标准字段名 → 当前值（过渡期映射到已刷新的 VM 属性，后续可改从标准字段字典泛化解析）。</summary>

@@ -25,13 +25,20 @@ public static class DeclarativeChartBuilder
         CardDeclaration? card,
         Func<string, double?> valueResolver,
         Func<string, string?>? textResolver = null,
-        Func<string, string>? labelResolver = null)
+        Func<string, string>? labelResolver = null,
+        IReadOnlyCollection<string>? visibleChartIds = null,
+        IReadOnlyDictionary<string, IReadOnlyCollection<string>>? visibleDataGroupIds = null)
     {
         if (card == null) return null;
+        var charts = card.Charts.Where(c => c.Kind == DeclarativeChartKind.Bar);
+        if (visibleChartIds != null) charts = charts.Where(c => visibleChartIds.Contains(c.ChartId));
         var bars = new List<MetricBarItem>();
-        foreach (var chart in card.Charts.Where(c => c.Kind == DeclarativeChartKind.Bar))
+        foreach (var chart in charts)
         {
-            foreach (var group in chart.DataGroups)
+            var groups = (IEnumerable<DataGroup>)chart.DataGroups;
+            if (visibleDataGroupIds != null && visibleDataGroupIds.TryGetValue(chart.ChartId, out var allowed) && allowed != null)
+                groups = groups.Where(g => allowed.Contains(g.Id));
+            foreach (var group in groups)
             {
                 var valueField = group.Fields.FirstOrDefault(f => f.Role == FieldRole.Value)?.FieldName;
                 if (valueField == null) continue;

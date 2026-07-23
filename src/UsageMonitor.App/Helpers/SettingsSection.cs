@@ -40,6 +40,9 @@ public enum SettingsSection
     /// <summary>req-097：图表顺序（按 Provider 调整卡片图表顺序）</summary>
     ChartOrder,
 
+    /// <summary>req-107 B6 演进：卡片图表与数据组（按 Provider 增删/排序图表与各图表的数据组）</summary>
+    CardCharts,
+
     /// <summary>req-104：多进度条 / 数字多排显示字段选择</summary>
     MultiProgress,
 
