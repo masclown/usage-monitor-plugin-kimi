@@ -146,9 +146,6 @@ public class TemplateWebPlugin : WebPluginBase
         CardChartKind.Line, CardChartKind.Bar, CardChartKind.Ring
     };
 
-    /// <inheritdoc />
-    public override IReadOnlyList<string> DefaultRenderKinds => new[] { "card", "ring" };
-
     // ===================== 可选：生命周期钩子 =====================
 
     /// <inheritdoc />

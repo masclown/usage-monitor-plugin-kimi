@@ -27,14 +27,6 @@
       "description": "\u8D26\u53F7\u54C8\u5E0C = hash(provider_id \u002B \u5E73\u53F0\u7A33\u5B9AID)\uFF08\u7CFB\u7EDF\u5217\uFF09"
     },
     {
-      "name": "account_nickname",
-      "category": "Account",
-      "visibility": "Public",
-      "dataType": "Text",
-      "labelKey": "Field.AccountNickname",
-      "description": "\u8D26\u53F7\u6635\u79F0\uFF08\u7528\u6237\u81EA\u5B9A\u4E49\uFF0CProvider \u5185\u552F\u4E00\uFF09"
-    },
-    {
       "name": "active_days",
       "category": "State",
       "visibility": "Public",
@@ -513,6 +505,14 @@
       "dataType": "Text",
       "labelKey": "Field.SubscriptionTier",
       "description": "\u8BA2\u9605\u6863\u4F4D\u540D\u79F0\uFF08\u4ECE\u5BF9\u5E94\u8BED\u8A00\u7F51\u9875\u6293\u53D6\uFF09"
+    },
+    {
+      "name": "subscription_type",
+      "category": "Subscription",
+      "visibility": "Public",
+      "dataType": "Text",
+      "labelKey": "Field.SubscriptionType",
+      "description": "订阅类型（Token Plan / Coding Plan / Agent Plan / API）"
     },
     {
       "name": "timestamp",

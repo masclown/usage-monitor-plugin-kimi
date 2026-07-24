@@ -52,6 +52,7 @@
 | `subscription_next_billing_at` | Subscription | DateTime | Public | `Field.SubscriptionNextBillingAt` | 下次续费时间（UTC） |
 | `subscription_price` | Subscription | Currency | Public | `Field.SubscriptionPrice` | 订阅价格（分→元） |
 | `subscription_tier` | Subscription | Text | Public | `Field.SubscriptionTier` | 订阅档位名称（从对应语言网页抓取） |
+| `subscription_type` | Subscription | Text | Public | `Field.SubscriptionType` | 订阅类型（Token Plan / Coding Plan / Agent Plan / API） |
 | `booster_balance` | Booster | Currency | Public | `Field.BoosterBalance` | 加油包余额（分→元） |
 | `booster_enabled` | Booster | Bool | Public | `Field.BoosterEnabled` | 加油包是否开启 |
 | `booster_monthly_used` | Booster | Currency | Public | `Field.BoosterMonthlyUsed` | 加油包本月消费 |
@@ -69,7 +70,6 @@
 | `most_active_token` | State | Token | Public | `Field.MostActiveToken` | 单日峰值 Token（原始数字） |
 | `usage_ranking_percent` | State | Percent | Public | `Field.UsageRankingPercent` | 用量排名前 %（越小越靠前） |
 | `account_display_name` | Account | Text | Public | `Field.AccountDisplayName` | 账号显示名（Provider 网页提供） |
-| `account_nickname` | Account | Text | Public | `Field.AccountNickname` | 账号昵称（用户自定义，Provider 内唯一） |
 | `access_token` | Meta | Text | Sensitive | `Field.AccessToken` | 访问令牌（敏感，永不入库/日志） |
 | `account_id` | Meta | Text | Internal | `Field.AccountId` | 账号哈希 = hash(provider_id + 平台稳定ID)（系统列） |
 | `api_key` | Meta | Text | Sensitive | `Field.ApiKey` | API 密钥明文（敏感，永不入库/日志） |

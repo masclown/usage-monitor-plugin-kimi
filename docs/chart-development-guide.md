@@ -197,12 +197,18 @@ public IReadOnlyList<CardChartKind> SupportedCardCharts => new[]
     CardChartKind.Line, CardChartKind.Bar, CardChartKind.Ring
 };
 
-// 默认渲染种类
-public IReadOnlyList<string> DefaultRenderKinds => new[] { "card", "ring" };
+// 默认渲染种类：在插件目录下 defaults.json 的 card.renderKinds 数组中声明
+// {
+//   "card": {
+//     "renderKinds": ["card", "ring"]
+//   }
+// }
 
 // 环形图支持的指标
 public IReadOnlyList<string> SupportedRingChartMetrics => new[] { "Percent" };
 ```
+
+> **SDK 破坏性变更提示**：`DefaultRenderKinds` 接口成员已于 2026-07-24 删除，默认渲染种类请改在插件 `defaults.json` 的 `card.renderKinds` 数组中声明。
 
 ---
 

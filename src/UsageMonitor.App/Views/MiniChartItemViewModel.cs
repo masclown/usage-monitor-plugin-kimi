@@ -92,6 +92,14 @@ public class MiniChartItemViewModel : INotifyPropertyChanged
     public bool IsError => UsageVm?.IsError ?? false;
 
     /// <summary>
+    /// req-079 U-33：数据是否就绪（关联卡片 VM 已收到过至少一次数据更新）。
+    /// <para>为 false 时任务栏迷你图模板显示骨架屏占位（SkeletonPlaceholder），
+    /// 避免“数据尚未就绪 / 正在刷新且无缓存数据”状态下的空白闪烁；
+    /// 有缓存数据的刷新期间保持显示旧值，不闪骨架屏。</para>
+    /// </summary>
+    public bool IsDataReady => UsageVm != null && UsageVm.HasReceivedData;
+
+    /// <summary>
     /// req-088 B9：渲染后的 Tooltip 标题文本（来自 MiniChartTooltip.TitleTemplate）。
     /// <para>支持占位符：<c>{ProviderName}</c> / <c>{Percent}</c> / <c>{Value}</c> / <c>{Timestamp}</c>。</para>
     /// </summary>
@@ -335,6 +343,7 @@ public class MiniChartItemViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(UsagePercent));
         OnPropertyChanged(nameof(TierBrush)); // B5：色阶画刷随百分比联动刷新
         OnPropertyChanged(nameof(IsError));
+        OnPropertyChanged(nameof(IsDataReady)); // req-079 U-33：骨架屏随数据到达退出占位
         OnPropertyChanged(nameof(TooltipTitle));
         OnPropertyChanged(nameof(TooltipBody));
         OnPropertyChanged(nameof(HasTooltip));

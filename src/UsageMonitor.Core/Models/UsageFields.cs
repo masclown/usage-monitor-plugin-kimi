@@ -143,6 +143,9 @@ public static class UsageFields
     /// <summary>订阅档位名称（从对应语言网页抓取）</summary>
     public const string SubscriptionTier = "subscription_tier";
 
+    /// <summary>订阅类型（如 Token Plan / Coding Plan / Agent Plan / API；与档位并列显示）</summary>
+    public const string SubscriptionType = "subscription_type";
+
     /// <summary>会员等级</summary>
     public const string SubscriptionLevel = "subscription_level";
 
@@ -236,11 +239,8 @@ public static class UsageFields
 
     // ===================== 账号元数据 =====================
 
-    /// <summary>账号显示名（Provider 网页提供）</summary>
+    /// <summary>账号显示名（Provider 网页提供，如 group_name；手机号等敏感值需脱敏后再写入）</summary>
     public const string AccountDisplayName = "account_display_name";
-
-    /// <summary>账号昵称（用户自定义，Provider 内唯一）</summary>
-    public const string AccountNickname = "account_nickname";
 
     // ===================== 时序明细（趋势 / 模型×日 / 逐请求） =====================
 
@@ -359,7 +359,7 @@ public static class UsageFields
         FiveHourResetAt, WeeklyResetAt, SevenDayResetAt, TotalQuotaResetAt,
         QuotaNextResetAt, QuotaPeriodStartAt, QuotaPeriodEndAt,
         // 订阅信息
-        SubscriptionTier, SubscriptionLevel, SubscriptionPrice, SubscriptionCycleType,
+        SubscriptionTier, SubscriptionType, SubscriptionLevel, SubscriptionPrice, SubscriptionCycleType,
         SubscriptionActive, SubscriptionNextBillingAt, SubscriptionEndAt,
         // 加油包 / 运营额度
         BoosterEnabled, BoosterBalance, BoosterMonthlyUsed,
@@ -374,7 +374,7 @@ public static class UsageFields
         // 状态 / 元信息
         ActiveDays, UsageRankingPercent, MostActiveDate, MostActiveToken,
         // 账号元数据
-        AccountDisplayName, AccountNickname,
+        AccountDisplayName,
         // 时序明细
         Date, TokenTotal, DailyCacheHitPercent, ModelName,
         DailyTokenDate, DailyTokenValue, DailyCacheHitDate, DailyCacheHitValue,

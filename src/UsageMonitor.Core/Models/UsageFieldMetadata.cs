@@ -157,6 +157,7 @@ public static class UsageFieldMetadataRegistry
             new(UsageFields.SubscriptionActive, UsageFieldCategory.Subscription, UsageFieldVisibility.Public, UsageFieldDataType.Bool, "Field.SubscriptionActive", "订阅是否激活"),
             new(UsageFields.SubscriptionNextBillingAt, UsageFieldCategory.Subscription, UsageFieldVisibility.Public, UsageFieldDataType.DateTime, "Field.SubscriptionNextBillingAt", "下次续费时间（UTC）"),
             new(UsageFields.SubscriptionEndAt, UsageFieldCategory.Subscription, UsageFieldVisibility.Public, UsageFieldDataType.DateTime, "Field.SubscriptionEndAt", "订阅到期时间（UTC）"),
+            new(UsageFields.SubscriptionType, UsageFieldCategory.Subscription, UsageFieldVisibility.Public, UsageFieldDataType.Text, "Field.SubscriptionType", "订阅类型（Token Plan / Coding Plan / Agent Plan / API）"),
             // —— 加油包 / 运营额度 ——
             new(UsageFields.BoosterEnabled, UsageFieldCategory.Booster, UsageFieldVisibility.Public, UsageFieldDataType.Bool, "Field.BoosterEnabled", "加油包是否开启"),
             new(UsageFields.BoosterBalance, UsageFieldCategory.Booster, UsageFieldVisibility.Public, UsageFieldDataType.Currency, "Field.BoosterBalance", "加油包余额（分→元）"),
@@ -187,7 +188,6 @@ public static class UsageFieldMetadataRegistry
             new(UsageFields.MostActiveToken, UsageFieldCategory.State, UsageFieldVisibility.Public, UsageFieldDataType.Token, "Field.MostActiveToken", "单日峰值 Token（原始数字）"),
             // —— 账号元数据 ——
             new(UsageFields.AccountDisplayName, UsageFieldCategory.Account, UsageFieldVisibility.Public, UsageFieldDataType.Text, "Field.AccountDisplayName", "账号显示名（Provider 网页提供）"),
-            new(UsageFields.AccountNickname, UsageFieldCategory.Account, UsageFieldVisibility.Public, UsageFieldDataType.Text, "Field.AccountNickname", "账号昵称（用户自定义，Provider 内唯一）"),
             // —— 时序明细（趋势 / 模型×日 / 逐请求）——
             new(UsageFields.Date, UsageFieldCategory.Detail, UsageFieldVisibility.Internal, UsageFieldDataType.DateTime, "Field.Date", "明细日期（趋势/模型×日去重键）"),
             new(UsageFields.TokenTotal, UsageFieldCategory.Detail, UsageFieldVisibility.Public, UsageFieldDataType.Token, "Field.TokenTotal", "每日总计 Token（day 级 = input + output）"),

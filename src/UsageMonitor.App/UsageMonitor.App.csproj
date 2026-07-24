@@ -9,13 +9,13 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
 
-    <!-- 项目版本号（0.26.1-beta）：ScrollViewerMouseWheelAssist鼠标滚轮辅助类 / MiniChartItemViewModel增强 / SettingsWindow微调；用于程序集元数据 + 文件属性。 -->
+    <!-- 项目版本号（0.27.0-beta）：声明式抓取架构(FetchDeclaration/DeclarativeCaptureExecutor/BrowserCaptureService) / SkeletonPlaceholder骨架屏 / ProgressWidthAnimator进度条动画 / ThemeTransitionOverlay主题过渡 / PluginConfigViewModel MVVM抽取 / UsageDetailRepository用量详情仓储 / AccountIdHasher / MiniMax插件迁移声明式 / 大量测试新增；用于程序集元数据 + 文件属性。 -->
     <!-- 显式设置 5 个属性，避免被 SDK 衍生规则变动影响。 -->
-    <Version>0.26.1-beta</Version>
-    <AssemblyVersion>0.26.1.0</AssemblyVersion>
-    <FileVersion>0.26.1.0</FileVersion>
-    <InformationalVersion>0.26.1-beta</InformationalVersion>
-    <ProductVersion>0.26.1-beta</ProductVersion>
+    <Version>0.27.0-beta</Version>
+    <AssemblyVersion>0.27.0.0</AssemblyVersion>
+    <FileVersion>0.27.0.0</FileVersion>
+    <InformationalVersion>0.27.0-beta</InformationalVersion>
+    <ProductVersion>0.27.0-beta</ProductVersion>
     <AssemblyTitle>UsageMonitor</AssemblyTitle>
     <Product>UsageMonitor</Product>
     <Company>UsageMonitor</Company>

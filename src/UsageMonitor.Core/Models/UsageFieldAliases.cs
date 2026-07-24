@@ -20,6 +20,17 @@ public static class UsageFieldAliases
         ["mmremainingcredits"] = UsageFields.RemainingCredits,
         ["mmsubscriptiontitle"] = UsageFields.SubscriptionTier,
         ["mmsubscriptionactive"] = UsageFields.SubscriptionActive,
+        ["mmsubscriptiontype"] = UsageFields.SubscriptionType,
+        ["mmsubscriptiontier"] = UsageFields.SubscriptionTier,
+        // —— MiniMax DOM 提取器原始键（req-网页校准：总体/排名/峰值/周视频/积分/账号名）——
+        ["mmactivedays"] = UsageFields.ActiveDays,
+        ["mmrankingpercent"] = UsageFields.UsageRankingPercent,
+        ["mmtotalcredits"] = UsageFields.TotalCredits,
+        ["mmvideoweeklyused"] = UsageFields.VideoUsedCount,
+        ["mmvideoweeklytotal"] = UsageFields.VideoTotalCount,
+        ["mmmostactivedate"] = UsageFields.MostActiveDate,
+        ["mmmostactivetoken"] = UsageFields.MostActiveToken,
+        ["mmaccountdisplayname"] = UsageFields.AccountDisplayName,
         // —— DeepSeek 旧前缀字段 ——
         ["dsspendamount"] = UsageFields.TotalCost,
         ["dsrequestcount"] = UsageFields.RequestCount,

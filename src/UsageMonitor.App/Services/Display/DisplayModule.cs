@@ -192,7 +192,7 @@ public sealed class DisplayModule : IDisplayModule
                 IsEnabled = plugin.IsEnabled,
                 DisplayMode = savedMode,
                 CardChartKinds = savedCardCharts,
-                RenderKinds = plugin.Provider.DefaultRenderKinds,
+                RenderKinds = plugin.Provider.Card?.RenderKinds ?? Array.Empty<string>(),
                 CollapseVisibleParts = plugin.Provider.CollapseVisibleParts ?? Array.Empty<string>(),
                 // req-107 B8：SupportsPeriodSwitch / ExtraTooltipLines 接口成员已收敛为 [Obsolete]；
                 // 周期切换能力交由 Card.Line.Slicer(Period)、tooltip 扩展行交由 Card.Chart.Tooltip；VM 初始化不再从接口读取。

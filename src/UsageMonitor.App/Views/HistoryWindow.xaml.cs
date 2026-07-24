@@ -3,7 +3,9 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
 using Microsoft.Win32;
+using UsageMonitor.App.Helpers;
 using UsageMonitor.App.ViewModels;
+using UsageMonitor.Core.Services;
 // ★ WPF/WinForms 命名冲突 alias（项目 UseWPF + UseWindowsForms + ImplicitUsings 触发 CS0104）
 using SaveFileDialog = Microsoft.Win32.SaveFileDialog;
 using MessageBox = System.Windows.MessageBox;
@@ -48,21 +50,22 @@ public partial class HistoryWindow : Window
     }
 
     /// <summary>
-    /// "导出 CSV"按钮：弹 SaveFileDialog 写当前 DetailRows 内容
+    /// “导出 CSV”按钮：弹 SaveFileDialog 写当前 DetailRows 内容（req-069 i18n：文案经 I18n.T 解析）。
     /// </summary>
     private void OnExportCsvClick(object sender, RoutedEventArgs e)
     {
         var dlg = new SaveFileDialog
         {
-            Title = "导出历史为 CSV",
-            Filter = "CSV 文件 (*.csv)|*.csv|所有文件 (*.*)|*.*",
-            FileName = $"UsageMonitor-历史-{DateTime.Now:yyyyMMdd-HHmmss}.csv"
+            Title = I18n.T(I18nKeys.History_Export_DialogTitle),
+            Filter = I18n.T(I18nKeys.History_Export_DialogFilter),
+            FileName = I18n.T(I18nKeys.History_Export_FileNameFormat, DateTime.Now)
         };
         if (dlg.ShowDialog(this) != true) return;
         var ok = ViewModel.SaveCsvToFile(dlg.FileName);
         MessageBox.Show(this,
-            ok ? $"已导出到 {dlg.FileName}" : "导出失败，请查看 logs/UsageMonitor-*.log",
-            ok ? "导出成功" : "导出失败",
+            ok ? I18n.T(I18nKeys.History_Export_SuccessMessageFormat, dlg.FileName)
+               : I18n.T(I18nKeys.History_Export_FailMessage),
+            ok ? I18n.T(I18nKeys.History_Export_SuccessTitle) : I18n.T(I18nKeys.History_Export_FailTitle),
             MessageBoxButton.OK,
             ok ? MessageBoxImage.Information : MessageBoxImage.Warning);
     }

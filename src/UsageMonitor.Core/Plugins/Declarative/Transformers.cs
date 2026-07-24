@@ -16,6 +16,8 @@ public static class Transformers
         ["parsePercent"] = ParsePercent,
         ["parseNumber"] = ParseNumber,
         ["parseDate"] = ParseDate,
+        ["fromUnixMs"] = FromUnixMs,
+        ["parseFormattedToken"] = ParseFormattedToken,
         ["trim"] = Trim,
         ["stripNonNumeric"] = StripNonNumeric,
         ["identity"] = Identity
@@ -67,6 +69,29 @@ public static class Transformers
         if (DateTime.TryParse(raw.Trim(), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var dt))
             return dt.ToString("o");
         return raw.Trim();
+    }
+
+    /// <summary>Unix 毫秒时间戳 → 本地 DateTime（req-088 Phase3；供 5h/周重置时刻，end_time 等）。非正数返回 null。</summary>
+    private static object? FromUnixMs(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return null;
+        var s = StripToNumeric(raw.Trim());
+        if (!long.TryParse(s, NumberStyles.Any, CultureInfo.InvariantCulture, out var ms) || ms <= 0) return null;
+        return DateTimeOffset.FromUnixTimeMilliseconds(ms).LocalDateTime;
+    }
+
+    /// <summary>格式化 Token 字符串 → 原始 long（req-088 Phase3；"552.49M"/"5.85B"/"123K"/"12345"，K=1e3 M=1e6 B=1e9）。</summary>
+    private static object? ParseFormattedToken(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return null;
+        var s = raw.Trim();
+        double mult = 1;
+        var last = char.ToUpperInvariant(s[s.Length - 1]);
+        if (last == 'K') { mult = 1_000d; s = s.Substring(0, s.Length - 1); }
+        else if (last == 'M') { mult = 1_000_000d; s = s.Substring(0, s.Length - 1); }
+        else if (last == 'B') { mult = 1_000_000_000d; s = s.Substring(0, s.Length - 1); }
+        if (!double.TryParse(s.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var num)) return null;
+        return (long)Math.Round(num * mult);
     }
 
     /// <summary>去除首尾空白。</summary>

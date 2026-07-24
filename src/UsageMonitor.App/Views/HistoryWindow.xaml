@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:controls="clr-namespace:UsageMonitor.App.Controls"
         xmlns:helpers="clr-namespace:UsageMonitor.App.Helpers"
-        Title="UsageMonitor - 历史用量"
+        Title="{helpers:Loc history.window.title}"
         Height="720" Width="1120"
         MinHeight="560" MinWidth="880"
         Background="{DynamicResource AppBackgroundBrush}"
@@ -21,9 +21,9 @@
 
         <!-- 顶部标题 -->
         <StackPanel Grid.Row="0" Margin="0,0,0,14">
-            <TextBlock Text="历史用量" FontSize="{DynamicResource FontSizeHeading}" FontWeight="Bold"
+            <TextBlock Text="{helpers:Loc history.title}" FontSize="{DynamicResource FontSizeHeading}" FontWeight="Bold"
                        Foreground="{DynamicResource TextPrimaryBrush}" />
-            <TextBlock Text="按 Provider、时间范围与图表类型回看用量趋势" FontSize="12"
+            <TextBlock Text="{helpers:Loc history.subtitle}" FontSize="12"
                        Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,2,0,0" />
         </StackPanel>
 
@@ -37,7 +37,7 @@
                 </Grid.RowDefinitions>
 
                 <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,10">
-                    <TextBlock Text="已启用 Provider" FontSize="13" FontWeight="SemiBold"
+                    <TextBlock Text="{helpers:Loc history.providers.label}" FontSize="13" FontWeight="SemiBold"
                                Foreground="{DynamicResource TextSecondaryBrush}"
                                VerticalAlignment="Center" Margin="0,0,12,0" />
                     <ItemsControl ItemsSource="{Binding Providers}">
@@ -58,7 +58,7 @@
                 </StackPanel>
 
                 <StackPanel Grid.Row="1" Orientation="Horizontal" VerticalAlignment="Center">
-                    <TextBlock Text="范围" FontSize="13" FontWeight="SemiBold"
+                    <TextBlock Text="{helpers:Loc history.range.label}" FontSize="13" FontWeight="SemiBold"
                                Foreground="{DynamicResource TextSecondaryBrush}"
                                VerticalAlignment="Center" Margin="0,0,8,0" />
                     <ComboBox ItemsSource="{Binding RangeOptions}"
@@ -67,7 +67,7 @@
                               SelectedValue="{Binding SelectedRange, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                               Width="130" />
 
-                    <TextBlock Text="图表" FontSize="13" FontWeight="SemiBold"
+                    <TextBlock Text="{helpers:Loc history.chartkind.label}" FontSize="13" FontWeight="SemiBold"
                                Foreground="{DynamicResource TextSecondaryBrush}"
                                VerticalAlignment="Center" Margin="18,0,8,0" />
                     <ComboBox ItemsSource="{Binding ChartKindOptions}"
@@ -76,9 +76,9 @@
                               SelectedValue="{Binding SelectedChartKind, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                               Width="120" />
 
-                    <Button Content="刷新" Margin="18,0,0,0" Click="OnRefreshClick"
+                    <Button Content="{helpers:Loc history.refresh}" Margin="18,0,0,0" Click="OnRefreshClick"
                             Style="{StaticResource PrimaryButtonStyle}" />
-                    <Button Content="导出 CSV" Margin="10,0,0,0" Click="OnExportCsvClick"
+                    <Button Content="{helpers:Loc history.export}" Margin="10,0,0,0" Click="OnExportCsvClick"
                             Style="{StaticResource GhostButtonStyle}" />
                 </StackPanel>
             </Grid>
@@ -121,37 +121,91 @@
                         </controls:HistoryLineChartControl.Style>
                     </controls:HistoryLineChartControl>
 
+                    <!-- req-078 U-28 补齐：柱状图切换加 200ms 淡入动画（与折线图同模式） -->
                     <controls:BarChartControl x:Name="BarChart"
                                               Values="{Binding BarValues}"
                                               BarBrush="{DynamicResource AccentGradientBrush}"
                                               GridLineBrush="{DynamicResource ChartAxisBrush}"
                                               TextBrush="{DynamicResource TextSecondaryBrush}"
-                                              Visibility="{Binding IsBarChart, Converter={StaticResource BoolToVisibility}}" />
+                                              Visibility="{Binding IsBarChart, Converter={StaticResource BoolToVisibility}}">
+                        <controls:BarChartControl.Style>
+                            <Style TargetType="controls:BarChartControl">
+                                <Style.Triggers>
+                                    <Trigger Property="Visibility" Value="Visible">
+                                        <Trigger.EnterActions>
+                                            <BeginStoryboard>
+                                                <Storyboard>
+                                                    <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                                                                     From="0" To="1" Duration="0:0:0.2" />
+                                                </Storyboard>
+                                            </BeginStoryboard>
+                                        </Trigger.EnterActions>
+                                    </Trigger>
+                                </Style.Triggers>
+                            </Style>
+                        </controls:BarChartControl.Style>
+                    </controls:BarChartControl>
 
+                    <!-- req-078 U-28 补齐：热力图切换加 200ms 淡入动画（与折线图同模式） -->
                     <controls:YearHeatMapControl x:Name="HeatMap"
                                                  Cells="{Binding HeatMapCells}"
                                                  EmptyCellBrush="{DynamicResource TrackBrush}"
                                                  TextBrush="{DynamicResource TextSecondaryBrush}"
-                                                 Visibility="{Binding IsHeatMap, Converter={StaticResource BoolToVisibility}}" />
+                                                 Visibility="{Binding IsHeatMap, Converter={StaticResource BoolToVisibility}}">
+                        <controls:YearHeatMapControl.Style>
+                            <Style TargetType="controls:YearHeatMapControl">
+                                <Style.Triggers>
+                                    <Trigger Property="Visibility" Value="Visible">
+                                        <Trigger.EnterActions>
+                                            <BeginStoryboard>
+                                                <Storyboard>
+                                                    <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                                                                     From="0" To="1" Duration="0:0:0.2" />
+                                                </Storyboard>
+                                            </BeginStoryboard>
+                                        </Trigger.EnterActions>
+                                    </Trigger>
+                                </Style.Triggers>
+                            </Style>
+                        </controls:YearHeatMapControl.Style>
+                    </controls:YearHeatMapControl>
 
+                    <!-- req-078 U-28 补齐：日夜弧图切换加 200ms 淡入动画（与折线图同模式） -->
                     <controls:DayNightArcControl x:Name="ArcChart"
                                                  HourlyActivity="{x:Static helpers:SampleChartData.HourlyActivity}"
                                                  TrackBrush="{DynamicResource TextTertiaryBrush}"
                                                  AccentBrush="{DynamicResource AccentBrush}"
                                                  TextBrush="{DynamicResource TextSecondaryBrush}"
-                                                 Visibility="{Binding IsDayNightArc, Converter={StaticResource BoolToVisibility}}" />
+                                                 Visibility="{Binding IsDayNightArc, Converter={StaticResource BoolToVisibility}}">
+                        <controls:DayNightArcControl.Style>
+                            <Style TargetType="controls:DayNightArcControl">
+                                <Style.Triggers>
+                                    <Trigger Property="Visibility" Value="Visible">
+                                        <Trigger.EnterActions>
+                                            <BeginStoryboard>
+                                                <Storyboard>
+                                                    <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                                                                     From="0" To="1" Duration="0:0:0.2" />
+                                                </Storyboard>
+                                            </BeginStoryboard>
+                                        </Trigger.EnterActions>
+                                    </Trigger>
+                                </Style.Triggers>
+                            </Style>
+                        </controls:DayNightArcControl.Style>
+                    </controls:DayNightArcControl>
 
                     <!-- req-078 U-29：空状态升级为插画 + 操作按钮 -->
                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center"
                                 Visibility="{Binding NoDataWarning, Converter={StaticResource BoolToVisibility}}">
                         <TextBlock Text="📈" FontSize="48" HorizontalAlignment="Center" Margin="0,0,0,12" />
-                        <TextBlock Text="暂无历史数据" FontSize="16"
+                        <TextBlock Text="{helpers:Loc history.empty.title}" FontSize="16"
                                    Foreground="{DynamicResource TextSecondaryBrush}"
                                    HorizontalAlignment="Center" Margin="0,0,0,8" />
-                        <TextBlock Text="请先刷新数据或调整时间范围" FontSize="12"
+                        <TextBlock Text="{helpers:Loc history.empty.hint}" FontSize="12"
                                    Foreground="{DynamicResource TextTertiaryBrush}"
                                    HorizontalAlignment="Center" Margin="0,0,0,16" />
-                        <Button Content="去刷新数据" Click="OnRefreshClick"
+                        <Button Content="{helpers:Loc history.empty.action}" Click="OnRefreshClick"
                                 Style="{StaticResource PrimaryButtonStyle}"
                                 HorizontalAlignment="Center" Padding="20,8" />
                     </StackPanel>
@@ -164,7 +218,7 @@
                         CornerRadius="{DynamicResource RadiusCard}" Padding="16"
                         Visibility="{Binding IsSingleProviderSelected, Converter={StaticResource BoolToVisibility}}">
                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
-                        <TextBlock Text="当前 Provider 摘要" FontSize="12"
+                        <TextBlock Text="{helpers:Loc history.summary.title}" FontSize="12"
                                    HorizontalAlignment="Center"
                                    Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,10" />
                         <controls:RingChartControl x:Name="RingChart"
@@ -178,8 +232,8 @@
                                                    WarningBrush="{DynamicResource WarningBrush}"
                                                    DangerBrush="{DynamicResource DangerBrush}"
                                                    Visibility="{Binding HasRingSeries, Converter={StaticResource BoolToVisibility}}" />
-                        <!-- req-038：去掉 Provider 名字，仅显示采样点数 -->
-                        <TextBlock Text="{Binding RingSampleCount, StringFormat=共 {0} 个采样点}"
+                        <!-- req-038：去掉 Provider 名字，仅显示采样点数；req-069 i18n：改绑 VM 格式化属性 -->
+                        <TextBlock Text="{Binding RingSampleCountText}"
                                    FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
                                    HorizontalAlignment="Center"
                                    Margin="0,8,0,0" />
@@ -193,7 +247,7 @@
                         <StackPanel>
                             <TextBlock Text="{Binding ActiveDaysText}" FontSize="{DynamicResource FontSizeDisplay}" FontWeight="Bold"
                                        Foreground="{DynamicResource TextPrimaryBrush}" />
-                            <TextBlock Text="活跃天数" FontSize="12"
+                            <TextBlock Text="{helpers:Loc history.stats.activedays}" FontSize="12"
                                        Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,2,0,0" />
                         </StackPanel>
                     </Border>
@@ -202,7 +256,7 @@
                         <StackPanel>
                             <TextBlock Text="{Binding PeakUsageText}" FontSize="{DynamicResource FontSizeDisplay}" FontWeight="Bold"
                                        Foreground="{DynamicResource AccentBrush}" />
-                            <TextBlock Text="单日峰值用量" FontSize="12"
+                            <TextBlock Text="{helpers:Loc history.stats.peak}" FontSize="12"
                                        Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,2,0,0" />
                         </StackPanel>
                     </Border>
@@ -211,7 +265,7 @@
                         <StackPanel>
                             <TextBlock Text="{Binding AvgUsageText}" FontSize="{DynamicResource FontSizeDisplay}" FontWeight="Bold"
                                        Foreground="{DynamicResource TextPrimaryBrush}" />
-                            <TextBlock Text="平均用量" FontSize="12"
+                            <TextBlock Text="{helpers:Loc history.stats.average}" FontSize="12"
                                        Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,2,0,0" />
                         </StackPanel>
                     </Border>
@@ -240,7 +294,7 @@
                         CornerRadius="{DynamicResource RadiusSmall}" Padding="10,6"
                         Margin="6,4,6,6">
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                        <TextBlock Text="切片" FontSize="12" FontWeight="SemiBold"
+                        <TextBlock Text="{helpers:Loc history.slicer.label}" FontSize="12" FontWeight="SemiBold"
                                    Foreground="{DynamicResource TextSecondaryBrush}"
                                    VerticalAlignment="Center" Margin="0,0,10,0" />
                         <ItemsControl ItemsSource="{Binding Providers}">
@@ -268,37 +322,37 @@
                           Sorting="OnDataGridSorting">
                     <DataGrid.Columns>
                         <DataGridTextColumn Header="Provider" Binding="{Binding ProviderName}" Width="*" MinWidth="100" SortMemberPath="ProviderName" />
-                        <DataGridTextColumn Header="日期" Binding="{Binding Day}" Width="Auto" MinWidth="80" SortMemberPath="Day" />
-                        <DataGridTextColumn Header="刷新时间" Binding="{Binding RefreshedAtText}" Width="Auto" MinWidth="80" SortMemberPath="RefreshedAtText" />
-                        <DataGridTextColumn Header="最高%" Binding="{Binding MaxPercent, StringFormat={}{0:0.0}}" Width="60" SortMemberPath="MaxPercent">
+                        <DataGridTextColumn Header="{helpers:Loc history.col.date}" Binding="{Binding Day}" Width="Auto" MinWidth="80" SortMemberPath="Day" />
+                        <DataGridTextColumn Header="{helpers:Loc history.col.refreshed}" Binding="{Binding RefreshedAtText}" Width="Auto" MinWidth="80" SortMemberPath="RefreshedAtText" />
+                        <DataGridTextColumn Header="{helpers:Loc history.col.maxpercent}" Binding="{Binding MaxPercent, StringFormat={}{0:0.0}}" Width="60" SortMemberPath="MaxPercent">
                             <DataGridTextColumn.ElementStyle>
                                 <Style TargetType="TextBlock">
                                     <Setter Property="HorizontalAlignment" Value="Right" />
                                 </Style>
                             </DataGridTextColumn.ElementStyle>
                         </DataGridTextColumn>
-                        <DataGridTextColumn Header="最低%" Binding="{Binding MinPercent, StringFormat={}{0:0.0}}" Width="60" SortMemberPath="MinPercent">
+                        <DataGridTextColumn Header="{helpers:Loc history.col.minpercent}" Binding="{Binding MinPercent, StringFormat={}{0:0.0}}" Width="60" SortMemberPath="MinPercent">
                             <DataGridTextColumn.ElementStyle>
                                 <Style TargetType="TextBlock">
                                     <Setter Property="HorizontalAlignment" Value="Right" />
                                 </Style>
                             </DataGridTextColumn.ElementStyle>
                         </DataGridTextColumn>
-                        <DataGridTextColumn Header="结束%" Binding="{Binding EndPercent, StringFormat={}{0:0.0}}" Width="60" SortMemberPath="EndPercent">
+                        <DataGridTextColumn Header="{helpers:Loc history.col.endpercent}" Binding="{Binding EndPercent, StringFormat={}{0:0.0}}" Width="60" SortMemberPath="EndPercent">
                             <DataGridTextColumn.ElementStyle>
                                 <Style TargetType="TextBlock">
                                     <Setter Property="HorizontalAlignment" Value="Right" />
                                 </Style>
                             </DataGridTextColumn.ElementStyle>
                         </DataGridTextColumn>
-                        <DataGridTextColumn Header="平均%" Binding="{Binding AvgPercent, StringFormat={}{0:0.0}}" Width="60" SortMemberPath="AvgPercent">
+                        <DataGridTextColumn Header="{helpers:Loc history.col.avgpercent}" Binding="{Binding AvgPercent, StringFormat={}{0:0.0}}" Width="60" SortMemberPath="AvgPercent">
                             <DataGridTextColumn.ElementStyle>
                                 <Style TargetType="TextBlock">
                                     <Setter Property="HorizontalAlignment" Value="Right" />
                                 </Style>
                             </DataGridTextColumn.ElementStyle>
                         </DataGridTextColumn>
-                        <DataGridTextColumn Header="采样数" Binding="{Binding Snapshots}" Width="60" SortMemberPath="Snapshots">
+                        <DataGridTextColumn Header="{helpers:Loc history.col.snapshots}" Binding="{Binding Snapshots}" Width="60" SortMemberPath="Snapshots">
                             <DataGridTextColumn.ElementStyle>
                                 <Style TargetType="TextBlock">
                                     <Setter Property="HorizontalAlignment" Value="Right" />

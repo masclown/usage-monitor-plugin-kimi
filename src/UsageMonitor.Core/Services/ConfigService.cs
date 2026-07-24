@@ -74,12 +74,14 @@ public class AppSettings
     public double? TrayTooltipWindowWidth { get; set; } = null;
 
     /// <summary>各 Provider 在任务栏的显示模式（key=ProviderId，缺省时为 Text）</summary>
+    [Obsolete("已由 AccountCustomizations 取代，仅保留读取兼容")]
     public Dictionary<string, TaskbarDisplayMode> ProviderTaskbarModes { get; set; } = new();
 
-    /// <summary>req-026：环形图中心数字"已启用 metric key"按 Provider 索引。
+    /// <summary>req-026：环形图中心数字“已启用 metric key”按 Provider 索引。
     /// 缺失 / 为空时回退到 <see cref="GlobalEnabledRingChartMetrics"/>。
     /// 典型 key：<c>"Percent"</c>、<c>"Credits"</c>、<c>"WeeklyLimit"</c> 等。
     /// </summary>
+    [Obsolete("已由 AccountCustomizations 取代，仅保留读取兼容")]
     public Dictionary<string, List<string>> ProviderEnabledRingChartMetrics { get; set; } = new();
 
     /// <summary>req-026：环形图中心数字"全局已启用 metric key"列表（Provider 单独配置缺失时使用）。</summary>
@@ -105,6 +107,7 @@ public class AppSettings
 
     /// <summary>各 Provider 在主窗口卡片中展示的图表类型（key=ProviderId，缺省为 None 仅进度条）。
     /// <para>遗留的「单选」字段：仅用于向 <see cref="ProviderCardChartKinds"/> 迁移旧配置，新逻辑一律读写多选集合。</para></summary>
+    [Obsolete("已由 AccountCustomizations 取代，仅保留读取兼容")]
     public Dictionary<string, CardChartKind> ProviderCardCharts { get; set; } = new();
 
     /// <summary>
@@ -115,6 +118,7 @@ public class AppSettings
     /// 空列表或缺省表示不显示任何卡片图表（仅保留进度条）。
     /// </para>
     /// </summary>
+    [Obsolete("已由 AccountCustomizations 取代，仅保留读取兼容")]
     public Dictionary<string, List<CardChartKind>> ProviderCardChartKinds { get; set; } = new();
 
     /// <summary>
@@ -272,6 +276,7 @@ public class AppSettings
     /// 调整顺序后保存 → ConfigChanged 事件 → MainViewModel 重新排序 EnabledUsages。
     /// </para>
     /// </summary>
+    [Obsolete("已由 AccountCustomizations 取代，仅保留读取兼容")]
     public List<string> ProviderCardOrder { get; set; } = new();
 
     // =====================================================================
@@ -1129,6 +1134,46 @@ public class ConfigService : IConfigService
             return _settings.Accounts.FirstOrDefault(a =>
                 string.Equals(a.ProviderId, providerId, StringComparison.OrdinalIgnoreCase) &&
                 string.Equals(a.AccountId, NormalizeAccountId(accountId), StringComparison.Ordinal));
+        }
+    }
+
+    /// <summary>
+    /// req-088 Phase1：确保存在指定 <paramref name="accountId"/> 的账号；不存在则以该 account_id 直接创建。
+    /// <para>与 <see cref="AddAccount"/> 的区别：AddAccount 自生成序号 ID；本方法使用调用方给定的
+    /// account_id（由 <see cref="AccountIdHasher"/> 从网页稳定身份哈希得出），保证稳定——删除账号后重加相同网页账号
+    /// 会算出相同 account_id，从而复用历史数据。首次为某 Provider 创建时置 IsDefault=true。</para>
+    /// <para>幂等：每次成功刷新都会调用；已存在则直接返回、不改动用户已自定义的昵称。</para>
+    /// </summary>
+    /// <param name="providerId">插件 ID。</param>
+    /// <param name="accountId">账号哈希 ID（稳定身份）。</param>
+    /// <param name="defaultNickname">默认昵称；为空时用 <c>{providerId}_{序号}</c>。</param>
+    public Models.Account EnsureAccount(string providerId, string accountId, string? defaultNickname = null)
+    {
+        lock (_ioLock)
+        {
+            var norm = NormalizeAccountId(accountId);
+            var existing = _settings.Accounts.FirstOrDefault(a =>
+                string.Equals(a.ProviderId, providerId, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(a.AccountId, norm, StringComparison.Ordinal));
+            if (existing != null) return existing;
+
+            var count = _settings.Accounts.Count(a =>
+                string.Equals(a.ProviderId, providerId, StringComparison.OrdinalIgnoreCase));
+            var nickname = string.IsNullOrWhiteSpace(defaultNickname)
+                ? $"{providerId}_{count + 1}"
+                : defaultNickname.Trim();
+            var account = new Models.Account
+            {
+                ProviderId = providerId,
+                AccountId = norm,
+                Nickname = nickname,
+                UseNickname = true,
+                CreatedAt = DateTime.Now,
+                IsDefault = count == 0
+            };
+            _settings.Accounts.Add(account);
+            Save();
+            return account;
         }
     }
 

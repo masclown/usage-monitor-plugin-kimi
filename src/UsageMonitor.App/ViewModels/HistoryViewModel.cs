@@ -154,8 +154,8 @@ public class HistoryViewModel : INotifyPropertyChanged
         };
         _selectedChartKind = HistoryChartKind.Line;
 
-        // 默认占位文案
-        _statusMessage = "正在加载 Provider 列表…";
+        // 默认占位文案（req-069 i18n）
+        _statusMessage = I18n.T(I18nKeys.History_Status_LoadingProviders);
 
         // 订阅全局用量色阶变更：重着色热力图单元（颜色按新色阶刷）。
         UsageMonitor.App.Helpers.UsageTierScale.TierChanged += OnTierChanged;
@@ -312,6 +312,7 @@ public class HistoryViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(HasRingSeries));
             OnPropertyChanged(nameof(RingLatestPercent));
             OnPropertyChanged(nameof(RingSampleCount));
+            OnPropertyChanged(nameof(RingSampleCountText));
         }
     }
 
@@ -330,8 +331,11 @@ public class HistoryViewModel : INotifyPropertyChanged
         }
     }
 
-    /// <summary>圆环图采样点数量（用于在右边摘要区以"共 X 个采样点"形式展示）</summary>
+    /// <summary>圆环图采样点数量（用于在右边摘要区以“共 X 个采样点”形式展示）</summary>
     public int RingSampleCount => _ringSeries.Values?.Count ?? 0;
+    
+    /// <summary>req-069 i18n：圆环图采样点格式化文案（“共 X 个采样点”）。</summary>
+    public string RingSampleCountText => I18n.T(I18nKeys.History_Summary_SampleCountFormat, RingSampleCount);
 
     /// <summary>
     /// 是否单 Provider 选中（用于决定是否显示圆环摘要）
@@ -447,7 +451,7 @@ public class HistoryViewModel : INotifyPropertyChanged
     public async Task LoadDataAsync()
     {
         IsLoading = true;
-        StatusMessage = "正在加载…";
+        StatusMessage = I18n.T(I18nKeys.History_Status_Loading);
         NoDataWarning = false;
         try
         {
@@ -460,7 +464,7 @@ public class HistoryViewModel : INotifyPropertyChanged
                 RingSeries = new HistorySeries();
                 BarValues = Array.Empty<double>();
                 ActiveDaysText = "--"; PeakUsageText = "--"; AvgUsageText = "--";
-                StatusMessage = "未勾选任何 Provider";
+                StatusMessage = I18n.T(I18nKeys.History_Status_NoProvider);
                 NoDataWarning = true;
                 return;
             }
@@ -573,8 +577,8 @@ public class HistoryViewModel : INotifyPropertyChanged
             AvgUsageText = dailyList.Count > 0 ? $"{dailyList.Average(d => d.AvgUsedPercent):0.#}%" : "--";
 
             StatusMessage = LineSeries.Count == 0
-                ? "暂无任何历史数据，先在主窗口点几下'刷新'"
-                : $"已加载 {LineSeries.Count} 个 Provider，{DetailRows.Count} 行刷新聚合";
+                ? I18n.T(I18nKeys.History_Status_NoData)
+                : I18n.T(I18nKeys.History_Status_LoadedFormat, LineSeries.Count, DetailRows.Count);
             NoDataWarning = LineSeries.Count == 0;
 
             // 通知依赖于 Provider 选择数变化的 UI 属性
@@ -582,7 +586,7 @@ public class HistoryViewModel : INotifyPropertyChanged
         }
         catch (Exception ex)
         {
-            StatusMessage = "加载失败：" + ex.Message;
+            StatusMessage = I18n.T(I18nKeys.History_Status_LoadFailedPrefix) + ex.Message;
             NoDataWarning = true;
             UsageMonitor.Core.Services.FileLogger.Error("HistoryViewModel",
                 "LoadDataAsync failed", ex);

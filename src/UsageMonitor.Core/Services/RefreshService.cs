@@ -288,6 +288,10 @@ private readonly ConcurrentDictionary<string, int> _consecutiveFailures = new();
                 // req-015：传完整 usage，Store 内部走 InsertUsagePointIfChangedAsync（业务指纹比对去重）。
                 if (usage.IsSuccess)
                 {
+                    // req-088 Phase1：首次成功抓到网页账号身份（usage.AccountId 由插件哈希得出）时自动建/匹配账号，
+                    // 使数据按账号隔离、删除重加可找回历史；账号昵称默认 {ProviderId}_{序号}，用户可改名。
+                    if (!string.IsNullOrWhiteSpace(usage.AccountId))
+                        _configService.EnsureAccount(providerId, usage.AccountId!);
                     // req-092：传 null 走 DataModule 内部 ExtractStandardFields 自动提取（req-107 B8 后插件声明式 metadata 直接可用）。
                     _dataModule.SaveUsage(usage);
                     // req-096 接线：首次成功刷新时记录登录态获取时间（幂等，不覆盖已有 AcquiredAt），

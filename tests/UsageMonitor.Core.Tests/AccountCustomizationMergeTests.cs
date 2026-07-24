@@ -69,7 +69,9 @@ public class AccountCustomizationMergeTests : IDisposable
             Nickname = "工作号"
         };
         // 旧字典（应被覆盖）
+#pragma warning disable CS0618 // 测试旧字典兼容读取路径，需访问已标记 Obsolete 的属性
         svc.Settings.ProviderCardChartKinds["minimax"] = new System.Collections.Generic.List<CardChartKind> { CardChartKind.Ring };
+#pragma warning restore CS0618
         svc.Settings.SelectedProgressFields["minimax"] = new System.Collections.Generic.List<string> { "weekly_used_percent" };
 
         var eff = svc.GetEffectiveAccountCustomization("minimax", "default", "default-card");
@@ -84,7 +86,9 @@ public class AccountCustomizationMergeTests : IDisposable
     {
         var svc = CreateConfigService();
         // 账号定制缺失，仅有旧字典
+#pragma warning disable CS0618 // 测试旧字典兼容读取路径，需访问已标记 Obsolete 的属性
         svc.Settings.ProviderCardChartKinds["kimi"] = new System.Collections.Generic.List<CardChartKind> { CardChartKind.Bar, CardChartKind.Ring };
+#pragma warning restore CS0618
         svc.Settings.ProviderChartOrder["kimi"] = new System.Collections.Generic.List<CardChartKind> { CardChartKind.Ring, CardChartKind.Bar };
         svc.Settings.SelectedProgressFields["kimi"] = new System.Collections.Generic.List<string> { "five_hour_used_percent", "weekly_used_percent" };
         svc.Settings.SelectedMetricFields["kimi"] = new System.Collections.Generic.List<string> { "remaining_credits" };

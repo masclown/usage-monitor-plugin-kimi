@@ -18,8 +18,9 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <!-- 标题 -->
-        <TextBlock x:Name="TitleText" Grid.Row="0"
+        <!-- 标题（req-069：绑定 VM.WindowTitle） -->
+        <TextBlock Grid.Row="0"
+                   Text="{Binding WindowTitle}"
                    FontSize="{DynamicResource FontSizeTitle}" FontWeight="Bold"
                    Foreground="{DynamicResource TextPrimaryBrush}"
                    Margin="0,0,0,18" />
@@ -57,17 +58,19 @@
             </StackPanel>
         </ScrollViewer>
 
-        <!-- 底部按钮 -->
+        <!-- 底部按钮（req-069：交互全部走 Command Binding） -->
         <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">
-            <!-- req-079 U-30：emoji 按钮改为纯文字 + ToolTip -->
-            <Button x:Name="GetCookieButton" Content="{helpers:Loc pluginconfig.getcookie}"
-                    Margin="0,0,12,0" Click="OnGetCookieClick"
+            <!-- req-079 U-30：emoji 按钮改为纯文字 + ToolTip；req-069：Content/IsEnabled/Visibility 绑定 VM 状态 -->
+            <Button Content="{Binding GetCookieButtonText}"
+                    Command="{Binding GetCookieCommand}"
+                    IsEnabled="{Binding IsGetCookieEnabled}"
+                    Visibility="{Binding HasLoginConfig, Converter={StaticResource BoolToVisibility}}"
+                    Margin="0,0,12,0"
                     Style="{StaticResource GhostButtonStyle}"
-                    Visibility="Collapsed"
                     ToolTip="{helpers:Loc pluginconfig.getcookie.tip}" />
-            <Button Content="{helpers:Loc common.cancel}" Margin="0,0,12,0" Click="OnCancelClick"
+            <Button Content="{helpers:Loc common.cancel}" Margin="0,0,12,0" Command="{Binding CancelCommand}"
                     Style="{StaticResource GhostButtonStyle}" />
-            <Button Content="{helpers:Loc common.save}" Click="OnSaveClick"
+            <Button Content="{helpers:Loc common.save}" Command="{Binding SaveCommand}"
                     Style="{StaticResource PrimaryButtonStyle}" />
         </StackPanel>
     </Grid>

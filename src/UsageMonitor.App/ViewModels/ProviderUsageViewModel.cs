@@ -47,6 +47,8 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
     private Func<Task>? _refreshCardAction;
     // 卡片多进度条与订阅档位相关字段
     private string _subscriptionTitle = "Token Plan 订阅";
+    private string _subscriptionType = "Token Plan";
+    private string _subscriptionTier = "订阅";
     private bool _isSubscriptionActive;
     private double _primaryBarPercent;
     private double _weeklyBarPercent;
@@ -78,6 +80,8 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
     private bool _supportsPeriodSwitch;
     private string _currentPeriod = UsageMonitor.App.Controls.ChartPeriods.Week;
     private bool _isLoading;
+    // req-079 U-33：是否已收到过至少一次数据更新响应（骨架屏判定用）
+    private bool _hasReceivedData;
     // req-072 U-05：卡片详情展开状态。req-099 修复（Bug3）：默认改为展开，让卡片首屏即显示
     // 限额/余额/图表全部已填充数据；此前默认折叠只显示 CollapseVisibleParts 声明的区段，
     // 导致 MiniMax 仅显示 5h/周而图表/余额被隐藏，被误认为“数据未显示”。用户仍可点箭头折叠。
@@ -289,6 +293,12 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
 
     /// <summary>订阅档位胶囊文案：已订阅返回具体档位名，未订阅或未抓到返回默认占位</summary>
     public string SubscriptionTitle { get => _subscriptionTitle; set { _subscriptionTitle = value; OnPropertyChanged(); } }
+
+    /// <summary>req-088 Phase2：订阅类型（Token Plan / Coding Plan / Agent Plan / API），卡片左栏。</summary>
+    public string SubscriptionType { get => _subscriptionType; set { _subscriptionType = value; OnPropertyChanged(); } }
+
+    /// <summary>req-088 Phase2：订阅档位（如 TokenPlanMax-年度会员），卡片右栏。</summary>
+    public string SubscriptionTier { get => _subscriptionTier; set { _subscriptionTier = value; OnPropertyChanged(); } }
 
     /// <summary>是否已订阅（按后端 combo_id 是否存在判断）</summary>
     public bool IsSubscriptionActive { get => _isSubscriptionActive; set { _isSubscriptionActive = value; OnPropertyChanged(); } }
@@ -872,6 +882,22 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
     }
 
     /// <summary>
+    /// req-079 U-33：是否已收到过至少一次数据更新响应（无论成败）。
+    /// <para>供任务栏迷你图骨架屏判定：<c>MiniChartItemViewModel.IsDataReady</c> 以此为准，
+    /// false 且刷新中时显示骨架占位，避免“无缓存数据”时的空白闪烁。</para>
+    /// </summary>
+    public bool HasReceivedData
+    {
+        get => _hasReceivedData;
+        set
+        {
+            if (_hasReceivedData == value) return;
+            _hasReceivedData = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
     /// req-072 U-05：卡片详情展开状态（默认折叠）。
     /// 用于 Expander 绑定，控制限额/余额/图表等次要信息的显示。
     /// </summary>
@@ -1036,6 +1062,7 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         IsError = !usage.IsSuccess;
         ErrorMessage = usage.ErrorMessage;
         LastUpdateText = usage.LastUpdated.ToString("HH:mm:ss");
+        HasReceivedData = true; // req-079 U-33：标记已收到数据响应（任务栏骨架屏据此结束占位）
 
         if (!usage.IsSuccess)
         {
@@ -1148,17 +1175,19 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         }
         else
         {
-            // req-fix（bug3a）：mm_render_kinds 缺失/类型不符时回退到插件声明的 DefaultRenderKinds，
+            // req-107 B6：mm_render_kinds 缺失/类型不符时回退到声明式 Card.RenderKinds（defaults.json），
             // 避免 RenderKinds 被清空导致 5h/周进度条整段消失。
-            RenderKinds = Provider?.DefaultRenderKinds ?? Array.Empty<string>();
+            RenderKinds = Provider?.Card?.RenderKinds ?? Array.Empty<string>();
         }
 
-        // 2. 订阅档位胶囊。
+        // 2. 订阅档位胶囊（req-088 Phase2：类型 + 档位拆分并排）。
         IsSubscriptionActive = extra.TryGetValue("mm_subscriptionActive", out var sa) && sa is bool sab && sab;
-        var subTitle = S("mm_subscriptionTitle");
-        SubscriptionTitle = !string.IsNullOrWhiteSpace(subTitle)
-            ? $"Token Plan · {subTitle}"
-            : "Token Plan 订阅";
+        var subType = S("mm_subscriptionType");
+        var subTier = S("mm_subscriptionTier");
+        if (string.IsNullOrWhiteSpace(subTier)) subTier = S("mm_subscriptionTitle"); // 兼容旧数据（仅档位）
+        SubscriptionType = !string.IsNullOrWhiteSpace(subType) ? subType : "Token Plan";
+        SubscriptionTier = !string.IsNullOrWhiteSpace(subTier) ? subTier : "订阅";
+        SubscriptionTitle = $"{SubscriptionType} · {SubscriptionTier}";
 
         // 3. 5h 限额进度条（主进度条，绿色主题）。
         var p5 = D("mm_5hUsedPercent");

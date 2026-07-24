@@ -8,12 +8,97 @@
     "en-US": "https://platform.minimax.io/console/usage",
     "ko-KR": "https://platform.minimax.io/ko/console/usage"
   },
+  "fetch": {
+    "endpoints": [
+      {
+        "urlMatch": "remains_percent",
+        "finds": [
+          {
+            "itemsPath": "$.model_remains", "matchField": "model_name", "matchValue": "general",
+            "fields": [
+              { "path": "$.current_interval_used_percent", "target": "mm_5hUsedPercent", "transform": "parsePercent" },
+              { "path": "$.current_weekly_used_percent", "target": "mm_weeklyUsedPercent", "transform": "parsePercent" },
+              { "path": "$.end_time", "target": "mm_5hResetAt", "transform": "fromUnixMs" },
+              { "path": "$.weekly_end_time", "target": "mm_weeklyResetAt", "transform": "fromUnixMs" }
+            ]
+          },
+          {
+            "itemsPath": "$.model_remains", "matchField": "model_name", "matchValue": "video",
+            "fields": [
+              { "path": "$.current_interval_total_count", "target": "mm_videoIntervalTotal", "transform": "parseNumber" },
+              { "path": "$.current_interval_remains_count", "target": "mm_videoIntervalRemaining", "transform": "parseNumber" },
+              { "path": "$.current_weekly_total_count", "target": "mm_videoWeeklyTotal", "transform": "parseNumber" },
+              { "path": "$.current_weekly_remains_count", "target": "mm_videoWeeklyRemaining", "transform": "parseNumber" }
+            ]
+          }
+        ]
+      },
+      {
+        "urlMatch": "usage_summary",
+        "fields": [
+          { "path": "$.total_days", "target": "mm_totalDays", "transform": "parseNumber" },
+          { "path": "$.active_days", "target": "mm_activeDays", "transform": "parseNumber" },
+          { "path": "$.usage_ranking_percent", "target": "mm_rankingPercent", "transform": "parseNumber" },
+          { "path": "$.total_token_consumed", "target": "mm_totalTokens", "transform": "identity" },
+          { "path": "$.most_active_day.date", "target": "mm_mostActiveDate" },
+          { "path": "$.most_active_day.token_count", "target": "mm_mostActiveToken", "transform": "parseFormattedToken" },
+          { "path": "$.most_active_day.token_count", "target": "mm_mostActiveTokenText", "transform": "identity" }
+        ],
+        "arrays": [
+          {
+            "itemsPath": "$.date_model_usage",
+            "mode": "parallel",
+            "itemFields": [
+              { "path": "$.date", "target": "mm_dailyTokenDates", "elementType": "string" },
+              { "path": "$.total_token", "target": "mm_dailyTokenValues", "elementType": "long" },
+              { "path": "$.cache_hit_percent", "target": "mm_dailyCacheHitPercents", "transform": "parsePercent", "elementType": "double" }
+            ]
+          },
+          {
+            "itemsPath": "$.date_model_usage",
+            "mode": "objects",
+            "nestedItems": "models",
+            "target": "mm_modelDaily",
+            "inheritFromParent": { "date": "date" },
+            "itemFields": [
+              { "path": "$.model", "target": "model" },
+              { "path": "$.input_token", "target": "input_token", "transform": "parseNumber" },
+              { "path": "$.output_token", "target": "output_token", "transform": "parseNumber" },
+              { "path": "$.cache_read_token", "target": "cache_read_token", "transform": "parseNumber" },
+              { "path": "$.total_token", "target": "total_token", "transform": "parseNumber" },
+              { "path": "$.cache_hit_percent", "target": "cache_hit_percent", "transform": "parsePercent" }
+            ]
+          }
+        ]
+      },
+      {
+        "urlMatch": "token_plan_credit",
+        "fields": [
+          { "path": "$.remaining_credits", "target": "mm_remainingCredits", "transform": "parseNumber" },
+          { "path": "$.total_credits", "target": "mm_totalCredits", "transform": "parseNumber" }
+        ]
+      }
+    ],
+    "aggregates": [
+      { "urlMatch": "usage_summary", "itemsPath": "$.date_model_usage", "op": "weightedAvg", "valuePath": "$.cache_hit_percent", "valueTransform": "parsePercent", "weightPath": "$.total_token", "target": "mm_cacheHitPercent" }
+    ],
+    "computed": [
+      { "target": "mm_videoIntervalUsed", "op": "subtract", "operands": ["mm_videoIntervalTotal", "mm_videoIntervalRemaining"] },
+      { "target": "mm_videoWeeklyUsed", "op": "subtract", "operands": ["mm_videoWeeklyTotal", "mm_videoWeeklyRemaining"] }
+    ],
+    "dom": [
+      { "tool": "jsFunction", "source": "() => { const els=Array.from(document.querySelectorAll('span,div,p')); const cands=els.map(x=>(x.textContent||'').trim()).filter(t=>t.length>0 && t.length<40 && (t.indexOf('·')>=0||t.indexOf('・')>=0) && (/Plan/.test(t)||t.indexOf('会员')>=0)); if(cands.length===0) return null; cands.sort((a,b)=>a.length-b.length); return cands[0]; }", "target": "mm_subscriptionRaw" }
+    ],
+    "accountId": { "urlMatch": "group/list", "path": "$.groups[0].group_id" }
+  },
   "card": {
+    "renderKinds": ["subscriptionTitle", "primaryBar", "weeklyBar", "videoProgress", "summary", "ranking", "credits"],
+    "primaryMetric": "five_hour_used_percent",
     "baseInfo": {
       "fields": [
+        { "fieldName": "subscription_type", "role": "Meta" },
         { "fieldName": "subscription_tier", "role": "Meta" },
         { "fieldName": "account_display_name", "role": "Meta" },
-        { "fieldName": "account_nickname", "role": "Meta" },
         { "fieldName": "five_hour_reset_at", "role": "Reset" }
       ]
     },

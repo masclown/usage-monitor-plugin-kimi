@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using UsageMonitor.App.ViewModels;
 using UsageMonitor.Core.Models;
 using UsageMonitor.Core.Plugins;
 using UsageMonitor.Core.Services;
@@ -15,298 +16,118 @@ using WpfPasswordBox = System.Windows.Controls.PasswordBox;
 namespace UsageMonitor.App.Views;
 
 /// <summary>
-/// 插件配置对话框 - 根据插件的 ConfigFields 动态生成配置表单
-/// 支持 TextBox、PasswordBox、CheckBox、ComboBox 等控件类型
+/// 插件配置对话框 - 根据插件的 ConfigFields 动态生成配置表单。
 /// <para>
-/// 当插件在 <see cref="Models.BrowserLoginConfig"/> 中声明了登录需求时，
-/// 会自动显示"🌐 获取登录态"按钮，点击后调用 <see cref="BrowserLoginService"/>
-/// 启动临时 Edge 窗口并提取 Cookie。设计复刻自销项数据助手项目的
-/// <c>browser-cookie-manager</c> Skill。
+/// req-069-009/010/011 MVVM 化：全部业务逻辑（表单保存校验、Cookie 获取、Mode 切换持久化、
+/// 图表开关回显与写入决策）已迁移至 <see cref="PluginConfigViewModel"/>；
+/// 本 code-behind 仅保留 WPF 动态控件构建与控件值读写（视图职责）。
 /// </para>
 /// <para>
 /// S6 瘦身：账号增删改已统一迁移到设置窗口【插件管理】页，本窗口不再承载账号管理区；
-/// 旧"卡片图表多选 + 示例预览"区（含空集合防御）一并移除，改为按插件 defaults.json
-/// 声明的 chartId 列出「卡片图表 / 任务栏迷你图表」两组简单启用开关，
-/// 持久化分别落 <c>AccountCustomization.VisibleCharts</c> / <c>VisibleMiniCharts</c>
-/// （与设置窗口【卡片管理】/【任务栏迷你图表】页同一数据落点，避免双写冲突）。
+/// 按插件 defaults.json 声明的 chartId 列出「卡片图表 / 任务栏迷你图表」两组简单启用开关，
+/// 持久化分别落 <c>AccountCustomization.VisibleCharts</c> / <c>VisibleMiniCharts</c>。
 /// </para>
 /// </summary>
 public partial class PluginConfigWindow : Window
 {
-    // req-fix-Kimi-ConfigFields 动态模式：去掉 readonly，Mode 切换时 RebuildFormForModeChange 重新赋值。
-    private IReadOnlyList<ConfigField> _configFields;
-    private readonly ProviderConfig _config;
-    private readonly BrowserLoginConfig? _loginConfig;
+    /// <summary>req-069：承载全部业务逻辑的视图模型。</summary>
+    private readonly PluginConfigViewModel _viewModel;
+
+    /// <summary>动态表单控件注册表（fieldKey → 输入控件）。</summary>
     private readonly Dictionary<string, FrameworkElement> _inputControls = new();
-    private readonly ConfigService? _configService;
+
+    /// <summary>S6：卡片图表启用开关 CheckBox 映射（chartId → CheckBox）。</summary>
+    private readonly Dictionary<string, WpfCheckBox> _cardChartCheckBoxes = new();
+
+    /// <summary>S6：任务栏迷你图表启用开关 CheckBox 映射（chartId → CheckBox）。</summary>
+    private readonly Dictionary<string, WpfCheckBox> _miniChartCheckBoxes = new();
+
+    /// <summary>req-fix-Kimi-ModeRebuildStackOverflow：re-entrancy 保护标志（防止 BuildForm 创建新 ComboBox 时
+    /// 设置 SelectedItem 触发 SelectionChanged → 再次重建 → StackOverflowException）。</summary>
+    private bool _isRebuildingForMode;
 
     /// <summary>
-    /// req-fix-Kimi-ConfigFields 动态模式：保存 <see cref="IUsageProvider"/> 引用，
-    /// 让 Mode 字段 ComboBox 切换时能重新调用 <see cref="IUsageProvider.ConfigFields"/>
-    /// 获取与新模式匹配的字段列表。
-    /// <para>非双模式插件可传 null（仍按原方式使用构造时传入的 _configFields 列表）。</para>
-    /// </summary>
-    private readonly UsageMonitor.Core.Plugins.IUsageProvider? _provider;
-
-    /// <summary>S6：启用开关生效的账号 ID（缺省 "default"；由调用方传入账号上下文时按账号生效）。</summary>
-    private readonly string _accountId;
-
-    /// <summary>S6：卡片图表启用开关映射（chartId → CheckBox，按插件 Card.Charts 声明顺序）。</summary>
-    private readonly List<KeyValuePair<string, WpfCheckBox>> _cardChartSwitches = new();
-
-    /// <summary>S6：任务栏迷你图表启用开关映射（miniChartId → CheckBox，按插件 Taskbar.MiniCharts 声明顺序）。</summary>
-    private readonly List<KeyValuePair<string, WpfCheckBox>> _miniChartSwitches = new();
-
-    /// <summary>Phase 2 修复：卡片图表开关初始是否为 legacy/null 全选语义（用户未改动时跳过写入）。</summary>
-    private bool _cardChartIsLegacyAll;
-
-    /// <summary>Phase 2 修复：迷你图表开关初始是否为 legacy/null 全选语义（用户未改动时跳过写入）。</summary>
-    private bool _miniChartIsLegacyAll;
-
-    /// <summary>Phase 2 修复：卡片图表开关初始勾选快照（用于比对用户是否实际改动）。</summary>
-    private List<bool> _cardChartInitialChecked = new();
-
-    /// <summary>Phase 2 修复：迷你图表开关初始勾选快照（用于比对用户是否实际改动）。</summary>
-    private List<bool> _miniChartInitialChecked = new();
-
-    /// <summary>
-    /// 正在登录中的 ProviderId 集合（进程级共享，避免同一插件重复触发登录）。
-    /// <para>
-    /// 计划文件字面建议字段名为 <c>_isLoginInProgress</c>（单一 bool），但实际实现采用
-    /// <see cref="HashSet{T}"/> 以支持多 ProviderId 的独立并发控制：
-    /// 例如用户在 DeepSeek 登录中点击 MiniMax 按钮不应被错误阻塞。
-    /// </para>
-    /// </summary>
-    /// <summary>
-    /// req-064 B12：登录防重复 HashSet 改为大小写不敏感，避免 "MiniMax" 与 "minimax" 绕过防重复锁。
-    /// </summary>
-    private static readonly HashSet<string> _isLoginInProgress = new(StringComparer.OrdinalIgnoreCase);
-
-    /// <summary>保护 <see cref="_isLoginInProgress"/> 的锁对象</summary>
-    private static readonly object _loginInProgressLock = new();
-
-    /// <summary>
-    /// 创建插件配置对话框
+    /// 创建插件配置对话框。
     /// </summary>
     /// <param name="pluginName">插件显示名称</param>
     /// <param name="configFields">插件定义的配置字段</param>
     /// <param name="config">当前配置（读取和写入）</param>
-    /// <param name="loginConfig">
-    /// 可选的浏览器登录配置。传入非 <c>null</c> 时，窗口底部显示"获取登录态"按钮，
-    /// 点击后调用 <see cref="BrowserLoginService"/> 启动临时 Edge 窗口提取 Cookie。
-    /// </param>
-    /// <param name="configService">
-    /// req-065 B4：可选的 ConfigService，用于 BrowserLoginService 实例化（登录成功后自动重载内存配置）；
-    /// S6：同时用于图表/迷你图表启用开关的读取与持久化。
-    /// </param>
-    /// <param name="provider">
-    /// req-fix-Kimi-ConfigFields 动态模式：可选的插件实例引用。
-    /// 传入后 PluginConfigWindow 会在 Mode ComboBox 切换时自动调用 <c>provider.ConfigFields</c>
-    /// 重新拉取字段列表（如双模式插件根据 mode 字段返回不同字段）。
-    /// 传 null 时按构造时传入的 _configFields 列表使用（向后兼容）。
-    /// <para>S6：图表/迷你图表启用开关依赖 <c>provider.Card</c> / <c>provider.Taskbar</c> 声明，传 null 时两区隐藏。</para>
-    /// </param>
-    /// <param name="accountId">
-    /// S6：可选的账号上下文。启用开关按该账号的 <c>AccountCustomization</c> 生效；
-    /// 传 null / 空字符串时规范化为 "default"（Provider 级入口的缺省行为）。
-    /// </param>
+    /// <param name="loginConfig">可选的浏览器登录配置（非 null 时显示"获取登录态"按钮）</param>
+    /// <param name="configService">可选 ConfigService（登录成功后自动重载 + 图表开关持久化）</param>
+    /// <param name="provider">可选插件实例（Mode 切换重拉字段 + 图表声明来源；null 时图表开关区隐藏）</param>
+    /// <param name="accountId">账号上下文（null/空 → "default"）</param>
     public PluginConfigWindow(
         string pluginName,
         IReadOnlyList<ConfigField> configFields,
         ProviderConfig config,
         BrowserLoginConfig? loginConfig = null,
         ConfigService? configService = null,
-        UsageMonitor.Core.Plugins.IUsageProvider? provider = null,
+        IUsageProvider? provider = null,
         string? accountId = null)
     {
         InitializeComponent();
-        _configFields = configFields;
-        _config = config;
-        _loginConfig = loginConfig;
-        _configService = configService;
-        _provider = provider;
-        _accountId = string.IsNullOrWhiteSpace(accountId) ? "default" : accountId.Trim();
 
-        TitleText.Text = $"{pluginName} 配置";
-        BuildForm();
-        BuildChartSwitchSections();
+        _viewModel = new PluginConfigViewModel(
+            pluginName, configFields, config, loginConfig, configService, provider, accountId);
+        DataContext = _viewModel;
 
-        // 当插件声明了登录需求时，显示通用的"获取登录态"按钮
-        if (_loginConfig != null)
-        {
-            GetCookieButton.Content = _loginConfig.UiButtonText ?? "🌐 获取登录态";
-            GetCookieButton.Visibility = Visibility.Visible;
-        }
+        // 视图交互契约装配：VM 通过委托收集控件值，通过事件请求关闭/填入 Cookie
+        _viewModel.CollectFormValues = CaptureFormValues;
+        _viewModel.CollectCardChartStates = () => ReadCheckBoxStates(_cardChartCheckBoxes);
+        _viewModel.CollectMiniChartStates = () => ReadCheckBoxStates(_miniChartCheckBoxes);
+        _viewModel.CloseRequested += OnCloseRequested;
+        _viewModel.CookieReceived += OnCookieReceived;
+
+        BuildForm(_viewModel.ConfigFields);
+        BuildChartSwitchCheckBoxes();
     }
 
-    /// <summary>
-    /// S6：构建「卡片图表 / 任务栏迷你图表」两组启用开关。
-    /// <para>按插件 defaults.json 声明的 chartId 逐一列出 CheckBox；
-    /// 插件未声明（或 <see cref="_provider"/> / <see cref="_configService"/> 缺失）时整组隐藏。</para>
-    /// </summary>
-    private void BuildChartSwitchSections()
+    // =====================================================================
+    // VM 事件回调
+    // =====================================================================
+
+    /// <summary>VM 请求关闭窗口（保存成功或取消）。</summary>
+    private void OnCloseRequested(bool dialogResult)
     {
-        BuildCardChartSwitches();
-        BuildMiniChartSwitches();
+        DialogResult = dialogResult;
+        Close();
     }
 
-    /// <summary>
-    /// S6：按插件 <c>Card.Charts</c> 声明构建卡片图表启用开关。
-    /// <para>初始勾选态读取 <c>GetEffectiveAccountCustomization</c> 的 <c>VisibleCharts</c>
-    /// （null = 沿用 defaults.json 全部可见，含旧 ProviderCardChartKinds 读取兼容回退）。</para>
-    /// </summary>
-    private void BuildCardChartSwitches()
+    /// <summary>VM 通知 Cookie 提取成功——将 Cookie 填入对应输入控件。</summary>
+    private void OnCookieReceived(string cookie)
     {
-        var charts = _provider?.Card?.Charts;
-        if (_provider == null || _configService == null || charts == null || charts.Count == 0)
+        if (_inputControls.TryGetValue("Cookie", out var control))
         {
-            CardChartSwitchSection.Visibility = Visibility.Collapsed;
-            return;
-        }
-
-        var eff = _configService.GetEffectiveAccountCustomization(_provider.ProviderId, _accountId);
-        // Phase 2 修复：检测旧配置回显错误——旧 ProviderCardChartKinds 类型名（如 "Ring","Line"）
-        // 被兼容层填进 VisibleCharts，与声明 chartId 永不匹配 → 开关全部回显为不勾选。
-        // 判定 isLegacyFill：VisibleCharts 非 null 且含任一不在声明 chartId 集合中的值。
-        var declaredIds = new HashSet<string>(charts.Select(c => c.ChartId), StringComparer.Ordinal);
-        bool isLegacyFill = eff.VisibleCharts != null
-            && eff.VisibleCharts.Any(v => !declaredIds.Contains(v));
-        _cardChartIsLegacyAll = eff.VisibleCharts == null || isLegacyFill;
-
-        CardChartSwitchPanel.Children.Clear();
-        _cardChartSwitches.Clear();
-        _cardChartInitialChecked.Clear();
-        foreach (var chart in charts)
-        {
-            // Phase 2 修复：legacy/null 时全选回显，避免旧配置被误显示为未勾选。
-            var isChecked = _cardChartIsLegacyAll || eff.VisibleCharts!.Contains(chart.ChartId);
-            var cb = new WpfCheckBox
+            // Cookie 字段是 PasswordBox（用 Grid 包装），需要特殊处理
+            if (control is Grid grid && grid.Tag is PasswordBoxWrapper wrapper)
             {
-                Content = ExtractChartShortName(chart.ChartId),
-                IsChecked = isChecked,
-                ToolTip = chart.ChartId,
-                Margin = new Thickness(0, 4, 0, 4)
-            };
-            cb.SetResourceReference(WpfCheckBox.ForegroundProperty, "TextPrimaryBrush");
-            CardChartSwitchPanel.Children.Add(cb);
-            _cardChartSwitches.Add(new KeyValuePair<string, WpfCheckBox>(chart.ChartId, cb));
-            _cardChartInitialChecked.Add(isChecked);
-        }
-    }
-
-    /// <summary>
-    /// S6：按插件 <c>Taskbar.MiniCharts</c> 声明构建任务栏迷你图表启用开关。
-    /// <para>初始勾选态读取 <c>GetEffectiveAccountCustomization</c> 的 <c>VisibleMiniCharts</c>（null = 全部可见）。</para>
-    /// </summary>
-    private void BuildMiniChartSwitches()
-    {
-        var miniCharts = _provider?.Taskbar?.MiniCharts;
-        if (_provider == null || _configService == null || miniCharts == null || miniCharts.Count == 0)
-        {
-            MiniChartSwitchSection.Visibility = Visibility.Collapsed;
-            return;
-        }
-
-        var eff = _configService.GetEffectiveAccountCustomization(_provider.ProviderId, _accountId);
-        // Phase 2 修复：同卡片图表侧逻辑——检测旧配置回显错误。
-        var declaredIds = new HashSet<string>(miniCharts.Select(m => m.ChartId), StringComparer.Ordinal);
-        bool isLegacyFill = eff.VisibleMiniCharts != null
-            && eff.VisibleMiniCharts.Any(v => !declaredIds.Contains(v));
-        _miniChartIsLegacyAll = eff.VisibleMiniCharts == null || isLegacyFill;
-
-        MiniChartSwitchPanel.Children.Clear();
-        _miniChartSwitches.Clear();
-        _miniChartInitialChecked.Clear();
-        foreach (var mini in miniCharts)
-        {
-            var isChecked = _miniChartIsLegacyAll || eff.VisibleMiniCharts!.Contains(mini.ChartId);
-            var cb = new WpfCheckBox
-            {
-                Content = ExtractChartShortName(mini.ChartId),
-                IsChecked = isChecked,
-                ToolTip = mini.ChartId,
-                Margin = new Thickness(0, 4, 0, 4)
-            };
-            cb.SetResourceReference(WpfCheckBox.ForegroundProperty, "TextPrimaryBrush");
-            MiniChartSwitchPanel.Children.Add(cb);
-            _miniChartSwitches.Add(new KeyValuePair<string, WpfCheckBox>(mini.ChartId, cb));
-            _miniChartInitialChecked.Add(isChecked);
-        }
-    }
-
-    /// <summary>S6：从 chartId 提取简短显示名（去掉 Provider 前缀，与卡片管理页 ChartNode 规则一致：
-    /// "mm.chart.usage_bar" → "usage_bar"；不足三段时原样返回）。</summary>
-    private static string ExtractChartShortName(string chartId)
-    {
-        var parts = chartId.Split('.');
-        return parts.Length > 2 ? string.Join(".", parts.Skip(2)) : chartId;
-    }
-
-    /// <summary>
-    /// S6：保存时持久化两组启用开关。
-    /// <para>卡片图表落 <c>AccountCustomization.VisibleCharts</c>（ConfigService.SetVisibleCharts），
-    /// 迷你图表落 <c>VisibleMiniCharts</c>（ConfigService.SetVisibleMiniCharts）——
-    /// 与设置窗口【卡片管理】/【任务栏迷你图表】页同一数据落点；
-    /// 两个窄写入方法只更新单一字段，不触碰排序 / 数据组等兄弟配置，避免双写冲突。
-    /// 声明缺失（开关区未构建）时跳过对应写入，不产生空配置条目。</para>
-    /// </summary>
-    private void PersistChartSwitches()
-    {
-        if (_provider == null || _configService == null) return;
-
-        // Phase 2 修复：若初始为 legacy/null 全选语义且用户未改动任何开关，则跳过写入（保持 null 兼容路径）。
-        if (_cardChartSwitches.Count > 0)
-        {
-            bool cardChanged = false;
-            for (int i = 0; i < _cardChartSwitches.Count; i++)
-            {
-                if ((_cardChartSwitches[i].Value.IsChecked == true) != _cardChartInitialChecked[i])
-                { cardChanged = true; break; }
+                wrapper.PasswordBox.Password = cookie;
             }
-            if (!(_cardChartIsLegacyAll && !cardChanged))
+            // 也支持直接的 TextBox（如果用户已切换到"显示"模式）
+            else if (control is WpfTextBox textBox)
             {
-                var visible = _cardChartSwitches
-                    .Where(kv => kv.Value.IsChecked == true)
-                    .Select(kv => kv.Key)
-                    .ToList();
-                _configService.SetVisibleCharts(_provider.ProviderId, visible, _accountId);
-            }
-        }
-
-        if (_miniChartSwitches.Count > 0)
-        {
-            bool miniChanged = false;
-            for (int i = 0; i < _miniChartSwitches.Count; i++)
-            {
-                if ((_miniChartSwitches[i].Value.IsChecked == true) != _miniChartInitialChecked[i])
-                { miniChanged = true; break; }
-            }
-            if (!(_miniChartIsLegacyAll && !miniChanged))
-            {
-                var visible = _miniChartSwitches
-                    .Where(kv => kv.Value.IsChecked == true)
-                    .Select(kv => kv.Key)
-                    .ToList();
-                _configService.SetVisibleMiniCharts(_provider.ProviderId, visible, _accountId);
+                textBox.Text = cookie;
             }
         }
     }
 
-    /// <summary>
-    /// 根据 ConfigFields 动态构建表单控件
-    /// </summary>
-    private void BuildForm()
+    // =====================================================================
+    // 动态表单构建（纯视图职责）
+    // =====================================================================
+
+    /// <summary>根据 ConfigFields 动态构建表单控件。</summary>
+    private void BuildForm(IReadOnlyList<ConfigField> fields)
     {
         FormPanel.Children.Clear();
         _inputControls.Clear();
 
-        foreach (var field in _configFields)
+        foreach (var field in fields)
         {
             var row = CreateFormRow(field);
             FormPanel.Children.Add(row);
         }
 
-        if (_configFields.Count == 0)
+        if (fields.Count == 0)
         {
             var emptyText = new TextBlock
             {
@@ -318,9 +139,7 @@ public partial class PluginConfigWindow : Window
         }
     }
 
-    /// <summary>
-    /// 为单个配置字段创建一行表单（标签 + 输入控件）
-    /// </summary>
+    /// <summary>为单个配置字段创建一行表单（标签 + 输入控件）。</summary>
     private Border CreateFormRow(ConfigField field)
     {
         var panel = new StackPanel { Margin = new Thickness(0, 0, 0, 16) };
@@ -379,12 +198,10 @@ public partial class PluginConfigWindow : Window
         };
     }
 
-    /// <summary>
-    /// 创建文本输入控件（TextBox）
-    /// </summary>
+    /// <summary>创建文本输入控件（TextBox）。</summary>
     private WpfTextBox CreateTextInput(ConfigField field)
     {
-        var currentValue = _config.GetValue(field.Key) ?? field.DefaultValue ?? "";
+        var currentValue = _viewModel.ConfigFieldValue(field.Key) ?? field.DefaultValue ?? "";
         return new WpfTextBox
         {
             Text = currentValue,
@@ -392,12 +209,10 @@ public partial class PluginConfigWindow : Window
         };
     }
 
-    /// <summary>
-    /// 创建密码输入控件（PasswordBox + 显示/隐藏切换）
-    /// </summary>
+    /// <summary>创建密码输入控件（PasswordBox + 显示/隐藏切换）。</summary>
     private FrameworkElement CreatePasswordInput(ConfigField field)
     {
-        var currentValue = _config.GetValue(field.Key) ?? field.DefaultValue ?? "";
+        var currentValue = _viewModel.ConfigFieldValue(field.Key) ?? field.DefaultValue ?? "";
 
         var grid = new Grid();
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -459,11 +274,11 @@ public partial class PluginConfigWindow : Window
 
     /// <summary>
     /// 创建布尔开关控件（CheckBox）。
-    /// <para>S6：前景色改用主题画刷动态引用（原硬编码 RGB 已移除），随主题切换自适应。</para>
+    /// <para>S6：前景色改用主题画刷动态引用，随主题切换自适应。</para>
     /// </summary>
     private WpfCheckBox CreateBooleanInput(ConfigField field)
     {
-        var currentValue = _config.GetValue(field.Key) ?? field.DefaultValue ?? "false";
+        var currentValue = _viewModel.ConfigFieldValue(field.Key) ?? field.DefaultValue ?? "false";
         var checkBox = new WpfCheckBox
         {
             IsChecked = bool.TryParse(currentValue, out var b) && b,
@@ -474,12 +289,10 @@ public partial class PluginConfigWindow : Window
         return checkBox;
     }
 
-    /// <summary>
-    /// 创建下拉选择控件（ComboBox）
-    /// </summary>
+    /// <summary>创建下拉选择控件（ComboBox）。Mode 字段挂载 SelectionChanged 触发 VM 业务处理。</summary>
     private WpfComboBox CreateSelectInput(ConfigField field)
     {
-        var currentValue = _config.GetValue(field.Key) ?? field.DefaultValue ?? "";
+        var currentValue = _viewModel.ConfigFieldValue(field.Key) ?? field.DefaultValue ?? "";
         var comboBox = new WpfComboBox
         {
             Tag = field.Key
@@ -495,11 +308,8 @@ public partial class PluginConfigWindow : Window
 
         comboBox.SelectedItem = currentValue;
 
-        // req-fix-Kimi-ConfigFields 动态模式：Mode 字段 ComboBox 变化时
-        // 重新调用 provider.ConfigFields 拉取与新模式匹配的字段列表。
-        // 触发重建的字段 key 列表（双模式插件：KimiDualModeProvider/DeepseekDualModeProvider）
-        // 将来新增双模式插件只需把 ModeKey 加入此集合。
-        if (_provider != null && IsModeFieldKey(field.Key))
+        // req-fix-Kimi-ConfigFields 动态模式：Mode 字段 ComboBox 变化时触发 VM 业务处理 + 表单重建
+        if (_viewModel.SupportsModeSwitch && PluginConfigViewModel.IsModeFieldKey(field.Key))
         {
             comboBox.SelectionChanged += (_, _) => RebuildFormForModeChange();
         }
@@ -507,60 +317,30 @@ public partial class PluginConfigWindow : Window
     }
 
     /// <summary>
-    /// req-fix-Kimi-ConfigFields 动态模式：判断字段 key 是否为模式选择字段（QueryMode）。
-    /// 集中维护双模式插件的 Mode 字段 key，新增插件时只需扩展此集合。
-    /// </summary>
-    private static bool IsModeFieldKey(string fieldKey)
-        => fieldKey == "QueryMode";
-
-    /// <summary>
-    /// req-fix-Kimi-ConfigFields 动态模式：Mode 字段切换时调用。
-    /// 1. 重新调用 <c>provider.ConfigFields</c> 拉取与新模式匹配的字段列表
-    /// 2. 保留用户已填的字段值（Cookie/ApiKey 等）
-    /// 3. 重新构建整个表单（图表启用开关不依赖 mode，无须重建）
+    /// req-fix-Kimi-ConfigFields 动态模式：Mode 字段切换时的视图重建流程。
+    /// <para>业务处理（Mode 持久化 + 字段重拉）委托给 <see cref="PluginConfigViewModel.HandleModeChange"/>；
+    /// 本方法仅负责抓取/恢复控件值与重建表单（视图职责）。</para>
     /// </summary>
     private void RebuildFormForModeChange()
     {
-        if (_provider == null) return;
-
         // req-fix-Kimi-ModeRebuildStackOverflow：re-entrancy 保护
-        // 场景：BuildForm 创建新 ComboBox 时 SelectedItem=currentValue 会触发 SelectionChanged，
-        // 如果 currentValue ≠ 旧值（或某些边角情况），会再次调用 RebuildFormForModeChange → BuildForm → 新 ComboBox → ...
-        // 形成无限递归，触发 StackOverflowException 导致程序闪退。
-        // 用实例标志位防止重入（同一时刻只允许一次重建）。
         if (_isRebuildingForMode) return;
         _isRebuildingForMode = true;
         try
         {
-            // 1. 抓取当前所有输入控件的当前值（保留用户输入）
+            // 1. 抓取当前所有输入控件的当前值（保留用户输入，跳过空值）
             var currentValues = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (var (key, control) in _inputControls)
             {
                 if (TryGetControlValue(control, out var v)) currentValues[key] = v;
             }
 
-            // 2. 立即把 Mode 字段值持久化到 config（只持久化 Mode，不影响其他字段）
-            // 理由：Mode 切换是用户明确的"试切"动作，下次开窗要看到新模式。
-            // 但其他字段（Cookie/ApiKey 等）不持久化——用户可能没填完，避免误保存触发必填校验失败。
-            if (_configService != null && currentValues.TryGetValue("QueryMode", out var newMode))
-            {
-                _config.SetValue("QueryMode", newMode);
-                try
-                {
-                    _configService.UpdateProviderConfig(_provider.ProviderId, _config);
-                }
-                catch (Exception saveEx)
-                {
-                    FileLogger.Warn("PluginConfigWindow",
-                        $"Mode 切换后持久化失败 ({_provider.ProviderId} -> {newMode}): {saveEx.Message}");
-                }
-            }
+            // 2. VM 业务处理：Mode 持久化 + 字段列表重拉
+            var newFields = _viewModel.HandleModeChange(currentValues);
+            if (newFields == null) return;
 
-            // 3. 重新拉取字段列表（KimiDualModeProvider 按 mode 返回不同字段）
-            _configFields = _provider.ConfigFields;
-
-            // 3. 重新构建表单
-            BuildForm();
+            // 3. 重新构建表单（图表启用开关不依赖 mode，无须重建）
+            BuildForm(newFields);
 
             // 4. 把之前抓取的值填回新控件
             foreach (var (key, value) in currentValues)
@@ -582,10 +362,70 @@ public partial class PluginConfigWindow : Window
         }
     }
 
-    /// <summary>req-fix-Kimi-ModeRebuildStackOverflow：re-entrancy 保护标志。</summary>
-    private bool _isRebuildingForMode;
+    // =====================================================================
+    // S6：图表启用开关 CheckBox 构建（纯视图；初始态由 VM 计算）
+    // =====================================================================
 
-    /// <summary>从已有控件读取当前值（支持 TextBox/PasswordBox/CheckBox/ComboBox）。</summary>
+    /// <summary>按 VM 提供的开关项列表构建两组 CheckBox；VM 列表为空时隐藏对应区块。</summary>
+    private void BuildChartSwitchCheckBoxes()
+    {
+        BuildSwitchGroup(CardChartSwitchSection, CardChartSwitchPanel, _cardChartCheckBoxes, _viewModel.CardChartItems);
+        BuildSwitchGroup(MiniChartSwitchSection, MiniChartSwitchPanel, _miniChartCheckBoxes, _viewModel.MiniChartItems);
+    }
+
+    /// <summary>构建单组图表启用开关 CheckBox 列表（声明缺失时整组隐藏）。</summary>
+    private static void BuildSwitchGroup(
+        StackPanel section, StackPanel panel,
+        Dictionary<string, WpfCheckBox> registry,
+        IReadOnlyList<ChartSwitchItem> items)
+    {
+        registry.Clear();
+        panel.Children.Clear();
+
+        if (items.Count == 0)
+        {
+            section.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        foreach (var item in items)
+        {
+            var cb = new WpfCheckBox
+            {
+                Content = item.DisplayName,
+                IsChecked = item.InitialChecked,
+                ToolTip = item.ChartId,
+                Margin = new Thickness(0, 4, 0, 4)
+            };
+            cb.SetResourceReference(WpfCheckBox.ForegroundProperty, "TextPrimaryBrush");
+            panel.Children.Add(cb);
+            registry[item.ChartId] = cb;
+        }
+    }
+
+    // =====================================================================
+    // 控件值读写（视图管道，供 VM 委托调用）
+    // =====================================================================
+
+    /// <summary>收集当前表单所有字段的值（保存语义：始终返回字符串，含空串）。</summary>
+    private Dictionary<string, string> CaptureFormValues()
+    {
+        var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var field in _viewModel.ConfigFields)
+        {
+            if (_inputControls.TryGetValue(field.Key, out var control))
+            {
+                values[field.Key] = GetControlValue(control, field);
+            }
+        }
+        return values;
+    }
+
+    /// <summary>读取一组 CheckBox 的当前勾选态（chartId → isChecked）。</summary>
+    private static Dictionary<string, bool> ReadCheckBoxStates(Dictionary<string, WpfCheckBox> registry)
+        => registry.ToDictionary(kv => kv.Key, kv => kv.Value.IsChecked == true);
+
+    /// <summary>从已有控件读取当前值（支持 TextBox/PasswordBox/CheckBox/ComboBox；空值返回 false）。</summary>
     private static bool TryGetControlValue(FrameworkElement control, out string value)
     {
         switch (control)
@@ -618,174 +458,7 @@ public partial class PluginConfigWindow : Window
         }
     }
 
-    /// <summary>
-    /// "获取登录态" 按钮点击 - 启动独立 Edge 窗口让用户登录，自动提取 Cookie 后填入字段。
-    /// <para>
-    /// 复刻自销项数据助手项目的 <c>browser-cookie-manager</c> Skill：
-    /// 通过 <see cref="BrowserLoginService"/> 启动临时 Edge + CDP 提取明文 Cookie，
-    /// 并以 JSON 格式持久化（含 userAgent、时间戳、count、domain 等元数据）。
-    /// </para>
-    /// <para>
-    /// 防止重复触发：使用静态锁 <see cref="_isLoginInProgress"/> 避免同一 ProviderId 的
-    /// 多次并发登录（用户在弹窗期间按 Enter 等可能误触发）。
-    /// </para>
-    /// </summary>
-    private async void OnGetCookieClick(object sender, RoutedEventArgs e)
-    {
-        if (_loginConfig == null) return;
-
-        // 防重复调用：同一 ProviderId 已有进行中的登录任务，直接拒绝
-        lock (_loginInProgressLock)
-        {
-            if (_isLoginInProgress.Contains(_loginConfig.ProviderId))
-            {
-                return;
-            }
-            _isLoginInProgress.Add(_loginConfig.ProviderId);
-        }
-
-        GetCookieButton.IsEnabled = false;
-        var originalContent = GetCookieButton.Content;
-        GetCookieButton.Content = "🔄 启动浏览器中...";
-
-        try
-        {
-            // req-065 B4：BrowserLoginService 去静态化，每次登录创建独立实例避免并发时 LastError 互相覆盖
-            var loginService = new BrowserLoginService(_configService);
-            var data = await loginService.LoginAndExtractCookieAsync(_loginConfig);
-
-            if (data == null || string.IsNullOrEmpty(data.Cookie))
-            {
-                // 显示真实错误信息（来自 BrowserLoginService.LastError），
-                // 而不是写死的"未检测到 account.minimaxi.com 域的会话 Cookie"误导用户。
-                var lastError = loginService.LastError;
-                var message = "未获取到 Cookie。\n\n";
-                if (!string.IsNullOrEmpty(lastError))
-                {
-                    message += $"【真实错误】{lastError}\n\n";
-                }
-                message +=
-                    "可能原因：\n" +
-                    "① 您取消了登录\n" +
-                    "② Edge 启动失败或被阻止（首次运行需联网下载 Playwright 浏览器）\n" +
-                    "③ 未检测到 " + (_loginConfig.RequiredCookieDomain ?? "目标域名") +
-                    $" 域的会话 Cookie（请确认已 {_loginConfig.LoginUrl} 完成登录）\n" +
-                    $"④ 登录超时（{_loginConfig.LoginTimeout.TotalMinutes:0}分钟）\n\n" +
-                    $"请重试，或检查 Edge 是否能正常访问 {_loginConfig.LoginUrl}";
-                System.Windows.MessageBox.Show(
-                    message,
-                    "获取 Cookie 失败",
-                    MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
-
-            // 自动将 Cookie 填入 Cookie 字段（如果存在）
-            if (_inputControls.TryGetValue("Cookie", out var control))
-            {
-                // Cookie 字段是 PasswordBox（用 Grid 包装），需要特殊处理
-                if (control is Grid grid && grid.Tag is PasswordBoxWrapper wrapper)
-                {
-                    wrapper.PasswordBox.Password = data.Cookie;
-                }
-                // 也支持直接的 TextBox（如果用户已切换到"显示"模式）
-                else if (control is WpfTextBox textBox)
-                {
-                    textBox.Text = data.Cookie;
-                }
-            }
-
-            // 更新状态提示（显示关键元数据，与销项数据助手 cookie.json 字段对齐）
-            GetCookieButton.Content = $"✅ 已获取 {data.Count} 条 Cookie（{data.Domain}）";
-
-            System.Windows.MessageBox.Show(
-                $"Cookie 获取成功！\n\n" +
-                $"服务商: {data.ProviderId}\n" +
-                $"域名: {data.Domain}\n" +
-                $"条数: {data.Count}\n" +
-                $"保存于: {data.SavedAt:yyyy-MM-dd HH:mm:ss}\n" +
-                $"Cookie 长度: {data.Cookie.Length} 字符（完整内容已安全保存，不在弹窗中显示）\n\n" +
-                $"持久化路径: %AppData%\\UsageMonitor\\cookies\\{data.ProviderId}.json\n\n" +
-                "Edge 浏览器窗口已被自动关闭。\n" +
-                "点击【保存】按钮保存配置后，回到主界面右键托盘 → 立即刷新即可看到用量数据。",
-                "Cookie 已填入字段",
-                MessageBoxButton.OK, MessageBoxImage.Information);
-        }
-        catch (Exception ex)
-        {
-            System.Windows.MessageBox.Show(
-                $"启动登录窗口时出错：\n\n{ex.Message}\n\n请检查 Edge 浏览器是否已正确安装。",
-                "启动失败",
-                MessageBoxButton.OK, MessageBoxImage.Error);
-        }
-        finally
-        {
-            // 释放防重复锁
-            lock (_loginInProgressLock)
-            {
-                _isLoginInProgress.Remove(_loginConfig.ProviderId);
-            }
-            // 重要：用 try-catch 保护 finally 块中的 UI 操作。
-            // await 期间用户可能关闭配置窗口，此时访问 GetCookieButton
-            // 会抛 ObjectDisposedException，必须吞掉避免未处理异常导致 WPF 崩溃。
-            try
-            {
-                if (GetCookieButton.IsLoaded)
-                {
-                    GetCookieButton.IsEnabled = true;
-                    GetCookieButton.Content = originalContent;
-                }
-            }
-            catch (System.ObjectDisposedException) { /* 窗口已关闭 */ }
-            catch (System.InvalidOperationException) { /* 已释放 */ }
-        }
-    }
-
-    /// <summary>
-    /// 保存按钮点击 - 收集所有输入值写入 ProviderConfig，并持久化图表/迷你图表启用开关（S6）。
-    /// </summary>
-    private void OnSaveClick(object sender, RoutedEventArgs e)
-    {
-        foreach (var field in _configFields)
-        {
-            if (!_inputControls.TryGetValue(field.Key, out var control))
-                continue;
-
-            string value = GetControlValue(control, field);
-
-            // 验证必填项
-            if (field.IsRequired && string.IsNullOrWhiteSpace(value))
-            {
-                System.Windows.MessageBox.Show(
-                    $"\"{field.DisplayName}\" 为必填项",
-                    "验证失败",
-                    MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
-
-            _config.SetValue(field.Key, value);
-        }
-
-        // S6：持久化卡片图表 / 任务栏迷你图表启用开关（落点同卡片管理页 / 迷你图表页）。
-        // 旧"卡片图表多选"的空集合防御已随该区删除——启用开关写的是 chartId 列表，
-        // 空集合是合法用户选择（= 不显示任何图表），语义与 AccountCustomization 契约一致。
-        PersistChartSwitches();
-
-        DialogResult = true;
-        Close();
-    }
-
-    /// <summary>
-    /// 取消按钮点击 - 关闭对话框不保存
-    /// </summary>
-    private void OnCancelClick(object sender, RoutedEventArgs e)
-    {
-        DialogResult = false;
-        Close();
-    }
-
-    /// <summary>
-    /// 从输入控件中提取当前值
-    /// </summary>
+    /// <summary>从输入控件中提取当前值（保存语义，按字段类型分派）。</summary>
     private static string GetControlValue(FrameworkElement control, ConfigField field)
     {
         return field.FieldType switch
@@ -797,9 +470,7 @@ public partial class PluginConfigWindow : Window
         };
     }
 
-    /// <summary>
-    /// 从密码输入控件中获取值（支持PasswordBox和TextBox两种模式）
-    /// </summary>
+    /// <summary>从密码输入控件中获取值（支持 PasswordBox 和 TextBox 两种显示模式）。</summary>
     private static string GetPasswordValue(FrameworkElement control)
     {
         if (control is Grid grid && grid.Tag is PasswordBoxWrapper wrapper)

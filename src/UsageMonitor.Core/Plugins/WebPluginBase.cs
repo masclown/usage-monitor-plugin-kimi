@@ -106,9 +106,6 @@ public abstract class WebPluginBase : PluginBase, IUsageProvider
     }
 
     /// <inheritdoc />
-    public virtual IReadOnlyList<string> DefaultRenderKinds => Array.Empty<string>();
-
-    /// <inheritdoc />
     public virtual IReadOnlyList<CardChartKind> SupportedCardCharts => new[]
     {
         CardChartKind.Line, CardChartKind.Bar, CardChartKind.Ring

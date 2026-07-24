@@ -171,7 +171,7 @@
 | --- | --- | --- | --- |
 | `quantityUnit` | string | `Quantity` 的单位 | `USD` / `CNY` / `Percent` / `Credit` / `Token` |
 | `supportedCardCharts` | string[] | `SupportedCardCharts` | `Line` / `Bar` / `Ring` |
-| `defaultRenderKinds` | string[] | `DefaultRenderKinds` | `card` / `ring` / `line` |
+| `card.renderKinds` | string[] | `CardDeclaration.RenderKinds` | `card` / `ring` / `line` |
 | `toolTipFields` | string[] | `ToolTipFields` | `ProviderName` / `CurrentValue` / `RefreshCountdown` |
 
 ### 第二层预留字段（尚未实现执行器）

@@ -137,4 +137,17 @@ public sealed class CardDeclaration
 
     /// <summary>卡片图表声明列表。</summary>
     public IReadOnlyList<ChartDeclaration> Charts { get; init; } = System.Array.Empty<ChartDeclaration>();
+
+    /// <summary>
+    /// req-107 B6：卡片首屏渲染能力集合（声明式替代旧 IDefaultRenderKindsProvider.DefaultRenderKinds）。
+    /// <para>在数据未到位时即声明卡片应展示的区段（如 "primaryBar"、"weeklyBar" 等），
+    /// 让首屏渲染与数据到位后保持一致。空集合表示使用宿主默认行为。</para>
+    /// </summary>
+    public IReadOnlyList<string> RenderKinds { get; init; } = System.Array.Empty<string>();
+
+    /// <summary>
+    /// req-088 Phase2：卡片主指标字段名（声明式）。声明“卡片主数字/主环”应展示哪个 SDK 字段，
+    /// 替代过去把 used_percent 硬编码为 5h 的做法（如 MiniMax 声明 "five_hour_used_percent"）。null = 沿用宿主默认。
+    /// </summary>
+    public string? PrimaryMetric { get; init; }
 }

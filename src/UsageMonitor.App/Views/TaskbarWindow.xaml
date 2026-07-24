@@ -22,19 +22,24 @@
         教训见 devdoc/20260721223000_项目开发说明文档-XAML资源顺序踩坑.md
     -->
     <Window.Resources>
-        <!-- req-088 B5：文字模式模板 -->
+        <!-- req-088 B5：文字模式模板
+             req-079 U-33：IsDataReady=false（数据尚未就绪 / 刷新中且无缓存）时显示骨架屏占位，避免空白闪烁 -->
         <DataTemplate x:Key="MiniChartTextTemplate" DataType="{x:Type views:MiniChartItemViewModel}">
-            <StackPanel Orientation="Horizontal" VerticalAlignment="Center"
-                        Margin="0,0,16,0"
-                        ToolTip="{Binding TooltipTitle, Mode=OneWay}"
-                        ToolTipService.InitialShowDelay="{Binding TooltipShowDelayMs}">
-                <TextBlock Text="{Binding ProviderId, Mode=OneWay}" FontSize="12" FontWeight="SemiBold"
-                           Foreground="{DynamicResource TextPrimaryBrush}"
-                           VerticalAlignment="Center" Margin="0,0,4,0" />
-                <TextBlock FontSize="12" Foreground="{DynamicResource AccentBrush}"
-                           VerticalAlignment="Center"
-                           Text="{Binding UsagePercent, Mode=OneWay, StringFormat={}{0:F0}%, TargetNullValue=--, FallbackValue=--}" />
-            </StackPanel>
+            <Grid VerticalAlignment="Center" Margin="0,0,16,0">
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center"
+                            ToolTip="{Binding TooltipTitle, Mode=OneWay}"
+                            ToolTipService.InitialShowDelay="{Binding TooltipShowDelayMs}">
+                    <TextBlock Text="{Binding ProviderId, Mode=OneWay}" FontSize="12" FontWeight="SemiBold"
+                               Foreground="{DynamicResource TextPrimaryBrush}"
+                               VerticalAlignment="Center" Margin="0,0,4,0" />
+                    <TextBlock FontSize="12" Foreground="{DynamicResource AccentBrush}"
+                               VerticalAlignment="Center"
+                               Text="{Binding UsagePercent, Mode=OneWay, StringFormat={}{0:F0}%, TargetNullValue=--, FallbackValue=--}" />
+                </StackPanel>
+                <!-- req-079 U-33：骨架屏（尺寸与文字模式一致，微光扫过动画） -->
+                <controls:SkeletonPlaceholder Width="88" Height="14" CornerRadius="4"
+                                              Visibility="{Binding IsDataReady, Converter={StaticResource BoolToVisibility}, ConverterParameter=Invert}" />
+            </Grid>
         </DataTemplate>
 
         <!-- req-088 B5：圆环图模式模板 -->
@@ -63,19 +68,28 @@
                                             ToolTipService.Placement="Top"
                                             ToolTipService.VerticalOffset="-8"
                                             ToolTipService.InitialShowDelay="{Binding TooltipShowDelayMs}" />
+                <!-- req-079 U-33：骨架屏（半环足迹 38x20 顶部对齐，微光扫过动画） -->
+                <controls:SkeletonPlaceholder Height="20" CornerRadius="10" VerticalAlignment="Top"
+                                              Visibility="{Binding IsDataReady, Converter={StaticResource BoolToVisibility}, ConverterParameter=Invert}" />
             </Grid>
         </DataTemplate>
 
-        <!-- req-088 B5：折线图模式模板 -->
+        <!-- req-088 B5：折线图模式模板
+             req-079 U-33：数据未就绪时以 120x22 骨架屏覆盖空白折线区 -->
         <DataTemplate x:Key="MiniChartLineChartTemplate" DataType="{x:Type views:MiniChartItemViewModel}">
-            <controls:MiniLineChartControl Width="120" Height="22"
-                                            Values="{Binding UsageVm.HistoryValues, Mode=OneWay}"
-                                            StrokeThickness="1.6"
-                                            LowBrush="{DynamicResource UsageLowBrush}"
-                                            MidBrush="{DynamicResource UsageMidBrush}"
-                                            HighBrush="{DynamicResource UsageHighBrush}"
-                                            ToolTip="{Binding TooltipTitle, Mode=OneWay}"
-                                            ToolTipService.InitialShowDelay="{Binding TooltipShowDelayMs}" />
+            <Grid Width="120" Height="22">
+                <controls:MiniLineChartControl Width="120" Height="22"
+                                                Values="{Binding UsageVm.HistoryValues, Mode=OneWay}"
+                                                StrokeThickness="1.6"
+                                                LowBrush="{DynamicResource UsageLowBrush}"
+                                                MidBrush="{DynamicResource UsageMidBrush}"
+                                                HighBrush="{DynamicResource UsageHighBrush}"
+                                                ToolTip="{Binding TooltipTitle, Mode=OneWay}"
+                                                ToolTipService.InitialShowDelay="{Binding TooltipShowDelayMs}" />
+                <!-- req-079 U-33：骨架屏（与折线图同尺寸，微光扫过动画） -->
+                <controls:SkeletonPlaceholder CornerRadius="3"
+                                              Visibility="{Binding IsDataReady, Converter={StaticResource BoolToVisibility}, ConverterParameter=Invert}" />
+            </Grid>
         </DataTemplate>
 
         <!-- req-088 B5：柱状图模式模板（占位） -->

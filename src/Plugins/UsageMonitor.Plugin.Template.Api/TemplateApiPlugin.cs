@@ -123,9 +123,6 @@ public class TemplateApiPlugin : PluginBase, IUsageProvider
         CardChartKind.Line, CardChartKind.Bar, CardChartKind.Ring
     };
 
-    /// <inheritdoc />
-    public IReadOnlyList<string> DefaultRenderKinds => new[] { "card", "ring" };
-
     // ===================== 可选：生命周期钩子 =====================
 
     /// <inheritdoc />

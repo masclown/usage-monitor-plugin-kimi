@@ -37,9 +37,6 @@ public class QoderProvider : IUsageProvider
     public BrowserLoginConfig? LoginConfig => _webProvider.LoginConfig;
 
     /// <inheritdoc />
-    public IReadOnlyList<string> DefaultRenderKinds => _webProvider.DefaultRenderKinds;
-
-    /// <inheritdoc />
     IReadOnlyList<string>? IDefaultRenderKindsProvider.CollapseVisibleParts => _webProvider.CollapseVisibleParts;
 
     /// <inheritdoc />

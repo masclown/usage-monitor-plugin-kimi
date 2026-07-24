@@ -81,15 +81,23 @@ public sealed class DataModule : IDataModule
         // req-092 B3 接线：字段级差异持久化。与点级历史（AddPoint）并行，仅将变化的标准字段写入 usage_field_versions。
         // 优先用插件 MapToStandardFields 结果（standardFields），缺省回退 DiffService.ExtractStandardFields。
         // 需有 repository 才能持久化（纯内存模式无字段版本表）。
+        var accountId = ResolveAccountId(usage);
         if (_repository != null)
         {
             var newFields = standardFields ?? _diffService.ExtractStandardFields(usage);
-            _ = SaveIncrementalDiffAsync(usage.ProviderId, newFields);
+            _ = SaveIncrementalDiffAsync(usage.ProviderId, accountId, newFields);
         }
 
         // req-107 B8：把插件提供的每日时序数据（Extra 中 mm_dailyToken* ）写入 usage_daily_trend，供声明式折线/热力图取数。
         PopulateDailyTrendFromExtra(usage);
+
+        // req-网页校准：把插件提供的模型×日明细（Extra 中 mm_modelDaily）写入 usage_model_daily（分模型维度）。
+        PopulateModelDailyFromExtra(usage);
     }
+
+    /// <summary>req-088 Phase1：解析落库用 account_id（usage.AccountId 为空时兜底 "default"，兼容无身份 Provider）。</summary>
+    private static string ResolveAccountId(UsageInfo usage)
+        => string.IsNullOrWhiteSpace(usage.AccountId) ? "default" : usage.AccountId!;
 
     /// <summary>
     /// req-107 B8：从 <see cref="UsageInfo.Extra"/> 的 <c>mm_dailyTokenDates</c> / <c>mm_dailyTokenValues</c> /
@@ -117,11 +125,55 @@ public sealed class DataModule : IDataModule
                 double? cache = (cacheList != null && i < cacheList.Count && cacheList[i] >= 0) ? cacheList[i] : null;
                 rows.Add(new DailyTrendRow(dates[i], values[i], cache));
             }
-            repo.UpsertDailyTrendBatch(usage.ProviderId, "default", rows);
+            repo.UpsertDailyTrendBatch(usage.ProviderId, ResolveAccountId(usage), rows);
         }
         catch (Exception ex)
         {
             FileLogger.Warn("DataModule", $"PopulateDailyTrendFromExtra({usage.ProviderId}) failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// req-网页校准：从 <see cref="UsageInfo.Extra"/> 的 <c>mm_modelDaily</c>（MiniMaxDomExtractor 从 date_model_usage[].models[] 提取）
+    /// 写入 <c>usage_model_daily</c>（分模型维度：输入/输出/缓存读取/总计/命中率）。
+    /// <para>每项为 {date, model, input_token, output_token, cache_read_token, total_token, cache_hit_percent} 字典；
+    /// cache_hit_percent 为 -1 时视为无数据存 null。失败仅日志，不影响主流程。</para>
+    /// </summary>
+    private void PopulateModelDailyFromExtra(UsageInfo usage)
+    {
+        if (_repository == null || usage.Extra == null) return;
+        try
+        {
+            if (!usage.Extra.TryGetValue("mm_modelDaily", out var mdObj)
+                || mdObj is not List<Dictionary<string, object>> modelRows || modelRows.Count == 0)
+                return;
+
+            var repo = EnsureDetailRepository();
+            if (repo == null) return;
+
+            var rows = new List<ModelDailyRow>(modelRows.Count);
+            foreach (var r in modelRows)
+            {
+                var date = r.TryGetValue("date", out var dv) ? dv as string ?? "" : "";
+                var model = r.TryGetValue("model", out var mv) ? mv as string ?? "" : "";
+                if (string.IsNullOrWhiteSpace(date) || string.IsNullOrWhiteSpace(model)) continue;
+                long GetL(string k) => r.TryGetValue(k, out var v) && v != null ? Convert.ToInt64(v) : 0L;
+                double? cacheHit = null;
+                if (r.TryGetValue("cache_hit_percent", out var cv) && cv != null)
+                {
+                    var d = Convert.ToDouble(cv);
+                    if (d >= 0) cacheHit = d;
+                }
+                rows.Add(new ModelDailyRow(date, model,
+                    GetL("input_token"), GetL("output_token"), GetL("cache_read_token"),
+                    0, GetL("total_token"), cacheHit));
+            }
+            if (rows.Count > 0)
+                repo.UpsertModelDailyBatch(usage.ProviderId, ResolveAccountId(usage), rows);
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Warn("DataModule", $"PopulateModelDailyFromExtra({usage.ProviderId}) failed: {ex.Message}");
         }
     }
 
@@ -149,15 +201,15 @@ public sealed class DataModule : IDataModule
     /// <para>从 <c>usage_field_versions</c> 读取上次各字段最新值作为旧值，与新值逐字段对比，
     /// 仅对有变化的字段调 <c>SaveIncrementalAsync</c>。相同数据重复刷新时无新记录（验收 req-092#3）。</para>
     /// </summary>
-    private async Task SaveIncrementalDiffAsync(string providerId, IReadOnlyDictionary<string, object> newFields)
+    private async Task SaveIncrementalDiffAsync(string providerId, string accountId, IReadOnlyDictionary<string, object> newFields)
     {
         try
         {
-            var oldFields = await _repository!.GetLatestFieldsAsync(providerId);
+            var oldFields = await _repository!.GetLatestFieldsAsync(providerId, accountId);
             var changes = _diffService.DetectChanges(oldFields, newFields);
             if (changes.Length > 0)
             {
-                await _repository.SaveIncrementalAsync(providerId, changes);
+                await _repository.SaveIncrementalAsync(providerId, accountId, changes);
             }
         }
         catch (Exception ex)

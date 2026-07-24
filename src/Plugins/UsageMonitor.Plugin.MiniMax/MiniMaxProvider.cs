@@ -125,17 +125,6 @@ public class MiniMaxProvider : WebPluginBase
     };
 
     /// <summary>
-    /// MiniMax 卡片在数据未到位时即应展示的渲染能力集合。
-    /// 与 <see cref="MiniMaxDomExtractor.BuildUsageInfo"/> 末段写入的 mm_render_kinds 保持一致，
-    /// 让首屏渲染时 5h/周/视频赠送/订阅胶囊等区块就先可见，数据刷新后再由运行时实际值覆盖。
-    /// </summary>
-    public override IReadOnlyList<string> DefaultRenderKinds => new[]
-    {
-        "subscriptionTitle", "primaryBar", "weeklyBar", "videoProgress",
-        "summary", "ranking", "credits"
-    };
-
-    /// <summary>
     /// req-折叠插件控制：MiniMax 卡片折叠时仍保留限额进度条区段（5h/周/视频赠送合并为 limitBars）。
     /// <para>
     /// 设计动机：MiniMax 最关键的指标是 5h 限额重置时间，让用户在折叠态也能一目了然。
@@ -234,7 +223,6 @@ public class MiniMaxProvider : WebPluginBase
         if (usage == null) return null;
         var f = new Dictionary<string, object>
         {
-            [UsageFields.UsedPercent] = usage.GetUsagePercentage(),
             [UsageFields.IsSuccess] = usage.IsSuccess,
             [UsageFields.LastUpdated] = usage.LastUpdated
         };
@@ -244,7 +232,10 @@ public class MiniMaxProvider : WebPluginBase
             if (extra.TryGetValue("mm_5hUsedPercent", out var v5) && v5 != null) f[UsageFields.FiveHourUsedPercent] = v5;
             if (extra.TryGetValue("mm_weeklyUsedPercent", out var vw) && vw != null) f[UsageFields.WeeklyUsedPercent] = vw;
             if (extra.TryGetValue("mm_remainingCredits", out var vc) && vc != null) f[UsageFields.RemainingCredits] = vc;
-            if (extra.TryGetValue("mm_subscriptionTitle", out var vt) && vt != null) f[UsageFields.SubscriptionTier] = vt;
+            // req-088 Phase2：订阅拆分为类型 + 档位（不再把整串塞进 subscription_tier）；used_percent 不再镜像 5h。
+            if (extra.TryGetValue("mm_subscriptionType", out var vst) && vst != null) f[UsageFields.SubscriptionType] = vst;
+            if (extra.TryGetValue("mm_subscriptionTier", out var vt) && vt != null) f[UsageFields.SubscriptionTier] = vt;
+            else if (extra.TryGetValue("mm_subscriptionTitle", out var vtt) && vtt != null) f[UsageFields.SubscriptionTier] = vtt;
             if (extra.TryGetValue("mm_subscriptionActive", out var va) && va != null) f[UsageFields.SubscriptionActive] = va;
         }
         return f;
@@ -352,7 +343,7 @@ public class MiniMaxProvider : WebPluginBase
     /// Query MiniMax Token Plan usage.
     /// <para>
     /// req-086-3.2：override 保留原有双路径逻辑（DOM 提取为主，API 回退）。
-    /// 不使用 <see cref="WebPluginBase"/> 的模板方法，因为 <see cref="MiniMaxDomExtractor"/>
+    /// 不使用 <see cref="WebPluginBase"/> 的模板方法，因为 <c>声明式抓取</c>
     /// 使用持久化上下文（LaunchPersistentContextAsync）管理浏览器，与 WebPluginBase 的
     /// 浏览器生命周期不兼容。
     /// </para>
@@ -403,28 +394,22 @@ public class MiniMaxProvider : WebPluginBase
             if (!string.IsNullOrWhiteSpace(cookie))
             {
                 UsageMonitor.Core.Services.FileLogger.Info(LogSource,
-                    "GetUsageAsync start. Trying DOM extraction (primary)...");
+                    "GetUsageAsync start. Trying declarative capture (primary)...");
                 var sw = System.Diagnostics.Stopwatch.StartNew();
                 // req-062 B1: Pass region to DOM extractor for dynamic cookie domain and URL selection
                 var region = config.GetValue("Region") ?? "CN";
-                var domUsage = await MiniMaxDomExtractor.ExtractAsync(
-                    cookie,
-                    userAgent ?? string.Empty,
-                    region);
-                sw.Stop();
-                if (domUsage != null && domUsage.IsSuccess)
+                // req-088 Phase3：优先走“通用抓取 + 声明式执行器”（defaults.json fetch 声明驱动）。
+                var declUsage = await ExtractViaDeclarativeAsync(cookie, userAgent ?? string.Empty, region, ct);
+                if (declUsage != null && declUsage.IsSuccess)
                 {
                     UsageMonitor.Core.Services.FileLogger.Info(LogSource,
-                        $"DOM extraction OK in {sw.ElapsedMilliseconds}ms. primary={domUsage.UsedAmount}%");
-                    return domUsage;
+                        $"Declarative capture OK in {sw.ElapsedMilliseconds}ms. primary={declUsage.UsedAmount}%");
+                    return declUsage;
                 }
+                sw.Stop();
+                // req-088 Phase3：声明式为唯一 DOM 路径（MiniMaxDomExtractor 已删除）；未取到主指标（Cookie 可能失效）则回退 API。
                 UsageMonitor.Core.Services.FileLogger.Warn(LogSource,
-                    $"DOM extraction returned null/failed in {sw.ElapsedMilliseconds}ms. Cookie expired; skipping auto re-login (use Get login state button or it will be auto-launched from UI thread).");
-                // Note: BrowserLoginService requires UI dispatcher (Playwright launches Edge).
-                // Auto-triggering from a non-UI refresh thread is unsafe; the user will see
-                // the failure and click "Get MiniMax login state" from the settings dialog
-                // (or call us through a tray-context action that we wire up in MainWindow).
-                // For now we just fall back to API.
+                    $"Declarative capture missing primary in {sw.ElapsedMilliseconds}ms (cookie may be expired); falling back to API.");
             }
             else
             {
@@ -462,6 +447,97 @@ public class MiniMaxProvider : WebPluginBase
         {
             return CreateError(ex.Message);
         }
+    }
+
+    /// <summary>
+    /// req-088 Phase3：声明式抓取路径——通用 <see cref="UsageMonitor.Core.Services.BrowserCaptureService"/> 抓取 defaults.json fetch 声明的接口/DOM，
+    /// 交 <see cref="UsageMonitor.Core.Plugins.Declarative.DeclarativeCaptureExecutor"/> 映射为 extras，再做少量 MiniMax 特有后处理
+    /// （订阅拆分 / 峰值字符串 / 渲染集合 / 主指标 / 账号哈希），构造 UsageInfo。
+    /// <para>取不到主指标（mm_5hUsedPercent）时返回 null，由调用方回退旧提取器（迁移校验期安全网）。</para>
+    /// </summary>
+    private async Task<UsageInfo?> ExtractViaDeclarativeAsync(string cookie, string userAgent, string region, CancellationToken ct)
+    {
+        var fetch = Manifest?.Fetch;
+        if (fetch == null) return null;
+
+        var isGlobal = string.Equals(region, "Global", StringComparison.OrdinalIgnoreCase);
+        var cookieDomain = isGlobal ? ".minimax.io" : ".minimaxi.com";
+        var navigateUrl = isGlobal
+            ? "https://platform.minimax.io/console/usage"
+            : "https://platform.minimaxi.com/console/usage";
+
+        // 汇总需捕获的接口 URL 子串（端点 + 聚合 + 账号身份）。
+        var matches = new List<string>();
+        foreach (var ep in fetch.Endpoints) if (!string.IsNullOrEmpty(ep.UrlMatch)) matches.Add(ep.UrlMatch);
+        foreach (var agg in fetch.Aggregates) if (!string.IsNullOrEmpty(agg.UrlMatch)) matches.Add(agg.UrlMatch);
+        if (fetch.AccountId != null && !string.IsNullOrEmpty(fetch.AccountId.UrlMatch)) matches.Add(fetch.AccountId.UrlMatch);
+
+        var capture = await UsageMonitor.Core.Services.BrowserCaptureService.CaptureAsync(
+            new UsageMonitor.Core.Services.BrowserCaptureRequest
+            {
+                Cookie = cookie,
+                UserAgent = userAgent,
+                CookieDomain = cookieDomain,
+                NavigateUrl = navigateUrl,
+                CaptureUrlMatches = matches,
+                DomFields = fetch.Dom
+            }, ct);
+        if (capture == null || capture.LoginInvalid) return null;
+
+        var result = UsageMonitor.Core.Plugins.Declarative.DeclarativeCaptureExecutor.Execute(fetch, capture.Responses, capture.Dom);
+        var extras = new Dictionary<string, object>(result.Extras);
+
+        // 主指标缺失视为失败（避免静默空数据），由调用方回退旧提取器。
+        if (!extras.TryGetValue("mm_5hUsedPercent", out var p5o) || p5o == null) return null;
+
+        // —— MiniMax 特有后处理 ——
+        // 订阅拆分（DOM 抓到的原始文案 "Token Plan · TokenPlanMax-年度会员"）。
+        if (extras.TryGetValue("mm_subscriptionRaw", out var rawObj) && rawObj is string raw && !string.IsNullOrWhiteSpace(raw))
+        {
+            var sepIdx = raw.IndexOfAny(new[] { '·', '・', '•' });
+            if (sepIdx > 0 && sepIdx < raw.Length - 1)
+            {
+                extras["mm_subscriptionType"] = raw.Substring(0, sepIdx).Trim();
+                var tier = raw.Substring(sepIdx + 1).Trim();
+                extras["mm_subscriptionTier"] = tier;
+                extras["mm_subscriptionTitle"] = tier;
+            }
+            else
+            {
+                extras["mm_subscriptionType"] = "Token Plan";
+                extras["mm_subscriptionTier"] = raw.Trim();
+                extras["mm_subscriptionTitle"] = raw.Trim();
+            }
+            extras["mm_subscriptionActive"] = true;
+        }
+        // 峰值日字符串（余额快照消费 mm_mostActiveDay = "日期 (值)"）。
+        if (extras.TryGetValue("mm_mostActiveDate", out var mad) && mad is string madStr && !string.IsNullOrEmpty(madStr))
+        {
+            var tokenText = extras.TryGetValue("mm_mostActiveTokenText", out var tt) ? tt?.ToString() ?? "" : "";
+            extras["mm_mostActiveDay"] = $"{madStr} ({tokenText})";
+        }
+        // 渲染能力集合（与旧提取器一致；缺省回退 Card.RenderKinds）。
+        var rk = Manifest?.Card?.RenderKinds;
+        if (rk != null && rk.Count > 0) extras["mm_render_kinds"] = new List<string>(rk);
+
+        // 主指标 → UsageInfo 核心字段。
+        var primary = System.Convert.ToDouble(p5o, System.Globalization.CultureInfo.InvariantCulture);
+        var usage = new UsageInfo
+        {
+            ProviderId = ProviderId,
+            ProviderName = "MiniMax",
+            IsSuccess = true,
+            LastUpdated = DateTime.UtcNow
+        };
+#pragma warning disable CS0618
+        usage.UsedAmount = (decimal)primary;
+        usage.TotalAmount = 100m;
+        usage.Unit = "%";
+#pragma warning restore CS0618
+        usage.PopulateQuantityFromLegacy();
+        usage.AccountId = UsageMonitor.Core.Services.AccountIdHasher.Compute(ProviderId, result.StableId);
+        usage.Extra = extras;
+        return usage;
     }
 
     /// <summary>

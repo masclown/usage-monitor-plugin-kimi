@@ -193,32 +193,35 @@ CREATE TABLE IF NOT EXISTS usage_refresh_aggregates (
 CREATE INDEX IF NOT EXISTS idx_ura_provider_day
     ON usage_refresh_aggregates(provider_id, refresh_at DESC);
 
--- req-092: 字段版本表，记录每个字段的最新值（字段级差异持久化）
+-- req-092 / req-088 Phase1: 字段版本表，记录每(账号,字段)的最新值（字段级差异持久化，account_id 多账号隔离）
 CREATE TABLE IF NOT EXISTS usage_field_versions (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     provider_id     TEXT NOT NULL,
+    account_id      TEXT NOT NULL DEFAULT 'default',
     field_name      TEXT NOT NULL,
     field_value     TEXT,           -- JSON 序列化后的值
     value_type      TEXT NOT NULL,  -- string/number/bool/datetime/json
     updated_at      DATETIME NOT NULL,
-    UNIQUE(provider_id, field_name)
+    UNIQUE(provider_id, account_id, field_name)
 );
 CREATE INDEX IF NOT EXISTS idx_ufv_provider
-    ON usage_field_versions(provider_id, updated_at DESC);
+    ON usage_field_versions(provider_id, account_id, updated_at DESC);
 
--- req-092: 字段变更历史表（可选，用于审计）
+-- req-092 / req-088 Phase1: 字段变更历史表（审计 + 刷新快照时间序列，account_id 多账号隔离）
 CREATE TABLE IF NOT EXISTS usage_field_history (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     provider_id     TEXT NOT NULL,
+    account_id      TEXT NOT NULL DEFAULT 'default',
     field_name      TEXT NOT NULL,
     old_value       TEXT,
     new_value       TEXT,
     changed_at      DATETIME NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_ufh_provider
-    ON usage_field_history(provider_id, changed_at DESC);
+    ON usage_field_history(provider_id, account_id, changed_at DESC);
 ";
             cmd.ExecuteNonQuery();
+            MigrateFieldTablesForAccount(conn);
             FileLogger.Info("UsageHistoryRepository", "EnsureSchema ok");
         }
         catch (Exception ex)
@@ -240,6 +243,59 @@ CREATE INDEX IF NOT EXISTS idx_ufh_provider
         pragma.CommandText = "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;";
         pragma.ExecuteNonQuery();
         return conn;
+    }
+
+    /// <summary>
+    /// req-088 Phase1：把旧库的字段表升级为带 account_id 的多账号隔离结构（附加式迁移，旧行归入 'default'）。
+    /// <para>usage_field_versions 的唯一键需从 (provider,field) 升级为 (provider,account,field)，SQLite 不支持改约束，
+    /// 故重建表并复制旧行；usage_field_history 无唯一键，仅 ALTER 加列。新库 CREATE 已含 account_id，本方法自动跳过。</para>
+    /// </summary>
+    private void MigrateFieldTablesForAccount(SqliteConnection conn)
+    {
+        if (!ColumnExists(conn, "usage_field_versions", "account_id"))
+        {
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = @"
+ALTER TABLE usage_field_versions RENAME TO usage_field_versions_old;
+CREATE TABLE usage_field_versions (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    provider_id     TEXT NOT NULL,
+    account_id      TEXT NOT NULL DEFAULT 'default',
+    field_name      TEXT NOT NULL,
+    field_value     TEXT,
+    value_type      TEXT NOT NULL,
+    updated_at      DATETIME NOT NULL,
+    UNIQUE(provider_id, account_id, field_name)
+);
+INSERT INTO usage_field_versions (provider_id, account_id, field_name, field_value, value_type, updated_at)
+    SELECT provider_id, 'default', field_name, field_value, value_type, updated_at FROM usage_field_versions_old;
+DROP TABLE usage_field_versions_old;
+CREATE INDEX IF NOT EXISTS idx_ufv_provider ON usage_field_versions(provider_id, account_id, updated_at DESC);
+";
+            cmd.ExecuteNonQuery();
+            FileLogger.Info("UsageHistoryRepository", "Migrated usage_field_versions to include account_id");
+        }
+        if (!ColumnExists(conn, "usage_field_history", "account_id"))
+        {
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "ALTER TABLE usage_field_history ADD COLUMN account_id TEXT NOT NULL DEFAULT 'default';";
+            cmd.ExecuteNonQuery();
+            FileLogger.Info("UsageHistoryRepository", "Added account_id column to usage_field_history");
+        }
+    }
+
+    /// <summary>检查指定表是否含某列（PRAGMA table_info）。</summary>
+    private static bool ColumnExists(SqliteConnection conn, string table, string column)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = $"PRAGMA table_info({table});";
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            // table_info 列：0=cid,1=name,2=type,...
+            if (string.Equals(reader.GetString(1), column, StringComparison.OrdinalIgnoreCase)) return true;
+        }
+        return false;
     }
 
     /// <summary>
@@ -1093,11 +1149,12 @@ WHERE provider_id = $pid AND day = $day LIMIT 1;
     /// <param name="providerId">服务商唯一标识</param>
     /// <param name="changes">字段变更列表</param>
     /// <returns>保存的字段数量</returns>
-    public async Task<int> SaveIncrementalAsync(string providerId, FieldChange[] changes)
+    public async Task<int> SaveIncrementalAsync(string providerId, string accountId, FieldChange[] changes)
     {
         if (string.IsNullOrEmpty(providerId) || changes == null || changes.Length == 0)
             return 0;
 
+        var aid = string.IsNullOrEmpty(accountId) ? "default" : accountId;
         int savedCount = 0;
         try
         {
@@ -1114,11 +1171,12 @@ WHERE provider_id = $pid AND day = $day LIMIT 1;
                     cmd.Transaction = tx;
                     cmd.CommandText = @"
 INSERT OR REPLACE INTO usage_field_versions
-    (provider_id, field_name, field_value, value_type, updated_at)
+    (provider_id, account_id, field_name, field_value, value_type, updated_at)
 VALUES
-    ($pid, $fname, $fvalue, $vtype, $now);
+    ($pid, $aid, $fname, $fvalue, $vtype, $now);
 ";
                     cmd.Parameters.AddWithValue("$pid", providerId);
+                    cmd.Parameters.AddWithValue("$aid", aid);
                     cmd.Parameters.AddWithValue("$fname", change.FieldName);
                     cmd.Parameters.AddWithValue("$fvalue", (object?)change.NewValue ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("$vtype", change.ValueType);
@@ -1132,11 +1190,12 @@ VALUES
                     cmd.Transaction = tx;
                     cmd.CommandText = @"
 INSERT INTO usage_field_history
-    (provider_id, field_name, old_value, new_value, changed_at)
+    (provider_id, account_id, field_name, old_value, new_value, changed_at)
 VALUES
-    ($pid, $fname, $oldval, $newval, $now);
+    ($pid, $aid, $fname, $oldval, $newval, $now);
 ";
                     cmd.Parameters.AddWithValue("$pid", providerId);
+                    cmd.Parameters.AddWithValue("$aid", aid);
                     cmd.Parameters.AddWithValue("$fname", change.FieldName);
                     cmd.Parameters.AddWithValue("$oldval", (object?)change.OldValue ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("$newval", (object?)change.NewValue ?? DBNull.Value);
@@ -1165,11 +1224,12 @@ VALUES
     /// </summary>
     /// <param name="providerId">服务商唯一标识</param>
     /// <returns>字段名到最新值的字典</returns>
-    public async Task<Dictionary<string, object>> GetLatestFieldsAsync(string providerId)
+    public async Task<Dictionary<string, object>> GetLatestFieldsAsync(string providerId, string accountId)
     {
         var fields = new Dictionary<string, object>();
         if (string.IsNullOrEmpty(providerId)) return fields;
 
+        var aid = string.IsNullOrEmpty(accountId) ? "default" : accountId;
         try
         {
             await using var conn = OpenConnection();
@@ -1177,10 +1237,11 @@ VALUES
             cmd.CommandText = @"
 SELECT field_name, field_value, value_type
 FROM usage_field_versions
-WHERE provider_id = $pid
+WHERE provider_id = $pid AND account_id = $aid
 ORDER BY updated_at DESC;
 ";
             cmd.Parameters.AddWithValue("$pid", providerId);
+            cmd.Parameters.AddWithValue("$aid", aid);
 
             await using var reader = await cmd.ExecuteReaderAsync();
             while (await reader.ReadAsync())
@@ -1204,6 +1265,50 @@ ORDER BY updated_at DESC;
         }
 
         return fields;
+    }
+
+    /// <summary>快照序列点（req-088 Phase4）：某字段一次变更的时刻与新旧值。</summary>
+    public sealed record FieldHistoryPoint(string FieldName, string? OldValue, string? NewValue, DateTime ChangedAt);
+
+    /// <summary>
+    /// req-088 Phase4：按账号 + 时间范围读取字段变更历史（刷新快照序列），支撑分钟/小时级快照图表取数（Q6 第2层）。
+    /// </summary>
+    /// <param name="providerId">插件 ID。</param>
+    /// <param name="accountId">账号 ID（多账号隔离，缺省 default）。</param>
+    /// <param name="fieldName">可选：只查某个字段（如 five_hour_used_percent）。</param>
+    /// <param name="from">可选：起时刻。</param>
+    /// <param name="to">可选：止时刻。</param>
+    public async Task<IReadOnlyList<FieldHistoryPoint>> GetFieldHistoryAsync(string providerId, string accountId, string? fieldName = null, DateTime? from = null, DateTime? to = null)
+    {
+        var result = new List<FieldHistoryPoint>();
+        if (string.IsNullOrEmpty(providerId)) return result;
+        var aid = string.IsNullOrEmpty(accountId) ? "default" : accountId;
+        try
+        {
+            await using var conn = OpenConnection();
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT field_name, old_value, new_value, changed_at FROM usage_field_history WHERE provider_id=$pid AND account_id=$aid";
+            cmd.Parameters.AddWithValue("$pid", providerId);
+            cmd.Parameters.AddWithValue("$aid", aid);
+            if (!string.IsNullOrEmpty(fieldName)) { cmd.CommandText += " AND field_name=$fn"; cmd.Parameters.AddWithValue("$fn", fieldName); }
+            if (from.HasValue) { cmd.CommandText += " AND changed_at >= $from"; cmd.Parameters.AddWithValue("$from", from.Value); }
+            if (to.HasValue) { cmd.CommandText += " AND changed_at <= $to"; cmd.Parameters.AddWithValue("$to", to.Value); }
+            cmd.CommandText += " ORDER BY changed_at ASC;";
+            await using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                result.Add(new FieldHistoryPoint(
+                    reader.GetString(0),
+                    reader.IsDBNull(1) ? null : reader.GetString(1),
+                    reader.IsDBNull(2) ? null : reader.GetString(2),
+                    reader.GetDateTime(3)));
+            }
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Error("UsageHistoryRepository", $"GetFieldHistoryAsync({providerId},{aid}) failed", ex);
+        }
+        return result;
     }
 
     /// <summary>

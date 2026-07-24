@@ -30,6 +30,9 @@ public sealed class PluginManifest
     /// <summary>卡片显示声明。</summary>
     public CardDeclaration? Card { get; init; }
 
+    /// <summary>req-088 Phase3：取数声明（接口/DOM → extras/SDK 字段），供通用声明式抓取执行。</summary>
+    public FetchDeclaration? Fetch { get; init; }
+
     /// <summary>任务栏显示声明。</summary>
     public TaskbarDeclaration? Taskbar { get; init; }
 

@@ -22,6 +22,18 @@ public sealed record DailyTrendRow(string Date, long TokenTotal, double? CacheHi
 public sealed record ModelDailyRow(string Date, string ModelName, long InputToken, long OutputToken,
     long CacheReadToken, long CacheMissToken, long TotalToken, double? CacheHitPercent);
 
+/// <summary>逐请求流水行（usage_request_detail，req-088 Phase4；供有请求级数据源的 Provider 如 Qoder/Kimi，MiniMax 无此源）。</summary>
+/// <param name="RequestId">请求 ID（去重键）。</param>
+/// <param name="OccurredAt">发生时刻（yyyy-MM-dd HH:mm:ss，支持小时/分钟级图表）。</param>
+/// <param name="Channel">渠道/客户端（IDE/CLI/API 等）。</param>
+/// <param name="ModelName">模型名。</param>
+/// <param name="Token">该请求 Token 数。</param>
+/// <param name="UsedPercent">用量百分比（可空）。</param>
+/// <param name="Credits">消耗 Credits（可空）。</param>
+/// <param name="Cost">费用（可空）。</param>
+public sealed record RequestDetailRow(string RequestId, string OccurredAt, string? Channel, string? ModelName,
+    long Token, double? UsedPercent, double? Credits, double? Cost);
+
 /// <summary>
 /// 用量明细仓储（req-107 B8 取数前置）：管理两张时序明细表，供声明式图表（折线/热力/模型×日）按字段引用 + queryRange 取数。
 /// <para>表结构对应 <c>docs/sdk-unified-fields.md</c> §2：
@@ -84,6 +96,24 @@ CREATE TABLE IF NOT EXISTS usage_model_daily (
 );
 CREATE INDEX IF NOT EXISTS idx_umd_provider_date
     ON usage_model_daily(provider_id, account_id, date);
+
+-- req-088 Phase4: 逐请求流水（request_id 去重，时/分级图表数据源；有请求级数据的 Provider 使用）
+CREATE TABLE IF NOT EXISTS usage_request_detail (
+    provider_id   TEXT NOT NULL,
+    account_id    TEXT NOT NULL DEFAULT 'default',
+    request_id    TEXT NOT NULL,
+    occurred_at   TEXT NOT NULL,
+    channel       TEXT,
+    model_name    TEXT,
+    token         INTEGER NOT NULL DEFAULT 0,
+    used_percent  REAL,
+    credits       REAL,
+    cost          REAL,
+    updated_at    DATETIME NOT NULL,
+    PRIMARY KEY(provider_id, account_id, request_id)
+);
+CREATE INDEX IF NOT EXISTS idx_urd_provider_time
+    ON usage_request_detail(provider_id, account_id, occurred_at);
 ";
             cmd.ExecuteNonQuery();
             FileLogger.Info("UsageDetailRepository", "EnsureSchema ok");
@@ -181,6 +211,115 @@ CREATE INDEX IF NOT EXISTS idx_umd_provider_date
         {
             FileLogger.Warn("UsageDetailRepository", $"UpsertModelDaily({providerId},{row.Date},{row.ModelName}) failed: {ex.Message}");
         }
+    }
+
+    /// <summary>批量写入/覆盖模型×日聚合（一次刷新写入多天多模型，单连接 + 事务复用）。</summary>
+    public void UpsertModelDailyBatch(string providerId, string accountId, IReadOnlyList<ModelDailyRow> rows)
+    {
+        if (rows == null || rows.Count == 0) return;
+        try
+        {
+            using var conn = OpenConnection();
+            using var tx = conn.BeginTransaction();
+            foreach (var row in rows)
+            {
+                if (row == null || string.IsNullOrWhiteSpace(row.Date) || string.IsNullOrWhiteSpace(row.ModelName)) continue;
+                using var cmd = conn.CreateCommand();
+                cmd.Transaction = tx;
+                cmd.CommandText = @"INSERT OR REPLACE INTO usage_model_daily
+    (provider_id, account_id, date, model_name, input_token, output_token, cache_read_token, cache_miss_token, total_token, cache_hit_percent, updated_at)
+    VALUES ($pid, $aid, $date, $mn, $it, $ot, $crt, $cmt, $tt, $chp, $ua);";
+                cmd.Parameters.AddWithValue("$pid", providerId);
+                cmd.Parameters.AddWithValue("$aid", string.IsNullOrEmpty(accountId) ? "default" : accountId);
+                cmd.Parameters.AddWithValue("$date", row.Date);
+                cmd.Parameters.AddWithValue("$mn", row.ModelName);
+                cmd.Parameters.AddWithValue("$it", row.InputToken);
+                cmd.Parameters.AddWithValue("$ot", row.OutputToken);
+                cmd.Parameters.AddWithValue("$crt", row.CacheReadToken);
+                cmd.Parameters.AddWithValue("$cmt", row.CacheMissToken);
+                cmd.Parameters.AddWithValue("$tt", row.TotalToken);
+                cmd.Parameters.AddWithValue("$chp", row.CacheHitPercent.HasValue ? (object)row.CacheHitPercent.Value : DBNull.Value);
+                cmd.Parameters.AddWithValue("$ua", DateTime.UtcNow);
+                cmd.ExecuteNonQuery();
+            }
+            tx.Commit();
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Warn("UsageDetailRepository", $"UpsertModelDailyBatch({providerId},{rows.Count} rows) failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>req-088 Phase4：批量写入/覆盖逐请求流水（request_id 去重覆盖）。</summary>
+    public void UpsertRequestDetailBatch(string providerId, string accountId, IReadOnlyList<RequestDetailRow> rows)
+    {
+        if (rows == null || rows.Count == 0) return;
+        try
+        {
+            using var conn = OpenConnection();
+            using var tx = conn.BeginTransaction();
+            foreach (var row in rows)
+            {
+                if (row == null || string.IsNullOrWhiteSpace(row.RequestId)) continue;
+                using var cmd = conn.CreateCommand();
+                cmd.Transaction = tx;
+                cmd.CommandText = @"INSERT OR REPLACE INTO usage_request_detail
+    (provider_id, account_id, request_id, occurred_at, channel, model_name, token, used_percent, credits, cost, updated_at)
+    VALUES ($pid,$aid,$rid,$occ,$ch,$mn,$tk,$up,$cr,$co,$ua);";
+                cmd.Parameters.AddWithValue("$pid", providerId);
+                cmd.Parameters.AddWithValue("$aid", string.IsNullOrEmpty(accountId) ? "default" : accountId);
+                cmd.Parameters.AddWithValue("$rid", row.RequestId);
+                cmd.Parameters.AddWithValue("$occ", row.OccurredAt);
+                cmd.Parameters.AddWithValue("$ch", (object?)row.Channel ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("$mn", (object?)row.ModelName ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("$tk", row.Token);
+                cmd.Parameters.AddWithValue("$up", row.UsedPercent.HasValue ? (object)row.UsedPercent.Value : DBNull.Value);
+                cmd.Parameters.AddWithValue("$cr", row.Credits.HasValue ? (object)row.Credits.Value : DBNull.Value);
+                cmd.Parameters.AddWithValue("$co", row.Cost.HasValue ? (object)row.Cost.Value : DBNull.Value);
+                cmd.Parameters.AddWithValue("$ua", DateTime.UtcNow);
+                cmd.ExecuteNonQuery();
+            }
+            tx.Commit();
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Warn("UsageDetailRepository", $"UpsertRequestDetailBatch({providerId},{rows.Count} rows) failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>req-088 Phase4：按时间范围读取逐请求流水（occurred_at 升序）。</summary>
+    public IReadOnlyList<RequestDetailRow> GetRequestDetail(string providerId, string accountId, string? fromTime = null, string? toTime = null)
+    {
+        var result = new List<RequestDetailRow>();
+        try
+        {
+            using var conn = OpenConnection();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT request_id, occurred_at, channel, model_name, token, used_percent, credits, cost FROM usage_request_detail WHERE provider_id=$pid AND account_id=$aid";
+            cmd.Parameters.AddWithValue("$pid", providerId);
+            cmd.Parameters.AddWithValue("$aid", string.IsNullOrEmpty(accountId) ? "default" : accountId);
+            if (!string.IsNullOrEmpty(fromTime)) { cmd.CommandText += " AND occurred_at >= $from"; cmd.Parameters.AddWithValue("$from", fromTime); }
+            if (!string.IsNullOrEmpty(toTime)) { cmd.CommandText += " AND occurred_at <= $to"; cmd.Parameters.AddWithValue("$to", toTime); }
+            cmd.CommandText += " ORDER BY occurred_at ASC;";
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                result.Add(new RequestDetailRow(
+                    reader.GetString(0),
+                    reader.GetString(1),
+                    reader.IsDBNull(2) ? null : reader.GetString(2),
+                    reader.IsDBNull(3) ? null : reader.GetString(3),
+                    reader.GetInt64(4),
+                    reader.IsDBNull(5) ? null : reader.GetDouble(5),
+                    reader.IsDBNull(6) ? null : reader.GetDouble(6),
+                    reader.IsDBNull(7) ? null : reader.GetDouble(7)));
+            }
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Warn("UsageDetailRepository", $"GetRequestDetail({providerId}) failed: {ex.Message}");
+        }
+        return result;
     }
 
     /// <summary>按日期范围读取每日趋势（升序）；from/to 为 null 表示不限。</summary>

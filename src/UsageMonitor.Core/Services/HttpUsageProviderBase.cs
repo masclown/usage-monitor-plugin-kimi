@@ -64,9 +64,6 @@ public abstract class HttpUsageProviderBase : IUsageProvider
     public virtual BrowserLoginConfig? LoginConfig => null;
 
     /// <inheritdoc />
-    public virtual IReadOnlyList<string> DefaultRenderKinds => Array.Empty<string>();
-
-    /// <inheritdoc />
     public virtual IReadOnlyList<string>? CollapseVisibleParts => null;
 
     /// <inheritdoc />
