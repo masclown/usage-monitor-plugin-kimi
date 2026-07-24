@@ -122,6 +122,34 @@ public static class UsageTierScale
     }
 
     /// <summary>
+    /// 按私有档位列表解析画笔（供插件声明的 ColorTier 复用全局匹配逻辑）。
+    /// <para>
+    /// 匹配规则与 <see cref="Resolve(double)"/> 一致：按 MinPercent 升序取“下界不超过 percent 的最高一档”；
+    /// 仅参与 IsEnabled=true 的档位。列表为 null/空或全部禁用时回退全局色阶 <see cref="ResolveBrush(double)"/>
+    /// （与全局色阶退化行为对齐）。
+    /// </para>
+    /// </summary>
+    /// <param name="tiers">插件声明的私有档位列表（可为 null）。</param>
+    /// <param name="percent">已用百分比（0-100）。</param>
+    /// <returns>命中档位的 Frozen 画笔；私有档位不可用时返回全局色阶画笔。</returns>
+    public static Brush ResolveBrush(IReadOnlyList<UsageMonitor.Core.Models.UsageTierConfig>? tiers, double percent)
+    {
+        if (tiers == null || tiers.Count == 0) return ResolveBrush(percent);
+        // Phase0 评审加固①：OrderBy 防乱序声明；②：全部禁用时回退全局色阶而非 Tiers[0]
+        var enabled = tiers.Where(t => t != null && t.IsEnabled).OrderBy(t => t.MinPercent).ToList();
+        if (enabled.Count == 0) return ResolveBrush(percent);
+        UsageMonitor.Core.Models.UsageTierConfig? hit = null;
+        foreach (var tier in enabled)
+        {
+            if (percent >= tier.MinPercent) hit = tier;
+        }
+        hit ??= enabled[0]; // percent 低于所有档位下界时取首档（升序后为最低档）
+        var brush = new SolidColorBrush(ColorFromArgb(hit.ColorArgb));
+        brush.Freeze();
+        return brush;
+    }
+
+    /// <summary>
     /// 按显式档位键（low / mid / high）取档：按 Tiers 升序的第 0 / 中间 / 末位。
     /// 供 <c>PercentToBrushConverter</c> 的 ConverterParameter 显式档位使用，
     /// 保持与新增档位数量解耦（3 档时等价于 0/1/2；4+ 档时取首/中/末）。

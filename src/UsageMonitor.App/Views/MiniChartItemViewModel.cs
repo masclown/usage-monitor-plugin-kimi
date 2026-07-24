@@ -1,7 +1,11 @@
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using System.Windows.Media;
 using System.Windows.Threading;
+using UsageMonitor.App.Helpers;
+using UsageMonitor.Core.Models;
 using UsageMonitor.Core.Plugins.MiniChart;
+using Brush = System.Windows.Media.Brush;
 
 namespace UsageMonitor.App.Views;
 
@@ -37,15 +41,48 @@ public class MiniChartItemViewModel : INotifyPropertyChanged
     public MiniChartStyle Style => Descriptor.Style;
 
     /// <summary>
-    /// 派生：当前用量百分比（0-100）。优先取 UsageVm 的实时值；缺失时回退到 descriptor.DataSource 中的 double?。
+    /// 派生：当前用量百分比（0-100）。
+    /// <para>req-107 B4：有数据组声明时按当前组的 Value 字段经 <see cref="ResolveMiniFieldValue"/> 解析；
+    /// 无数据组时回退原路径（UsageVm.UsagePercentage / descriptor.DataSource）。</para>
     /// <para>MiniRingChart / MiniText 必须；其它类型（MiniLineChart / MiniBarChart / MiniHeatMap）忽略此值。</para>
     /// </summary>
     public double? UsagePercent
     {
         get
         {
+            // req-107 B4：数据组路径——取当前组 Value 角色字段解析值
+            var group = CurrentDataGroup;
+            if (group != null)
+            {
+                var valueField = group.Fields.FirstOrDefault(f => f.Role == FieldRole.Value)?.FieldName;
+                if (valueField != null)
+                    return ResolveMiniFieldValue(valueField);
+            }
+            // 回退：无数据组或组内无 Value 字段
             if (UsageVm != null) return UsageVm.UsagePercentage;
             return Descriptor.DataSource as double?;
+        }
+    }
+
+    /// <summary>
+    /// B5 色阶接入：按当前用量百分比解析出的进度画刷（已 Freeze，可安全跨线程使用）。
+    /// <para>
+    /// 优先使用 <see cref="Descriptor"/> 的 <see cref="MiniChartDescriptor.ColorTier"/> 声明的私有档位换色；
+    /// ColorTier 为 null 或全部档位禁用时落地全局 <see cref="UsageTierScale"/> 色阶（与主界面进度条取色一致）。
+    /// </para>
+    /// <para>
+    /// 色阶变更实时刷新链路：UsageTierScale.TierChanged → MainViewModel.OnUsageTierChanged →
+    /// ForceRefreshBars → ProviderUsageViewModel PropertyChanged → TaskbarWindow.OnUsageVmPropertyChanged →
+    /// RefreshFromUsageVm → TierBrush 通知。无需本 VM 独立订阅 TierChanged。
+    /// </para>
+    /// </summary>
+    public Brush TierBrush
+    {
+        get
+        {
+            var percent = UsagePercent ?? 0;
+            // 私有档位优先（升序匹配 + IsEnabled 过滤）；null/空/全禁用时内部自动回退全局色阶
+            return UsageTierScale.ResolveBrush(Descriptor.ColorTier?.Tiers, percent);
         }
     }
 
@@ -70,15 +107,38 @@ public class MiniChartItemViewModel : INotifyPropertyChanged
 
     /// <summary>
     /// req-088 B9：渲染后的 Tooltip 正文文本（来自 MiniChartTooltip.BodyTemplate）。
-    /// <para>空字符串表示不显示 Body 行。</para>
+    /// <para>req-107 B4：有数据组声明时正文为“当前组名称：数值%”（如“5h 限额：42%”），
+    /// 切组后自动更新；无数据组时回退模板渲染。空字符串表示不显示 Body 行。</para>
     /// </summary>
     public string TooltipBody
     {
         get
         {
+            // req-107 B4：数据组模式——正文 = 组名称 + 当前值
+            if (HasDataGroups)
+            {
+                var val = UsagePercent;
+                return val.HasValue
+                    ? $"{CurrentDataGroupName}：{val.Value:0}%"
+                    : $"{CurrentDataGroupName}：--";
+            }
             var template = Descriptor.Tooltip?.BodyTemplate;
             if (string.IsNullOrEmpty(template)) return string.Empty;
             return ResolveTooltipTemplate(template);
+        }
+    }
+
+    /// <summary>
+    /// req-107 B4：复合 Tooltip 文本（标题 + 换行 + 正文）。
+    /// <para>正文为空时仅返回标题，保证无数据组场景与原有 TooltipTitle 行为一致。</para>
+    /// </summary>
+    public string CompositeTooltipText
+    {
+        get
+        {
+            var title = TooltipTitle;
+            var body = TooltipBody;
+            return string.IsNullOrEmpty(body) ? title : $"{title}\n{body}";
         }
     }
 
@@ -89,6 +149,124 @@ public class MiniChartItemViewModel : INotifyPropertyChanged
 
     /// <summary>req-088 B9：Tooltip 显示延迟（毫秒），负数表示禁用。</summary>
     public int TooltipShowDelayMs => Descriptor.Tooltip?.ShowDelayMs ?? 0;
+
+    // ===================== req-107 B4：数据组状态 =====================
+
+    /// <summary>req-107 B4：当前数据组索引（循环切换，由 <see cref="CycleDataGroup"/> 更新）。</summary>
+    private int _currentDataGroupIndex;
+
+    /// <summary>req-107 B4：当前数据组索引（只读暴露，供调试 / 测试断言）。</summary>
+    public int CurrentDataGroupIndex => _currentDataGroupIndex;
+
+    /// <summary>
+    /// req-107 B4：是否声明了数据组（至少 1 组）。
+    /// <para>有数据组时 UsagePercent / TooltipBody 走组解析路径；无则回退原有单值逻辑。</para>
+    /// </summary>
+    public bool HasDataGroups => Descriptor.DataGroups is { Count: > 0 };
+
+    /// <summary>
+    /// req-107 B4：当前选中的数据组（索引越界时自动钳位）；无数据组声明时返回 null。
+    /// </summary>
+    public DataGroup? CurrentDataGroup
+    {
+        get
+        {
+            var groups = Descriptor.DataGroups;
+            if (groups is not { Count: > 0 }) return null;
+            return groups[Math.Clamp(_currentDataGroupIndex, 0, groups.Count - 1)];
+        }
+    }
+
+    /// <summary>
+    /// req-107 B4：当前数据组的显示名称（按 Value 字段名解析中文标签，如 "5h 限额" / "本周限额"）。
+    /// <para>组内无 Value 字段时回退显示组 Id。</para>
+    /// </summary>
+    public string CurrentDataGroupName
+    {
+        get
+        {
+            var group = CurrentDataGroup;
+            if (group == null) return string.Empty;
+            var valueField = group.Fields.FirstOrDefault(f => f.Role == FieldRole.Value)?.FieldName;
+            return valueField != null ? ResolveFieldLabel(valueField) : group.Id;
+        }
+    }
+
+    /// <summary>
+    /// req-107 B4：循环切换数据组（滚轮驱动）。
+    /// <para>无数据组或仅 1 组时不产生变化（返回 false，滚轮事件透传给 ScrollViewer）；
+    /// 多组时按 delta 方向循环切换，并触发 UsagePercent / TierBrush / Tooltip 等属性通知。</para>
+    /// </summary>
+    /// <param name="delta">切换方向：+1 = 下一组，-1 = 上一组。</param>
+    /// <returns>是否实际发生了切换。</returns>
+    public bool CycleDataGroup(int delta)
+    {
+        var groups = Descriptor.DataGroups;
+        if (groups is not { Count: > 1 }) return false;
+        // 循环索引（支持负数 delta）
+        var newIndex = ((_currentDataGroupIndex + delta) % groups.Count + groups.Count) % groups.Count;
+        if (newIndex == _currentDataGroupIndex) return false;
+        _currentDataGroupIndex = newIndex;
+        // 切组后全量通知：环 Percent、色阶画刷、tooltip 均随当前组重算
+        OnPropertyChanged(nameof(CurrentDataGroupIndex));
+        OnPropertyChanged(nameof(CurrentDataGroup));
+        OnPropertyChanged(nameof(CurrentDataGroupName));
+        OnPropertyChanged(nameof(UsagePercent));
+        OnPropertyChanged(nameof(TierBrush));
+        OnPropertyChanged(nameof(TooltipTitle));
+        OnPropertyChanged(nameof(TooltipBody));
+        OnPropertyChanged(nameof(CompositeTooltipText));
+        return true;
+    }
+
+    /// <summary>
+    /// req-107 B4：迷你图字段取值器——SDK 标准字段名 → 当前值。
+    /// <para>参照 <c>ProviderUsageViewModel.ResolveFieldValue</c> 的映射规则（过渡期映射到已刷新的 VM 属性）；
+    /// 未知字段回退 <c>UsageVm.UsagePercentage</c>，无 UsageVm 时回退 descriptor.DataSource。</para>
+    /// </summary>
+    private double? ResolveMiniFieldValue(string fieldName)
+    {
+        if (UsageVm == null) return Descriptor.DataSource as double?;
+        return fieldName switch
+        {
+            UsageFields.FiveHourUsedPercent => UsageVm.PrimaryBarPercent,
+            UsageFields.WeeklyUsedPercent => UsageVm.WeeklyBarPercent,
+            UsageFields.VideoQuota => UsageVm.VideoIntervalPercent,
+            UsageFields.RemainingCredits => UsageVm.RemainingCredits,
+            _ => UsageVm.UsagePercentage // 未知字段回退 UsagePercent
+        };
+    }
+
+    /// <summary>
+    /// req-107 B4：字段显示标签解析（与 ProviderUsageViewModel.DeclarativeFieldLabel 保持一致的中文标签）。
+    /// </summary>
+    private static string ResolveFieldLabel(string fieldName) => fieldName switch
+    {
+        UsageFields.FiveHourUsedPercent => "5h 限额",
+        UsageFields.WeeklyUsedPercent => "本周限额",
+        UsageFields.VideoQuota => "视频赠送",
+        UsageFields.RemainingCredits => "剩余积分",
+        _ => fieldName
+    };
+
+    /// <summary>
+    /// req-107 B4：解析初始数据组索引——优先定位 Slicer.Default 声明的组 Id，未匹配时默认第 0 组。
+    /// </summary>
+    private int ResolveInitialDataGroupIndex()
+    {
+        var groups = Descriptor.DataGroups;
+        if (groups is not { Count: > 0 }) return 0;
+        var defaultId = Descriptor.Slicer?.Default;
+        if (!string.IsNullOrEmpty(defaultId))
+        {
+            for (var i = 0; i < groups.Count; i++)
+            {
+                if (string.Equals(groups[i].Id, defaultId, StringComparison.OrdinalIgnoreCase))
+                    return i;
+            }
+        }
+        return 0;
+    }
 
     // req-105：本地 DispatcherTimer 推动 RefreshCountdownText 每秒刷新。
     // 默认不启动，宿主（TaskbarWindow）可调 <see cref="StartCountdownTimer"/> 启动。
@@ -144,6 +322,8 @@ public class MiniChartItemViewModel : INotifyPropertyChanged
     {
         Descriptor = descriptor ?? throw new ArgumentNullException(nameof(descriptor));
         UsageVm = usageVm;
+        // req-107 B4：初始数据组索引从 Slicer.Default 解析（未声明时默认第 0 组）
+        _currentDataGroupIndex = ResolveInitialDataGroupIndex();
     }
 
     /// <summary>
@@ -153,10 +333,14 @@ public class MiniChartItemViewModel : INotifyPropertyChanged
     public void RefreshFromUsageVm()
     {
         OnPropertyChanged(nameof(UsagePercent));
+        OnPropertyChanged(nameof(TierBrush)); // B5：色阶画刷随百分比联动刷新
         OnPropertyChanged(nameof(IsError));
         OnPropertyChanged(nameof(TooltipTitle));
         OnPropertyChanged(nameof(TooltipBody));
         OnPropertyChanged(nameof(HasTooltip));
+        // req-107 B4：数据组相关派生属性随数据刷新联动
+        OnPropertyChanged(nameof(CurrentDataGroupName));
+        OnPropertyChanged(nameof(CompositeTooltipText));
         // req-105：刷新动态倒计时。FiveHourCountdownText 由 MainViewModel 全局 timer 每秒刷新。
         OnPropertyChanged(nameof(RefreshCountdownText));
     }

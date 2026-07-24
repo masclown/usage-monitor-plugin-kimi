@@ -656,6 +656,7 @@ public class ConfigService : IConfigService
             RingChartSwitchAnimationMs = _settings.RingChartSwitchAnimationMs,
             TrayTooltipTriggerRect = _settings.TrayTooltipTriggerRect,
             LastCleanedZeroTokensAt = _settings.LastCleanedZeroTokensAt,
+            CookieRetentionDays = _settings.CookieRetentionDays,
             ProviderCardOrder = new List<string>(_settings.ProviderCardOrder),
             SelectedProgressFields = new Dictionary<string, List<string>>(),
             SelectedMetricFields = new Dictionary<string, List<string>>(),
@@ -683,6 +684,40 @@ public class ConfigService : IConfigService
                 SecondaryKind = kvp.Value.SecondaryKind,
                 ShowLogo = kvp.Value.ShowLogo
             };
+
+        // Phase 2 修复：补齐 Accounts 深拷贝（逐项 new Account 复制全部属性）。
+        snapshot.Accounts = new List<Models.Account>(_settings.Accounts.Count);
+        foreach (var acc in _settings.Accounts)
+        {
+            snapshot.Accounts.Add(new Models.Account
+            {
+                ProviderId = acc.ProviderId,
+                AccountId = acc.AccountId,
+                Nickname = acc.Nickname,
+                UseNickname = acc.UseNickname,
+                CreatedAt = acc.CreatedAt,
+                IsDefault = acc.IsDefault,
+                Enabled = acc.Enabled
+            });
+        }
+
+        // Phase 2 修复：补齐 PersistedLoginStates 深拷贝（逐项 new LoginStateInfo 复制全部属性）。
+        snapshot.PersistedLoginStates = new List<LoginStateInfo>(_settings.PersistedLoginStates.Count);
+        foreach (var ls in _settings.PersistedLoginStates)
+        {
+            snapshot.PersistedLoginStates.Add(new LoginStateInfo
+            {
+                AcquiredAt = ls.AcquiredAt,
+                AccountId = ls.AccountId,
+                ProviderId = ls.ProviderId
+            });
+        }
+
+        // Phase 2 修复：补齐 AccountCustomizations 深拷贝（保留原字典比较器，值调用 Clone()）。
+        snapshot.AccountCustomizations = new Dictionary<string, AccountCustomization>(
+            _settings.AccountCustomizations.Count, System.StringComparer.OrdinalIgnoreCase);
+        foreach (var kvp in _settings.AccountCustomizations)
+            snapshot.AccountCustomizations[kvp.Key] = kvp.Value.Clone();
 
         return snapshot;
     }
@@ -932,16 +967,51 @@ public class ConfigService : IConfigService
     }
 
     /// <summary>
-    /// 设置指定 Provider 的「卡片图表类型集合」（多选）并持久化。
-    /// 同步回写旧单选字段（取首元素，无则 None），避免两套配置漂移。
+    /// S6：仅写入指定 (ProviderId, AccountId, CardId) 的「可见卡片图表 ID 列表」（<c>VisibleCharts</c>）并持久化。
+    /// <para>与 <see cref="SetCardChartConfiguration"/>（设置窗口【卡片管理】页）同一数据落点——
+    /// 均写入 <c>AccountCustomizations</c> 字典的 <c>VisibleCharts</c> 字段；
+    /// 本方法只更新该单一字段，不触碰 ChartOrders / VisibleDataGroups / VisibleTooltipFields 等兄弟配置，
+    /// 避免插件配置窗口的启用开关与卡片管理页互相覆盖造成双写冲突。</para>
     /// </summary>
-    public void SetProviderCardChartKinds(string providerId, IReadOnlyList<CardChartKind> kinds)
+    /// <param name="providerId">Provider 唯一标识。</param>
+    /// <param name="visibleChartIds">可见图表 ID 列表（空集合 = 不显示任何图表）。</param>
+    /// <param name="accountId">账号 ID（缺省 "default"）。</param>
+    /// <param name="cardId">卡片 ID（缺省 "default-card"）。</param>
+    public void SetVisibleCharts(string providerId, IReadOnlyList<string>? visibleChartIds, string accountId = "default", string cardId = "default-card")
     {
         lock (_ioLock)
         {
-            var list = kinds != null ? new List<CardChartKind>(kinds) : new List<CardChartKind>();
-            _settings.ProviderCardChartKinds[providerId] = list;
-            _settings.ProviderCardCharts[providerId] = list.Count > 0 ? list[0] : CardChartKind.None;
+            var key = AccountCustomization.MakeKey(providerId, accountId, cardId);
+            if (!_settings.AccountCustomizations.TryGetValue(key, out var acct) || acct == null)
+            {
+                acct = new AccountCustomization();
+                _settings.AccountCustomizations[key] = acct;
+            }
+            acct.VisibleCharts = visibleChartIds != null ? new List<string>(visibleChartIds) : null;
+        }
+        Save();
+    }
+
+    /// <summary>
+    /// S6：仅写入指定 (ProviderId, AccountId, CardId) 的「可见 Mini 图表 ID 列表」（<c>VisibleMiniCharts</c>）并持久化。
+    /// <para>与 <see cref="SetMiniChartConfiguration"/>（设置窗口【任务栏迷你图表】页）同一数据落点，
+    /// 只更新 <c>VisibleMiniCharts</c> 单一字段，不影响 VisibleMiniDataGroups / MiniDataGroupOrders。</para>
+    /// </summary>
+    /// <param name="providerId">Provider 唯一标识。</param>
+    /// <param name="visibleMiniChartIds">可见 Mini 图表 ID 列表（空集合 = 不显示任何 Mini 图表）。</param>
+    /// <param name="accountId">账号 ID（缺省 "default"）。</param>
+    /// <param name="cardId">卡片 ID（缺省 "default-card"）。</param>
+    public void SetVisibleMiniCharts(string providerId, IReadOnlyList<string>? visibleMiniChartIds, string accountId = "default", string cardId = "default-card")
+    {
+        lock (_ioLock)
+        {
+            var key = AccountCustomization.MakeKey(providerId, accountId, cardId);
+            if (!_settings.AccountCustomizations.TryGetValue(key, out var acct) || acct == null)
+            {
+                acct = new AccountCustomization();
+                _settings.AccountCustomizations[key] = acct;
+            }
+            acct.VisibleMiniCharts = visibleMiniChartIds != null ? new List<string>(visibleMiniChartIds) : null;
         }
         Save();
     }
@@ -1085,7 +1155,7 @@ public class ConfigService : IConfigService
         }
     }
 
-    /// <summary>更新账号（昵称 / UseNickname）。</summary>
+    /// <summary>更新账号（昵称 / UseNickname / 启用状态）。</summary>
     public void UpdateAccount(Models.Account account)
     {
         if (account == null) throw new ArgumentNullException(nameof(account));
@@ -1097,6 +1167,8 @@ public class ConfigService : IConfigService
             existing.Nickname = account.Nickname;
             existing.UseNickname = account.UseNickname;
             existing.IsDefault = account.IsDefault;
+            // S1：持久化账号启用状态（插件管理页账号行启用 CheckBox 改动即走这里）。
+            existing.Enabled = account.Enabled;
             Save();
         }
     }

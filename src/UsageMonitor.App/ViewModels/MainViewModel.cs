@@ -90,6 +90,34 @@ public partial class MainViewModel : INotifyPropertyChanged
     private TierListEditorViewModel? _tierEditor;
 
     /// <summary>
+    /// S2：卡片管理页 ViewModel（延迟初始化，首次访问时创建）。
+    /// <para>三级折叠结构：账号 → 图表 → 数据组 + tooltip 字段多选。</para>
+    /// </summary>
+    public CardManageViewModel CardManage
+    {
+        get
+        {
+            _cardManage ??= new CardManageViewModel(_pluginManager, _configService);
+            return _cardManage;
+        }
+    }
+    private CardManageViewModel? _cardManage;
+
+    /// <summary>
+    /// S4：任务栏迷你图表页 ViewModel（延迟初始化，首次访问时创建）。
+    /// <para>三级折叠结构：账号 → mini 图表 → 数据组，与卡片管理页同构。</para>
+    /// </summary>
+    public MiniChartManageViewModel MiniChartManage
+    {
+        get
+        {
+            _miniChartManage ??= new MiniChartManageViewModel(_pluginManager, _configService);
+            return _miniChartManage;
+        }
+    }
+    private MiniChartManageViewModel? _miniChartManage;
+
+    /// <summary>
     /// req-011：设置页“热力图色阶” Tab 的编辑上下文（延迟初始化，首次访问时创建）。
     /// </summary>
     public HeatMapTierListEditorViewModel HeatMapTierEditor
@@ -364,13 +392,19 @@ public partial class MainViewModel : INotifyPropertyChanged
             if (_currentSection == value) return;
             _currentSection = value;
             OnPropertyChanged();
+            // Phase 2 修复：切换到卡片管理 / 迷你图表页时刷新已构造实例（账号增删后管理页不再陈旧）。
+            // 仅对已构造实例调用 Reload()，不触发懒构造。
+            if (value == Helpers.SettingsSection.CardManage)
+                _cardManage?.Reload();
+            else if (value == Helpers.SettingsSection.TaskbarMiniChart)
+                _miniChartManage?.Reload();
         }
     }
     private Helpers.SettingsSection _currentSection = Helpers.SettingsSection.General;
 
     /// <summary>
     /// req-073：设置窗口左侧导航项列表（分组标题 + 可点击项混合）。
-    /// <para>按「通用 / 显示 / 高级」三组分组，为 req-103/104/097 预留导航项（当前注释掉，后续迭代启用）。</para>
+    /// <para>S3 重构：已移除「任务栏显示 / 卡片排序 / 图表顺序 / 多进度条 / 卡片图表与数据组」5 个旧分区导航项。</para>
     /// </summary>
     public IReadOnlyList<Helpers.SettingsNavigationItem> SettingsNavigationItems { get; } = new List<Helpers.SettingsNavigationItem>
     {
@@ -378,10 +412,10 @@ public partial class MainViewModel : INotifyPropertyChanged
         Helpers.SettingsNavigationItem.CreateGroupHeader("通用"),
         Helpers.SettingsNavigationItem.CreateItem(Helpers.SettingsSection.General, "常规设置", "通用"),
         Helpers.SettingsNavigationItem.CreateItem(Helpers.SettingsSection.Plugins, "插件管理", "通用"),
+        Helpers.SettingsNavigationItem.CreateItem(Helpers.SettingsSection.CardManage, "卡片管理", "通用"),
 
         // ===== 显示 =====
         Helpers.SettingsNavigationItem.CreateGroupHeader("显示"),
-        Helpers.SettingsNavigationItem.CreateItem(Helpers.SettingsSection.Taskbar, "任务栏显示", "显示"),
         Helpers.SettingsNavigationItem.CreateItem(Helpers.SettingsSection.Tray, "悬浮窗", "显示"),
         Helpers.SettingsNavigationItem.CreateItem(Helpers.SettingsSection.ColorTier, "色阶", "显示"),
 
@@ -390,12 +424,8 @@ public partial class MainViewModel : INotifyPropertyChanged
         Helpers.SettingsNavigationItem.CreateItem(Helpers.SettingsSection.Security, "安全", "高级"),
         Helpers.SettingsNavigationItem.CreateItem(Helpers.SettingsSection.Diagnostics, "诊断日志", "高级"),
 
-        // ===== 个性化（req-103/104/097 已启用） =====
+        // ===== 个性化 =====
         Helpers.SettingsNavigationItem.CreateGroupHeader("个性化"),
-        Helpers.SettingsNavigationItem.CreateItem(Helpers.SettingsSection.CardOrder, "卡片排序", "个性化"),
-        Helpers.SettingsNavigationItem.CreateItem(Helpers.SettingsSection.ChartOrder, "图表顺序", "个性化"),
-        Helpers.SettingsNavigationItem.CreateItem(Helpers.SettingsSection.MultiProgress, "多进度条", "个性化"),
-        Helpers.SettingsNavigationItem.CreateItem(Helpers.SettingsSection.CardCharts, "卡片图表与数据组", "个性化"),
         Helpers.SettingsNavigationItem.CreateItem(Helpers.SettingsSection.TaskbarMiniChart, "任务栏迷你图表", "个性化"),
     };
 
@@ -451,371 +481,17 @@ public partial class MainViewModel : INotifyPropertyChanged
         }
     }
 
-    // =====================================================================
-    // REQ-103 卡片排序功能
-    // =====================================================================
 
-    /// <summary>
-    /// req-103：卡片排序设置页的列表项集合（按当前配置顺序排列）。
-    /// </summary>
-    public ObservableCollection<Helpers.CardOrderItem> CardOrderItems { get; } = new();
-
-    /// <summary>
-    /// req-103：恢复默认卡片顺序命令（按插件加载顺序）。
-    /// </summary>
-    public IRelayCommand ResetCardOrderCommand { get; private set; } = null!;
-
-    /// <summary>
-    /// req-104：保存多进度条字段选择命令。
-    /// </summary>
-    public IRelayCommand SaveMultiProgressFieldsCommand { get; private set; } = null!;
-
-    /// <summary>
-    /// req-103：刷新 CardOrderItems 集合（从 EnabledUsages 同步）。
-    /// </summary>
-    public void RefreshCardOrderItems()
-    {
-        CardOrderItems.Clear();
-        foreach (var vm in EnabledUsages)
-        {
-            CardOrderItems.Add(new Helpers.CardOrderItem
-            {
-                ProviderId = vm.ProviderId,
-                DisplayName = vm.DisplayName,
-            });
-        }
-    }
-
-    /// <summary>
-    /// req-103：保存当前 CardOrderItems 顺序到配置。
-    /// </summary>
-    public void SaveCardOrder()
-    {
-        _configService.Settings.ProviderCardOrder = CardOrderItems.Select(x => x.ProviderId).ToList();
-        _configService.Save();
-        // 触发 RebuildEnabledUsages 按新顺序重新排列
-        RebuildEnabledUsages();
-    }
-
-    // =====================================================================
-    // REQ-104 多进度条与数字多排显示
-    // =====================================================================
-
-    /// <summary>
-    /// req-104：多进度条设置页的字段选择项集合（按 Provider 分组）。
-    /// </summary>
-    public ObservableCollection<Helpers.MultiProgressFieldItem> MultiProgressFieldItems { get; } = new();
     
-        // =====================================================================
-        // req-107 B6 演进：卡片图表与数据组（增删/排序）
-        // =====================================================================
-    
-        /// <summary>req-107 B6 演进：设置窗口“卡片图表与数据组”分区——有 Card 声明的 Provider 列表（providerId）。</summary>
-        public ObservableCollection<string> CardChartConfigProviders { get; } = new();
-
-        /// <summary>req-109：当前选中 Provider 下的账号列表（AccountId）。无 Accounts 配置时仅含 "default"。</summary>
-        public ObservableCollection<string> CardChartConfigAccounts { get; } = new();
-
-        /// <summary>当前选中的 Provider（用于卡片图表与数据组分区）。null = 未选择。</summary>
-        private string? _selectedCardChartProviderId;
-        public string? SelectedCardChartProviderId
-        {
-            get => _selectedCardChartProviderId;
-            set { if (_selectedCardChartProviderId != value) { _selectedCardChartProviderId = value; ReloadCardChartAccounts(); ReloadCardChartConfigItems(); OnPropertyChanged(); } }
-        }
-
-        /// <summary>req-109：当前选中的账号（用于卡片图表与数据组分区）。null = 未选择（自动选第一项）。</summary>
-        private string? _selectedCardChartConfigAccountId;
-        public string? SelectedCardChartConfigAccountId
-        {
-            get => _selectedCardChartConfigAccountId;
-            set { if (_selectedCardChartConfigAccountId != value) { _selectedCardChartConfigAccountId = value; ReloadCardChartConfigItems(); RefreshCardMiniChartItems(); OnPropertyChanged(); } }
-        }
-
-        /// <summary>req-109：当前选中的卡片 ID（用于 Mini 图表配置的 3 段 key）。默认 "default-card"。</summary>
-        public string SelectedCardChartConfigCardId { get; set; } = "default-card";
-
-        /// <summary>req-109：当前选中 Provider 的图表配置项集合（绑定到 UI 的列表）。</summary>
-        public ObservableCollection<CardChartConfigItem> CardChartConfigItems { get; } = new();
-
-        /// <summary>req-109：当前选中 Provider 的 Mini 图表配置项集合（任务栏 Mini 同构）。</summary>
-        public ObservableCollection<MiniChartConfigItem> CardMiniChartItems { get; } = new();
-
-        /// <summary>从 <c>_pluginManager.Plugins</c> 扫描有 Card 声明的 Provider，自动选中第一个。</summary>
-        public void RefreshCardChartConfigProviders()
-        {
-            var existing = CardChartConfigProviders.ToHashSet(StringComparer.OrdinalIgnoreCase);
-            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var plugin in _pluginManager.Plugins)
-            {
-                var pid = plugin.Provider.ProviderId;
-                var card = plugin.Provider.Card;
-                if (card == null || card.Charts.Count == 0) continue;
-                seen.Add(pid);
-                if (!existing.Contains(pid)) CardChartConfigProviders.Add(pid);
-            }
-            for (int i = CardChartConfigProviders.Count - 1; i >= 0; i--)
-            {
-                if (!seen.Contains(CardChartConfigProviders[i])) CardChartConfigProviders.RemoveAt(i);
-            }
-            if (SelectedCardChartProviderId == null || !seen.Contains(SelectedCardChartProviderId))
-            {
-                SelectedCardChartProviderId = CardChartConfigProviders.FirstOrDefault();
-            }
-            else
-            {
-                ReloadCardChartAccounts();
-                ReloadCardChartConfigItems();
-            }
-            // req-109：Mini 图表列表同步刷新（同上下文）
-            if (CardMiniChartItems.Count == 0)
-            {
-                RefreshCardMiniChartItems();
-            }
-        }
-
-        /// <summary>req-109：根据当前选中 Provider 从 ConfigService 拉账号列表。无 Accounts 配置时回退 ["default"]（向后兼容）。</summary>
-        public void ReloadCardChartAccounts()
-        {
-            CardChartConfigAccounts.Clear();
-            var pid = SelectedCardChartProviderId;
-            if (string.IsNullOrEmpty(pid)) return;
-            var accounts = _configService?.GetAccounts(pid);
-            if (accounts != null && accounts.Count > 0)
-            {
-                foreach (var a in accounts) CardChartConfigAccounts.Add(a.AccountId);
-            }
-            else
-            {
-                CardChartConfigAccounts.Add("default");
-            }
-            // 默认选中第一项
-            if (string.IsNullOrEmpty(SelectedCardChartConfigAccountId) || !CardChartConfigAccounts.Contains(SelectedCardChartConfigAccountId))
-            {
-                SelectedCardChartConfigAccountId = CardChartConfigAccounts.FirstOrDefault();
-            }
-            ReloadCardChartConfigItems();
-            // req-109：Mini 图表项同步刷新
-            RefreshCardMiniChartItems();
-        }
-    
-        /// <summary>根据当前选中 Provider 重新填充 <see cref="CardChartConfigItems"/>（读取 defaults.json + AccountCustomization 合并）。</summary>
-        public void ReloadCardChartConfigItems()
-        {
-            CardChartConfigItems.Clear();
-            var pid = SelectedCardChartProviderId;
-            if (string.IsNullOrEmpty(pid)) return;
-            var plugin = _pluginManager.Plugins.FirstOrDefault(p => string.Equals(p.Provider.ProviderId, pid, StringComparison.OrdinalIgnoreCase));
-            if (plugin == null) return;
-            var card = plugin.Provider.Card;
-            if (card == null) return;
-            var effective = _configService.GetEffectiveAccountCustomization(pid, SelectedCardChartConfigAccountId ?? "default");
-    
-            // 图表顺序：VisibleCharts 非 null 时用其顺序，否则用 defaults.json 声明顺序
-            var orderedCharts = (effective.VisibleCharts != null)
-                ? card.Charts.Where(c => effective.VisibleCharts.Contains(c.ChartId)).ToList()
-                : card.Charts.ToList();
-            if (effective.VisibleCharts != null)
-            {
-                foreach (var id in effective.VisibleCharts)
-                {
-                    var c = card.Charts.FirstOrDefault(x => x.ChartId == id);
-                    if (c != null && !orderedCharts.Contains(c)) orderedCharts.Add(c);
-                }
-            }
-    
-            foreach (var chart in orderedCharts)
-            {
-                var visibleDataGroups = effective.VisibleDataGroups != null && effective.VisibleDataGroups.TryGetValue(chart.ChartId, out var vdg) ? vdg : null;
-                var dataGroupOrders = effective.DataGroupOrders != null && effective.DataGroupOrders.TryGetValue(chart.ChartId, out var dgo) ? dgo : null;
-                var orderedGroups = (visibleDataGroups != null)
-                    ? chart.DataGroups.Where(g => visibleDataGroups.Contains(g.Id)).ToList()
-                    : chart.DataGroups.ToList();
-                if (visibleDataGroups != null)
-                {
-                    foreach (var id in visibleDataGroups)
-                    {
-                        var g = chart.DataGroups.FirstOrDefault(x => x.Id == id);
-                        if (g != null && !orderedGroups.Contains(g)) orderedGroups.Add(g);
-                    }
-                }
-                var item = new CardChartConfigItem
-                {
-                    ChartId = chart.ChartId,
-                    ChartKind = chart.Kind.ToString(),
-                    Title = chart.ChartId,
-                    IsVisible = effective.VisibleCharts == null || effective.VisibleCharts.Contains(chart.ChartId),
-                };
-                foreach (var g in orderedGroups)
-                {
-                    item.DataGroups.Add(new DataGroupConfigItem
-                    {
-                        DataGroupId = g.Id,
-                        DisplayName = g.Id,
-                        IsVisible = visibleDataGroups == null || visibleDataGroups.Contains(g.Id),
-                    });
-                }
-                // req-105：加载该图表的 Tooltip 显示字段（null 集合 = 沿用默认）
-                if (effective.VisibleTooltipFields != null && effective.VisibleTooltipFields.TryGetValue(chart.ChartId, out var tipFields) && tipFields != null)
-                {
-                    foreach (var f in tipFields) item.TooltipFields.Add(f);
-                }
-                CardChartConfigItems.Add(item);
-            }
-        }
-    
-        /// <summary>req-107 B6 演进：把当前 <see cref="CardChartConfigItems"/> 一次性写回 ConfigService。</summary>
-        public void SaveCardChartConfig()
-        {
-            var pid = SelectedCardChartProviderId;
-            if (string.IsNullOrEmpty(pid)) return;
-            var config = new AccountCustomization
-            {
-                VisibleCharts = CardChartConfigItems.Where(c => c.IsVisible).Select(c => c.ChartId).ToList(),
-                VisibleDataGroups = CardChartConfigItems.ToDictionary(
-                    c => c.ChartId,
-                    c => (List<string>?)c.DataGroups.Where(g => g.IsVisible).Select(g => g.DataGroupId).ToList()),
-                // req-105：每张图表的 Tooltip 显示字段（仅保存非空的）
-                VisibleTooltipFields = CardChartConfigItems
-                    .Where(c => c.TooltipFields.Count > 0)
-                    .ToDictionary(c => c.ChartId, c => (List<string>?)c.TooltipFields.ToList()),
-            };
-            _configService.SetCardChartConfiguration(pid, config, accountId: SelectedCardChartConfigAccountId ?? "default");
-        }
-    
-        /// <summary>req-107 B6 演进：将指定图表项上移一位。</summary>
-        public void MoveCardChartUp(CardChartConfigItem? item)
-        {
-            if (item == null) return;
-            var i = CardChartConfigItems.IndexOf(item);
-            if (i > 0) CardChartConfigItems.Move(i, i - 1);
-        }
-    
-        /// <summary>req-107 B6 演进：将指定图表项下移一位。</summary>
-        public void MoveCardChartDown(CardChartConfigItem? item)
-        {
-            if (item == null) return;
-            var i = CardChartConfigItems.IndexOf(item);
-            if (i >= 0 && i < CardChartConfigItems.Count - 1) CardChartConfigItems.Move(i, i + 1);
-        }
-    
-        /// <summary>req-107 B6 演进：将指定数据组项上移一位（自动从 CardChartConfigItems 中查找所属图表）。</summary>
-    public void MoveDataGroupUp(DataGroupConfigItem? item)
-    {
-        if (item == null) return;
-        foreach (var chart in CardChartConfigItems)
-        {
-            var i = chart.DataGroups.IndexOf(item);
-            if (i > 0) { chart.DataGroups.Move(i, i - 1); return; }
-            if (i >= 0) return;
-        }
-    }
-
-    /// <summary>req-107 B6 演进：将指定数据组项下移一位（自动从 CardChartConfigItems 中查找所属图表）。</summary>
-    public void MoveDataGroupDown(DataGroupConfigItem? item)
-    {
-        if (item == null) return;
-        foreach (var chart in CardChartConfigItems)
-        {
-            var i = chart.DataGroups.IndexOf(item);
-            if (i >= 0)
-            {
-                if (i < chart.DataGroups.Count - 1) chart.DataGroups.Move(i, i + 1);
-                return;
-            }
-        }
-    }
-
-    /// <summary>req-107 B6 演进：RelayCommand 包装——便于 XAML 命令绑定。</summary>
-    public CommunityToolkit.Mvvm.Input.IRelayCommand<CardChartConfigItem> MoveCardChartUpCommand
-        => new CommunityToolkit.Mvvm.Input.RelayCommand<CardChartConfigItem>(MoveCardChartUp);
-    public CommunityToolkit.Mvvm.Input.IRelayCommand<CardChartConfigItem> MoveCardChartDownCommand
-        => new CommunityToolkit.Mvvm.Input.RelayCommand<CardChartConfigItem>(MoveCardChartDown);
-    public CommunityToolkit.Mvvm.Input.IRelayCommand<DataGroupConfigItem> MoveDataGroupUpCommand
-        => new CommunityToolkit.Mvvm.Input.RelayCommand<DataGroupConfigItem>(MoveDataGroupUp);
-    public CommunityToolkit.Mvvm.Input.IRelayCommand<DataGroupConfigItem> MoveDataGroupDownCommand
-        => new CommunityToolkit.Mvvm.Input.RelayCommand<DataGroupConfigItem>(MoveDataGroupDown);
-
-    /// <summary>req-105：切换某图表的 Tooltip 字段（含/不含）。参数=(图表, 字段名)。</summary>
-    public void ToggleTooltipField(CardChartConfigItem? chart, string? fieldName)
-    {
-        if (chart == null || string.IsNullOrEmpty(fieldName)) return;
-        if (chart.TooltipFields.Contains(fieldName)) chart.TooltipFields.Remove(fieldName);
-        else chart.TooltipFields.Add(fieldName);
-    }
-    public CommunityToolkit.Mvvm.Input.IRelayCommand<object> ToggleTooltipFieldCommand
-        => new CommunityToolkit.Mvvm.Input.RelayCommand<object>(args =>
-        {
-            if (args is not object[] arr || arr.Length < 2) return;
-            ToggleTooltipField(arr[0] as CardChartConfigItem, arr[1] as string);
-        });
-
-    /// <summary>req-109：刷新 Mini 图表配置项（从 plugin 声明 + effective accountCustomization 合并）。</summary>
-    public void RefreshCardMiniChartItems()
-    {
-        CardMiniChartItems.Clear();
-        var pid = SelectedCardChartProviderId;
-        if (string.IsNullOrEmpty(pid)) return;
-        var accountId = SelectedCardChartConfigAccountId ?? "default";
-        var plugin = _pluginManager.Plugins.FirstOrDefault(p => string.Equals(p.Provider.ProviderId, pid, StringComparison.OrdinalIgnoreCase));
-        if (plugin == null) return;
-        var card = plugin.Provider.Taskbar;
-        if (card == null) return;
-        var eff = _configService.GetEffectiveAccountCustomization(pid, accountId, SelectedCardChartConfigCardId ?? "default-card");
-        foreach (var mini in card.MiniCharts)
-        {
-            bool visible = eff.VisibleMiniCharts == null || eff.VisibleMiniCharts.Contains(mini.ChartId);
-            CardMiniChartItems.Add(new MiniChartConfigItem
-            {
-                ChartId = mini.ChartId,
-                Kind = mini.Kind.ToString(),
-                ProviderId = pid,
-                AccountId = accountId,
-                IsVisible = visible,
-            });
-        }
-    }
-
-    /// <summary>req-109：Mini 图表上移 / 下移（按 Provider 粒度）。</summary>
-    public void MoveMiniChartUp(MiniChartConfigItem? item)
-    {
-        if (item == null) return;
-        var i = CardMiniChartItems.IndexOf(item);
-        if (i > 0) CardMiniChartItems.Move(i, i - 1);
-    }
-    public void MoveMiniChartDown(MiniChartConfigItem? item)
-    {
-        if (item == null) return;
-        var i = CardMiniChartItems.IndexOf(item);
-        if (i >= 0 && i < CardMiniChartItems.Count - 1) CardMiniChartItems.Move(i, i + 1);
-    }
-    public CommunityToolkit.Mvvm.Input.IRelayCommand<MiniChartConfigItem> MoveMiniChartUpCommand
-        => new CommunityToolkit.Mvvm.Input.RelayCommand<MiniChartConfigItem>(MoveMiniChartUp);
-    public CommunityToolkit.Mvvm.Input.IRelayCommand<MiniChartConfigItem> MoveMiniChartDownCommand
-        => new CommunityToolkit.Mvvm.Input.RelayCommand<MiniChartConfigItem>(MoveMiniChartDown);
-
-    /// <summary>req-109：把 <see cref="CardMiniChartItems"/> 写回 ConfigService（3 段 key）。</summary>
-    public void SaveMiniChartConfig()
-    {
-        var pid = SelectedCardChartProviderId;
-        if (string.IsNullOrEmpty(pid)) return;
-        var config = new AccountCustomization
-        {
-            VisibleMiniCharts = CardMiniChartItems.Where(m => m.IsVisible).Select(m => m.ChartId).ToList(),
-        };
-        _configService.SetMiniChartConfiguration(pid, config,
-            accountId: SelectedCardChartConfigAccountId ?? "default",
-            cardId: SelectedCardChartConfigCardId ?? "default-card");
-    }
-
     /// <summary>
     /// req-109：返回指定 Provider 的有效可见 Mini 图表 ID 列表（供 TaskbarWindow 渲染端过滤）。
     /// <para>null = 未配置（全部可见，向后兼容）；空集合 = 用户关闭了该 Provider 的全部 Mini 图表。</para>
+    /// <para>Phase 2 修复：增加 accountId/cardId 可选参数，避免任务栏读取硬编码 "default" 导致有账号用户的配置静默失效。</para>
     /// </summary>
-    public List<string>? GetEffectiveVisibleMiniCharts(string providerId)
+    public List<string>? GetEffectiveVisibleMiniCharts(string providerId, string accountId = "default", string cardId = "default-card")
     {
         if (string.IsNullOrEmpty(providerId)) return null;
-        var eff = _configService.GetEffectiveAccountCustomization(providerId, "default", "default-card");
+        var eff = _configService.GetEffectiveAccountCustomization(providerId, accountId, cardId);
         return eff.VisibleMiniCharts;
     }
 
@@ -833,218 +509,6 @@ public partial class MainViewModel : INotifyPropertyChanged
         var plugin = _pluginManager.Plugins.FirstOrDefault(p => string.Equals(p.Provider.ProviderId, providerId, StringComparison.OrdinalIgnoreCase));
         var chart = plugin?.Provider.Card?.Charts.FirstOrDefault(c => c.ChartId == chartId);
         return chart?.Tooltip?.Fields ?? (IReadOnlyList<string>)Array.Empty<string>();
-    }
-
-    // =====================================================================
-    // REQ-098 任务栏迷你图表 SDK 完善
-    // =====================================================================
-
-    /// <summary>
-    /// req-098：设置窗口“任务栏迷你图表” Tab 的列表项集合。每个 Provider 一项。
-    /// <para>由 <see cref="RefreshTaskbarMiniChartOptions"/> 从 <c>_pluginManager.Plugins</c>
-    /// 同步生成；只对 SupportedMiniCharts 非空的插件生成（纯 API Key 模式插件不入表）。</para>
-    /// </summary>
-    public ObservableCollection<TaskbarMiniChartProviderViewModel> TaskbarMiniChartOptions { get; } = new();
-
-    /// <summary>
-    /// req-098：刷新 <see cref="TaskbarMiniChartOptions"/> 集合。
-    /// <para>遍历 <c>_pluginManager.Plugins</c>，对每个 <c>SupportedMiniCharts</c> 非空的插件
-    /// 创建一个 <see cref="TaskbarMiniChartProviderViewModel"/>。已存在的不重建（保留用户修改）。</para>
-    /// </summary>
-    public void RefreshTaskbarMiniChartOptions()
-    {
-        var existing = TaskbarMiniChartOptions.ToDictionary(x => x.ProviderId, StringComparer.OrdinalIgnoreCase);
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var plugin in _pluginManager.Plugins)
-        {
-            var provider = plugin.Provider;
-            var supportedCharts = provider.SupportedMiniCharts ?? Array.Empty<Core.Plugins.MiniChart.MiniChartKind>();
-            if (supportedCharts.Count == 0) continue;
-            seen.Add(provider.ProviderId);
-            if (existing.TryGetValue(provider.ProviderId, out var kept))
-            {
-                // 保留既有 VM（用户的修改不被清空）
-                continue;
-            }
-            TaskbarMiniChartOptions.Add(new TaskbarMiniChartProviderViewModel(
-                provider.ProviderId,
-                provider.DisplayName,
-                supportedCharts,
-                provider.MiniChartDataTypes ?? Array.Empty<Core.Plugins.MiniChart.MiniChartContentKind>(),
-                _configService));
-        }
-        // 移除已卸载的 Provider 对应项
-        for (int i = TaskbarMiniChartOptions.Count - 1; i >= 0; i--)
-        {
-            if (!seen.Contains(TaskbarMiniChartOptions[i].ProviderId))
-                TaskbarMiniChartOptions.RemoveAt(i);
-        }
-    }
-
-    /// <summary>
-    /// req-104：刷新 MultiProgressFieldItems 集合（从 EnabledUsages 同步）。
-    /// </summary>
-    public void RefreshMultiProgressFieldItems()
-    {
-        MultiProgressFieldItems.Clear();
-        foreach (var vm in EnabledUsages)
-        {
-            var provider = vm.Provider;
-            if (provider == null) continue;
-
-            // 添加进度条字段
-            if (vm.DeclarativeBars?.Bars != null)
-            {
-                foreach (var bar in vm.DeclarativeBars.Bars)
-                {
-                    var isSelected = IsProgressFieldSelected(vm.ProviderId, bar.Label);
-                    MultiProgressFieldItems.Add(new Helpers.MultiProgressFieldItem
-                    {
-                        ProviderId = vm.ProviderId,
-                        ProviderDisplayName = vm.DisplayName,
-                        FieldName = bar.Label,
-                        FieldDisplayName = bar.Label,
-                        IsSelected = isSelected,
-                        FieldType = "Progress"
-                    });
-                }
-            }
-
-            // 添加数字网格字段
-            if (vm.DeclarativeNumber?.Items != null)
-            {
-                foreach (var item in vm.DeclarativeNumber.Items)
-                {
-                    var isSelected = IsMetricFieldSelected(vm.ProviderId, item.Label);
-                    MultiProgressFieldItems.Add(new Helpers.MultiProgressFieldItem
-                    {
-                        ProviderId = vm.ProviderId,
-                        ProviderDisplayName = vm.DisplayName,
-                        FieldName = item.Label,
-                        FieldDisplayName = item.Label,
-                        IsSelected = isSelected,
-                        FieldType = "Metric"
-                    });
-                }
-            }
-        }
-    }
-
-    /// <summary>
-    /// req-104：检查指定 Provider 的进度条字段是否被选中。
-    /// </summary>
-    private bool IsProgressFieldSelected(string providerId, string fieldName)
-    {
-        if (!_configService.Settings.SelectedProgressFields.TryGetValue(providerId, out var selectedFields))
-            return true; // 默认全部选中
-        return selectedFields.Contains(fieldName);
-    }
-
-    /// <summary>
-    /// req-104：检查指定 Provider 的数字网格字段是否被选中。
-    /// </summary>
-    private bool IsMetricFieldSelected(string providerId, string fieldName)
-    {
-        if (!_configService.Settings.SelectedMetricFields.TryGetValue(providerId, out var selectedFields))
-            return true; // 默认全部选中
-        return selectedFields.Contains(fieldName);
-    }
-
-    /// <summary>
-    /// req-104：保存多进度条字段选择到配置。
-    /// </summary>
-    public void SaveMultiProgressFields()
-    {
-        // 按 Provider 分组保存进度条字段
-        var progressGroups = MultiProgressFieldItems
-            .Where(x => x.FieldType == "Progress")
-            .GroupBy(x => x.ProviderId);
-        foreach (var group in progressGroups)
-        {
-            var selectedFields = group.Where(x => x.IsSelected).Select(x => x.FieldName).ToList();
-            if (selectedFields.Count > 0)
-                _configService.Settings.SelectedProgressFields[group.Key] = selectedFields;
-            else
-                _configService.Settings.SelectedProgressFields.Remove(group.Key);
-        }
-
-        // 按 Provider 分组保存数字网格字段
-        var metricGroups = MultiProgressFieldItems
-            .Where(x => x.FieldType == "Metric")
-            .GroupBy(x => x.ProviderId);
-        foreach (var group in metricGroups)
-        {
-            var selectedFields = group.Where(x => x.IsSelected).Select(x => x.FieldName).ToList();
-            if (selectedFields.Count > 0)
-                _configService.Settings.SelectedMetricFields[group.Key] = selectedFields;
-            else
-                _configService.Settings.SelectedMetricFields.Remove(group.Key);
-        }
-
-        _configService.Save();
-        // 触发 ConfigChanged 事件，ProviderUsageViewModel 会重新过滤
-    }
-
-    // =====================================================================
-    // REQ-097 卡片图表顺序用户可调整
-    // =====================================================================
-
-    /// <summary>
-    /// req-097：图表顺序设置页的列表项集合（按 Provider 分组）。
-    /// </summary>
-    public ObservableCollection<Helpers.ChartOrderItem> ChartOrderItems { get; } = new();
-
-    /// <summary>
-    /// req-097：恢复默认图表顺序命令（按插件声明顺序）。
-    /// </summary>
-    public IRelayCommand ResetChartOrderCommand { get; private set; } = null!;
-
-    /// <summary>
-    /// req-097：刷新 ChartOrderItems 集合（从 EnabledUsages 同步）。
-    /// </summary>
-    public void RefreshChartOrderItems()
-    {
-        ChartOrderItems.Clear();
-        foreach (var vm in EnabledUsages)
-        {
-            var provider = vm.Provider;
-            if (provider == null) continue;
-
-            // 获取用户自定义顺序，若无则使用插件声明顺序（req-107 B6：优先 Card.Charts，ChartKindExtractor 已做 DeclarativeChartKind→CardChartKind 映射）
-            var chartOrder = GetProviderChartOrder(vm.ProviderId, ChartKindExtractor.ExtractDeclaredChartKinds(provider));
-            foreach (var chartKind in chartOrder)
-            {
-                ChartOrderItems.Add(new Helpers.ChartOrderItem
-                {
-                    ProviderId = vm.ProviderId,
-                    ProviderDisplayName = vm.DisplayName,
-                    ChartKind = chartKind
-                });
-            }
-        }
-    }
-
-    /// <summary>
-    /// req-097：获取指定 Provider 的图表顺序（用户自定义优先，回退到插件声明）。
-    /// </summary>
-    private IReadOnlyList<CardChartKind> GetProviderChartOrder(string providerId, IReadOnlyList<CardChartKind> supportedCharts)
-        // req-099 B1：图表顺序解析已抽离到 DisplayModule。
-        => _displayModule.GetChartOrder(providerId, supportedCharts);
-
-    /// <summary>
-    /// req-097：保存当前 ChartOrderItems 顺序到配置。
-    /// </summary>
-    public void SaveChartOrder()
-    {
-        // 按 Provider 分组保存图表顺序
-        var groups = ChartOrderItems.GroupBy(x => x.ProviderId);
-        foreach (var group in groups)
-        {
-            var chartOrder = group.Select(x => x.ChartKind).ToList();
-            _configService.Settings.ProviderChartOrder[group.Key] = chartOrder;
-        }
-        _configService.Save();
-        // 触发 ConfigChanged 事件，MainViewModel 会重新排序图表
     }
 
     // =====================================================================
@@ -1090,15 +554,6 @@ public partial class MainViewModel : INotifyPropertyChanged
 
     /// <summary>REQ-003：恢复默认 metric 顺序（覆盖设置 + 同步 ListBox + 落盘）。</summary>
     public IRelayCommand ResetRingMetricOrderCommand { get; private set; } = null!;
-
-    // =====================================================================
-    // req-026 环形图中心数字「按 Provider 独立启用」设置
-    // =====================================================================
-
-    /// <summary>req-026：环形图中心数字「每个 Provider × 支持的 metric」勾选状态集合。
-    /// <para>绑定到设置窗口 Tab "环形图中心"，每行一个 Provider，每行内多 CheckBox（每个支持的 metric 一个）。
-    /// 勾选状态写回 <c>AppSettings.ProviderEnabledRingChartMetrics[providerId]</c>。</para></summary>
-    public ObservableCollection<ProviderRingChartMetricGroup> ProviderRingChartMetricGroups { get; } = new();
 
     // =====================================================================
     // REQ-004 触发区域 RectInt

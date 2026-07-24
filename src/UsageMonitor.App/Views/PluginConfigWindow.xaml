@@ -29,42 +29,30 @@
                 <!-- 动态表单区域（代码根据 ConfigFields 填充） -->
                 <StackPanel x:Name="FormPanel" />
 
-                <!-- req-109：账号管理（同 Provider 多账号 UI）
-                     提供 + 添加账号 / 编辑昵称 / 使用昵称 / 删除账号
-                     仅当 _configService 与 providerId 都有值时显示 -->
-                <StackPanel x:Name="AccountSection">
+                <!-- S6：卡片图表启用开关（按插件 defaults.json 声明的 Card.Charts 列出 chartId 开关；
+                     数据落点与设置窗口【卡片管理】页同为 AccountCustomization.VisibleCharts） -->
+                <StackPanel x:Name="CardChartSwitchSection">
                     <Separator Margin="0,8,0,14" />
-                    <Grid Margin="0,0,0,8">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <StackPanel Grid.Column="0">
-                            <TextBlock Text="账号" FontSize="15" FontWeight="SemiBold"
-                                       Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,4" />
-                            <TextBlock Text="同一 Provider 支持多个账号（API / 订阅 / 测试号）。每账号独立卡片配置。"
-                                       FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
-                                       TextWrapping="Wrap" />
-                        </StackPanel>
-                        <Button x:Name="AddAccountButton" Grid.Column="1" Content="+ 添加账号" Click="OnAddAccountClick"
-                                Style="{StaticResource AccentSoftButtonStyle}" VerticalAlignment="Center" />
-                    </Grid>
-                    <StackPanel x:Name="AccountListPanel" />
-                </StackPanel>
-
-                <!-- 卡片图表分组（req-107 B6 收敛：插件声明的 SupportedCardCharts 已统一由 ChartKindExtractor 读取，优先 Card 声明的 Charts，回退旧属性） -->
-                <StackPanel x:Name="CardChartSection">
-                    <Separator Margin="0,8,0,14" />
-                    <TextBlock Text="{helpers:Loc pluginconfig.cardchart.title}" FontSize="15" FontWeight="SemiBold"
+                    <TextBlock Text="{helpers:Loc pluginconfig.charts.title}" FontSize="15" FontWeight="SemiBold"
                                Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,4" />
-                    <TextBlock Text="{helpers:Loc pluginconfig.cardchart.hint}"
+                    <TextBlock Text="{helpers:Loc pluginconfig.charts.hint}"
                                FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
                                Margin="0,0,0,8" TextWrapping="Wrap" />
-                    <!-- 复选框容器：代码根据插件支持的图表类型动态填充 -->
-                    <StackPanel x:Name="CardChartCheckPanel" />
+                    <!-- 开关容器：代码按插件声明的图表动态填充 CheckBox -->
+                    <StackPanel x:Name="CardChartSwitchPanel" />
+                </StackPanel>
 
-                    <!-- 预览区：垂直堆叠所有已勾选图表的示例 -->
-                    <StackPanel x:Name="CardChartPreviewHost" Margin="0,12,0,0" />
+                <!-- S6：任务栏迷你图表启用开关（按插件声明的 Taskbar.MiniCharts 列出 chartId 开关；
+                     数据落点与设置窗口【任务栏迷你图表】页同为 AccountCustomization.VisibleMiniCharts） -->
+                <StackPanel x:Name="MiniChartSwitchSection">
+                    <Separator Margin="0,8,0,14" />
+                    <TextBlock Text="{helpers:Loc pluginconfig.minicharts.title}" FontSize="15" FontWeight="SemiBold"
+                               Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,4" />
+                    <TextBlock Text="{helpers:Loc pluginconfig.minicharts.hint}"
+                               FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
+                               Margin="0,0,0,8" TextWrapping="Wrap" />
+                    <!-- 开关容器：代码按插件声明的迷你图表动态填充 CheckBox -->
+                    <StackPanel x:Name="MiniChartSwitchPanel" />
                 </StackPanel>
             </StackPanel>
         </ScrollViewer>

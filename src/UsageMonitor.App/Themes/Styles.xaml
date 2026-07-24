@@ -30,6 +30,12 @@
         </Setter>
     </Style>
 
+    <!-- B7a：KeyValuePair 数据源 ComboBox 的共享 ItemTemplate。
+         选中框与下拉列表均显示 Value 属性，避免闭合框回退 KVP.ToString()。 -->
+    <DataTemplate x:Key="KvpValueTemplate">
+        <TextBlock Text="{Binding Value}" />
+    </DataTemplate>
+
     <!-- ComboBox 下拉箭头 ToggleButton 模板 -->
     <ControlTemplate x:Key="ComboToggleTemplate" TargetType="ToggleButton">
         <Border x:Name="bd" Background="{DynamicResource MutedBrush}" BorderBrush="{DynamicResource DividerBrush}"

@@ -1,15 +1,10 @@
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Media;
 using UsageMonitor.Core.Models;
 using UsageMonitor.Core.Plugins;
 using UsageMonitor.Core.Services;
-using UsageMonitor.App.Controls;
-using UsageMonitor.App.Helpers;
-using UsageMonitor.Plugin.MiniMax;
 
 // WinForms/WPF命名空间冲突解决：使用别名
-using Color = System.Windows.Media.Color;
 using Brushes = System.Windows.Media.Brushes;
 using WpfTextBox = System.Windows.Controls.TextBox;
 using WpfCheckBox = System.Windows.Controls.CheckBox;
@@ -27,6 +22,13 @@ namespace UsageMonitor.App.Views;
 /// 会自动显示"🌐 获取登录态"按钮，点击后调用 <see cref="BrowserLoginService"/>
 /// 启动临时 Edge 窗口并提取 Cookie。设计复刻自销项数据助手项目的
 /// <c>browser-cookie-manager</c> Skill。
+/// </para>
+/// <para>
+/// S6 瘦身：账号增删改已统一迁移到设置窗口【插件管理】页，本窗口不再承载账号管理区；
+/// 旧"卡片图表多选 + 示例预览"区（含空集合防御）一并移除，改为按插件 defaults.json
+/// 声明的 chartId 列出「卡片图表 / 任务栏迷你图表」两组简单启用开关，
+/// 持久化分别落 <c>AccountCustomization.VisibleCharts</c> / <c>VisibleMiniCharts</c>
+/// （与设置窗口【卡片管理】/【任务栏迷你图表】页同一数据落点，避免双写冲突）。
 /// </para>
 /// </summary>
 public partial class PluginConfigWindow : Window
@@ -46,15 +48,26 @@ public partial class PluginConfigWindow : Window
     /// </summary>
     private readonly UsageMonitor.Core.Plugins.IUsageProvider? _provider;
 
-    /// <summary>插件声明支持的图表类型（用于生成复选框，保持声明顺序）。</summary>
-    private readonly IReadOnlyList<CardChartKind> _supportedCardCharts;
+    /// <summary>S6：启用开关生效的账号 ID（缺省 "default"；由调用方传入账号上下文时按账号生效）。</summary>
+    private readonly string _accountId;
 
-    /// <summary>当前勾选的卡片图表类型集合（保存时由调用方读取持久化）。</summary>
-    private readonly HashSet<CardChartKind> _selectedCardCharts = new();
+    /// <summary>S6：卡片图表启用开关映射（chartId → CheckBox，按插件 Card.Charts 声明顺序）。</summary>
+    private readonly List<KeyValuePair<string, WpfCheckBox>> _cardChartSwitches = new();
 
-    /// <summary>用户在本窗口勾选的卡片图表类型集合（按声明顺序）。调用方在 ShowDialog 返回 true 后读取。</summary>
-    public IReadOnlyList<CardChartKind> SelectedCardChartKinds
-        => _supportedCardCharts.Where(_selectedCardCharts.Contains).ToList();
+    /// <summary>S6：任务栏迷你图表启用开关映射（miniChartId → CheckBox，按插件 Taskbar.MiniCharts 声明顺序）。</summary>
+    private readonly List<KeyValuePair<string, WpfCheckBox>> _miniChartSwitches = new();
+
+    /// <summary>Phase 2 修复：卡片图表开关初始是否为 legacy/null 全选语义（用户未改动时跳过写入）。</summary>
+    private bool _cardChartIsLegacyAll;
+
+    /// <summary>Phase 2 修复：迷你图表开关初始是否为 legacy/null 全选语义（用户未改动时跳过写入）。</summary>
+    private bool _miniChartIsLegacyAll;
+
+    /// <summary>Phase 2 修复：卡片图表开关初始勾选快照（用于比对用户是否实际改动）。</summary>
+    private List<bool> _cardChartInitialChecked = new();
+
+    /// <summary>Phase 2 修复：迷你图表开关初始勾选快照（用于比对用户是否实际改动）。</summary>
+    private List<bool> _miniChartInitialChecked = new();
 
     /// <summary>
     /// 正在登录中的 ProviderId 集合（进程级共享，避免同一插件重复触发登录）。
@@ -83,23 +96,28 @@ public partial class PluginConfigWindow : Window
     /// 点击后调用 <see cref="BrowserLoginService"/> 启动临时 Edge 窗口提取 Cookie。
     /// </param>
     /// <param name="configService">
-    /// req-065 B4：可选的 ConfigService，用于 BrowserLoginService 实例化（登录成功后自动重载内存配置）。
+    /// req-065 B4：可选的 ConfigService，用于 BrowserLoginService 实例化（登录成功后自动重载内存配置）；
+    /// S6：同时用于图表/迷你图表启用开关的读取与持久化。
     /// </param>
     /// <param name="provider">
     /// req-fix-Kimi-ConfigFields 动态模式：可选的插件实例引用。
     /// 传入后 PluginConfigWindow 会在 Mode ComboBox 切换时自动调用 <c>provider.ConfigFields</c>
     /// 重新拉取字段列表（如双模式插件根据 mode 字段返回不同字段）。
     /// 传 null 时按构造时传入的 _configFields 列表使用（向后兼容）。
+    /// <para>S6：图表/迷你图表启用开关依赖 <c>provider.Card</c> / <c>provider.Taskbar</c> 声明，传 null 时两区隐藏。</para>
+    /// </param>
+    /// <param name="accountId">
+    /// S6：可选的账号上下文。启用开关按该账号的 <c>AccountCustomization</c> 生效；
+    /// 传 null / 空字符串时规范化为 "default"（Provider 级入口的缺省行为）。
     /// </param>
     public PluginConfigWindow(
         string pluginName,
         IReadOnlyList<ConfigField> configFields,
         ProviderConfig config,
         BrowserLoginConfig? loginConfig = null,
-        IReadOnlyList<CardChartKind>? supportedCardCharts = null,
-        IReadOnlyList<CardChartKind>? currentCardCharts = null,
         ConfigService? configService = null,
-        UsageMonitor.Core.Plugins.IUsageProvider? provider = null)
+        UsageMonitor.Core.Plugins.IUsageProvider? provider = null,
+        string? accountId = null)
     {
         InitializeComponent();
         _configFields = configFields;
@@ -107,14 +125,11 @@ public partial class PluginConfigWindow : Window
         _loginConfig = loginConfig;
         _configService = configService;
         _provider = provider;
-        _supportedCardCharts = supportedCardCharts ?? System.Array.Empty<CardChartKind>();
-        if (currentCardCharts != null)
-            foreach (var k in currentCardCharts) _selectedCardCharts.Add(k);
+        _accountId = string.IsNullOrWhiteSpace(accountId) ? "default" : accountId.Trim();
 
         TitleText.Text = $"{pluginName} 配置";
         BuildForm();
-        BuildCardChartSection();
-        BuildAccountSection();
+        BuildChartSwitchSections();
 
         // 当插件声明了登录需求时，显示通用的"获取登录态"按钮
         if (_loginConfig != null)
@@ -125,346 +140,156 @@ public partial class PluginConfigWindow : Window
     }
 
     /// <summary>
-    /// req-109：账号管理 UI。列出该 Provider 下现有账号，提供 + 添加账号 / 编辑昵称 / 删除。
-    /// <para>仅当 <see cref="_configService"/> 与 <see cref="_provider"/> 都非空时显示。保存按钮由现有 <c>OnSaveClick</c> 一次性统一持久化。</para>
+    /// S6：构建「卡片图表 / 任务栏迷你图表」两组启用开关。
+    /// <para>按插件 defaults.json 声明的 chartId 逐一列出 CheckBox；
+    /// 插件未声明（或 <see cref="_provider"/> / <see cref="_configService"/> 缺失）时整组隐藏。</para>
     /// </summary>
-    private void BuildAccountSection()
+    private void BuildChartSwitchSections()
     {
-        if (_configService == null || _provider == null)
-        {
-            AccountSection.Visibility = Visibility.Collapsed;
-            return;
-        }
-
-        var providerId = _provider.ProviderId;
-        var accounts = _configService.GetAccounts(providerId);
-        // 无账号时提供一个引导行：引导用户添加第一个账号
-        if (accounts.Count == 0)
-        {
-            // 自动添加一个 default 账号（首次打开时让用户可见列表，不再空白）
-            // 注：仍需用户点击"+ 添加账号"才能持久化；此处不自动 add。
-        }
-
-        AccountListPanel.Children.Clear();
-        foreach (var account in accounts)
-        {
-            AccountListPanel.Children.Add(BuildAccountRow(providerId, account));
-        }
-    }
-
-    /// <summary>构建单行账号 UI（昵称 TextBox + UseNickname CheckBox + 删除 Button）。</summary>
-    private FrameworkElement BuildAccountRow(string providerId, UsageMonitor.Core.Models.Account account)
-    {
-        var border = new Border
-        {
-            Background = (System.Windows.Media.Brush)FindResource("SurfaceBrush"),
-            CornerRadius = (System.Windows.CornerRadius)FindResource("RadiusButton"),
-            Padding = new Thickness(10, 6, 10, 6),
-            Margin = new Thickness(0, 0, 0, 6)
-        };
-        var grid = new Grid();
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-        // 账号 ID（只读标签）
-        var idLabel = new TextBlock
-        {
-            Text = $"账号：{account.AccountId}{(account.IsDefault ? "（默认）" : "")}",
-            FontSize = 12,
-            Foreground = (System.Windows.Media.Brush)FindResource("TextSecondaryBrush"),
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 0, 8, 0)
-        };
-        Grid.SetColumn(idLabel, 0);
-        grid.Children.Add(idLabel);
-
-        // 昵称 TextBox
-        var nickBox = new WpfTextBox
-        {
-            Text = account.Nickname ?? string.Empty,
-            MinWidth = 140,
-            Margin = new Thickness(0, 0, 8, 0)
-        };
-        nickBox.TextChanged += (_, _) =>
-        {
-            account.Nickname = string.IsNullOrWhiteSpace(nickBox.Text) ? null : nickBox.Text.Trim();
-            TryUpdateAccount(account);
-        };
-        Grid.SetColumn(nickBox, 1);
-        grid.Children.Add(nickBox);
-
-        // 删除按钮
-        var delBtn = new WpfButton
-        {
-            Content = "删除",
-            Margin = new Thickness(0, 0, 0, 0),
-            Style = (Style)FindResource("GhostButtonStyle")
-        };
-        delBtn.Click += (_, _) =>
-        {
-            try
-            {
-                _configService!.RemoveAccount(providerId, account.AccountId);
-            }
-            catch (System.InvalidOperationException ex)
-            {
-                System.Windows.MessageBox.Show(this, ex.Message, "提示",
-                    System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
-                return;
-            }
-            BuildAccountSection();
-        };
-        Grid.SetColumn(delBtn, 2);
-        grid.Children.Add(delBtn);
-
-        border.Child = grid;
-        return border;
-    }
-
-    /// <summary>安全更新账号（不抛异常）。</summary>
-    private void TryUpdateAccount(UsageMonitor.Core.Models.Account account)
-    {
-        if (_configService == null) return;
-        try { _configService.UpdateAccount(account); }
-        catch { /* 静默失败：用户继续编辑后下次点击保存时一起写入 */ }
-    }
-
-    /// <summary>req-109：+ 添加账号 按钮点击处理（分配唯一 AccountId，弹出昵称输入对话框）。</summary>
-    private void OnAddAccountClick(object sender, RoutedEventArgs e)
-    {
-        if (_configService == null || _provider == null) return;
-        var providerId = _provider.ProviderId;
-        var defaultNickname = $"账号 {_configService.GetAccounts(providerId).Count + 1}";
-        var inputBox = new WpfTextBox { Text = defaultNickname, MinWidth = 200 };
-        var dialog = new Window
-        {
-            Title = "添加账号",
-            Width = 360,
-            Height = 160,
-            WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            Owner = this,
-            ResizeMode = ResizeMode.NoResize,
-            Background = (System.Windows.Media.Brush)FindResource("AppBackgroundBrush")
-        };
-        var stack = new StackPanel { Margin = new Thickness(16) };
-        stack.Children.Add(new TextBlock { Text = "为新账号设置昵称（Provider 内唯一）：", Margin = new Thickness(0, 0, 0, 8) });
-        stack.Children.Add(inputBox);
-        var btnRow = new StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal, HorizontalAlignment = System.Windows.HorizontalAlignment.Right, Margin = new Thickness(0, 12, 0, 0) };
-        var okBtn = new WpfButton { Content = "确定", IsDefault = true, Margin = new Thickness(0, 0, 8, 0), Style = (Style)FindResource("PrimaryButtonStyle") };
-        var cancelBtn = new WpfButton { Content = "取消", IsCancel = true, Style = (Style)FindResource("GhostButtonStyle") };
-        btnRow.Children.Add(okBtn);
-        btnRow.Children.Add(cancelBtn);
-        stack.Children.Add(btnRow);
-        dialog.Content = stack;
-        okBtn.Click += (_, _) => dialog.DialogResult = true;
-        if (dialog.ShowDialog() == true)
-        {
-            var nickname = string.IsNullOrWhiteSpace(inputBox.Text) ? null : inputBox.Text.Trim();
-            _configService.AddAccount(providerId, nickname);
-            BuildAccountSection();
-        }
+        BuildCardChartSwitches();
+        BuildMiniChartSwitches();
     }
 
     /// <summary>
-    /// 根据插件声明的 <see cref="_supportedCardCharts"/> 动态生成卡片图表复选框（多选）并渲染初始预览。
-    /// 插件未声明任何图表时隐藏整个「卡片图表」分组。
+    /// S6：按插件 <c>Card.Charts</c> 声明构建卡片图表启用开关。
+    /// <para>初始勾选态读取 <c>GetEffectiveAccountCustomization</c> 的 <c>VisibleCharts</c>
+    /// （null = 沿用 defaults.json 全部可见，含旧 ProviderCardChartKinds 读取兼容回退）。</para>
     /// </summary>
-    private void BuildCardChartSection()
+    private void BuildCardChartSwitches()
     {
-        if (_supportedCardCharts.Count == 0)
+        var charts = _provider?.Card?.Charts;
+        if (_provider == null || _configService == null || charts == null || charts.Count == 0)
         {
-            CardChartSection.Visibility = Visibility.Collapsed;
+            CardChartSwitchSection.Visibility = Visibility.Collapsed;
             return;
         }
 
-        CardChartCheckPanel.Children.Clear();
-        foreach (var kind in _supportedCardCharts)
+        var eff = _configService.GetEffectiveAccountCustomization(_provider.ProviderId, _accountId);
+        // Phase 2 修复：检测旧配置回显错误——旧 ProviderCardChartKinds 类型名（如 "Ring","Line"）
+        // 被兼容层填进 VisibleCharts，与声明 chartId 永不匹配 → 开关全部回显为不勾选。
+        // 判定 isLegacyFill：VisibleCharts 非 null 且含任一不在声明 chartId 集合中的值。
+        var declaredIds = new HashSet<string>(charts.Select(c => c.ChartId), StringComparer.Ordinal);
+        bool isLegacyFill = eff.VisibleCharts != null
+            && eff.VisibleCharts.Any(v => !declaredIds.Contains(v));
+        _cardChartIsLegacyAll = eff.VisibleCharts == null || isLegacyFill;
+
+        CardChartSwitchPanel.Children.Clear();
+        _cardChartSwitches.Clear();
+        _cardChartInitialChecked.Clear();
+        foreach (var chart in charts)
         {
+            // Phase 2 修复：legacy/null 时全选回显，避免旧配置被误显示为未勾选。
+            var isChecked = _cardChartIsLegacyAll || eff.VisibleCharts!.Contains(chart.ChartId);
             var cb = new WpfCheckBox
             {
-                Content = DescribeChartKind(kind),
-                IsChecked = _selectedCardCharts.Contains(kind),
-                Tag = kind,
+                Content = ExtractChartShortName(chart.ChartId),
+                IsChecked = isChecked,
+                ToolTip = chart.ChartId,
                 Margin = new Thickness(0, 4, 0, 4)
             };
-            cb.Checked += OnCardChartCheckChanged;
-            cb.Unchecked += OnCardChartCheckChanged;
-            CardChartCheckPanel.Children.Add(cb);
-        }
-        RefreshCardChartPreview();
-    }
-
-    /// <summary>图表类型 → 复选框中文标签。</summary>
-    private static string DescribeChartKind(CardChartKind kind) => kind switch
-    {
-        CardChartKind.Line => "折线图",
-        CardChartKind.Bar => "柱状图",
-        CardChartKind.Ring => "圆环图",
-        CardChartKind.HeatMap => "热力图",
-        CardChartKind.DayNightArc => "编程时段",
-        _ => kind.ToString()
-    };
-
-    /// <summary>复选框勾选变化：更新选中集合并刷新预览。</summary>
-    private void OnCardChartCheckChanged(object sender, RoutedEventArgs e)
-    {
-        if (sender is WpfCheckBox cb && cb.Tag is CardChartKind kind)
-        {
-            if (cb.IsChecked == true) _selectedCardCharts.Add(kind);
-            else _selectedCardCharts.Remove(kind);
-            RefreshCardChartPreview();
+            cb.SetResourceReference(WpfCheckBox.ForegroundProperty, "TextPrimaryBrush");
+            CardChartSwitchPanel.Children.Add(cb);
+            _cardChartSwitches.Add(new KeyValuePair<string, WpfCheckBox>(chart.ChartId, cb));
+            _cardChartInitialChecked.Add(isChecked);
         }
     }
 
     /// <summary>
-    /// 按当前勾选，用示例数据垂直堆叠重建所有选中图表的预览（主题感知；真实数据接入后卡片会用真实序列）。
+    /// S6：按插件 <c>Taskbar.MiniCharts</c> 声明构建任务栏迷你图表启用开关。
+    /// <para>初始勾选态读取 <c>GetEffectiveAccountCustomization</c> 的 <c>VisibleMiniCharts</c>（null = 全部可见）。</para>
     /// </summary>
-    private void RefreshCardChartPreview()
+    private void BuildMiniChartSwitches()
     {
-        if (CardChartPreviewHost == null) return;
-        CardChartPreviewHost.Children.Clear();
-
-        foreach (var kind in _supportedCardCharts.Where(_selectedCardCharts.Contains))
-            CardChartPreviewHost.Children.Add(BuildPreviewBlock(kind));
-
-        if (CardChartPreviewHost.Children.Count == 0)
+        var miniCharts = _provider?.Taskbar?.MiniCharts;
+        if (_provider == null || _configService == null || miniCharts == null || miniCharts.Count == 0)
         {
-            var tb = new TextBlock
+            MiniChartSwitchSection.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        var eff = _configService.GetEffectiveAccountCustomization(_provider.ProviderId, _accountId);
+        // Phase 2 修复：同卡片图表侧逻辑——检测旧配置回显错误。
+        var declaredIds = new HashSet<string>(miniCharts.Select(m => m.ChartId), StringComparer.Ordinal);
+        bool isLegacyFill = eff.VisibleMiniCharts != null
+            && eff.VisibleMiniCharts.Any(v => !declaredIds.Contains(v));
+        _miniChartIsLegacyAll = eff.VisibleMiniCharts == null || isLegacyFill;
+
+        MiniChartSwitchPanel.Children.Clear();
+        _miniChartSwitches.Clear();
+        _miniChartInitialChecked.Clear();
+        foreach (var mini in miniCharts)
+        {
+            var isChecked = _miniChartIsLegacyAll || eff.VisibleMiniCharts!.Contains(mini.ChartId);
+            var cb = new WpfCheckBox
             {
-                Text = "未选择图表（卡片仅显示进度条）", FontSize = 12,
-                HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
-                Margin = new Thickness(0, 12, 0, 12)
+                Content = ExtractChartShortName(mini.ChartId),
+                IsChecked = isChecked,
+                ToolTip = mini.ChartId,
+                Margin = new Thickness(0, 4, 0, 4)
             };
-            tb.SetResourceReference(TextBlock.ForegroundProperty, "TextSecondaryBrush");
-            CardChartPreviewHost.Children.Add(tb);
+            cb.SetResourceReference(WpfCheckBox.ForegroundProperty, "TextPrimaryBrush");
+            MiniChartSwitchPanel.Children.Add(cb);
+            _miniChartSwitches.Add(new KeyValuePair<string, WpfCheckBox>(mini.ChartId, cb));
+            _miniChartInitialChecked.Add(isChecked);
         }
     }
 
-    /// <summary>为单个图表类型构建「标题 + 示例图表」的预览块（带主题感知边框）。</summary>
-    private FrameworkElement BuildPreviewBlock(CardChartKind kind)
+    /// <summary>S6：从 chartId 提取简短显示名（去掉 Provider 前缀，与卡片管理页 ChartNode 规则一致：
+    /// "mm.chart.usage_bar" → "usage_bar"；不足三段时原样返回）。</summary>
+    private static string ExtractChartShortName(string chartId)
     {
-        var container = new Border
-        {
-            Margin = new Thickness(0, 0, 0, 10),
-            Padding = new Thickness(10),
-            BorderThickness = new Thickness(1)
-        };
-        container.SetResourceReference(Border.BackgroundProperty, "SurfaceAltBrush");
-        container.SetResourceReference(Border.BorderBrushProperty, "DividerBrush");
-        container.SetResourceReference(Border.CornerRadiusProperty, "RadiusSmall");
-
-        var stack = new StackPanel();
-        var title = new TextBlock
-        {
-            Text = DescribeChartKind(kind), FontSize = 12, FontWeight = FontWeights.SemiBold,
-            Margin = new Thickness(0, 0, 0, 6)
-        };
-        title.SetResourceReference(TextBlock.ForegroundProperty, "TextSecondaryBrush");
-        stack.Children.Add(title);
-
-        // 热力图控件本身 MinHeight≈150，给更高的容器避免被裁剪；其它图表用统一 132 高度。
-        var host = new Border { Height = kind == CardChartKind.HeatMap ? 170 : 132 };
-        host.Child = BuildSampleChart(kind);
-        stack.Children.Add(host);
-
-        container.Child = stack;
-        return container;
+        var parts = chartId.Split('.');
+        return parts.Length > 2 ? string.Join(".", parts.Skip(2)) : chartId;
     }
 
-    /// <summary>按图表类型创建示例控件（沿用原预览逻辑，热力图改用 YearHeatMapControl 示例日历）。</summary>
-    private FrameworkElement BuildSampleChart(CardChartKind kind)
+    /// <summary>
+    /// S6：保存时持久化两组启用开关。
+    /// <para>卡片图表落 <c>AccountCustomization.VisibleCharts</c>（ConfigService.SetVisibleCharts），
+    /// 迷你图表落 <c>VisibleMiniCharts</c>（ConfigService.SetVisibleMiniCharts）——
+    /// 与设置窗口【卡片管理】/【任务栏迷你图表】页同一数据落点；
+    /// 两个窄写入方法只更新单一字段，不触碰排序 / 数据组等兄弟配置，避免双写冲突。
+    /// 声明缺失（开关区未构建）时跳过对应写入，不产生空配置条目。</para>
+    /// </summary>
+    private void PersistChartSwitches()
     {
-        switch (kind)
+        if (_provider == null || _configService == null) return;
+
+        // Phase 2 修复：若初始为 legacy/null 全选语义且用户未改动任何开关，则跳过写入（保持 null 兼容路径）。
+        if (_cardChartSwitches.Count > 0)
         {
-            case CardChartKind.Line:
+            bool cardChanged = false;
+            for (int i = 0; i < _cardChartSwitches.Count; i++)
             {
-                var c = new MiniLineChartControl { Values = SampleChartData.UsageTrend, StrokeThickness = 2.4 };
-                c.SetResourceReference(MiniLineChartControl.LowBrushProperty, "UsageLowBrush");
-                c.SetResourceReference(MiniLineChartControl.MidBrushProperty, "UsageMidBrush");
-                c.SetResourceReference(MiniLineChartControl.HighBrushProperty, "UsageHighBrush");
-                return c;
+                if ((_cardChartSwitches[i].Value.IsChecked == true) != _cardChartInitialChecked[i])
+                { cardChanged = true; break; }
             }
-            case CardChartKind.Bar:
+            if (!(_cardChartIsLegacyAll && !cardChanged))
             {
-                var c = new BarChartControl { Values = SampleChartData.DailyBars };
-                c.SetResourceReference(BarChartControl.BarBrushProperty, "AccentGradientBrush");
-                c.SetResourceReference(BarChartControl.GridLineBrushProperty, "ChartAxisBrush");
-                c.SetResourceReference(BarChartControl.TextBrushProperty, "TextSecondaryBrush");
-                return c;
-            }
-            case CardChartKind.Ring:
-            {
-                var c = new RingChartControl
-                {
-                    Percent = 68, Size = 120, StrokeThickness = 12,
-                    HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
-                    VerticalAlignment = System.Windows.VerticalAlignment.Center
-                };
-                c.SetResourceReference(RingChartControl.TrackBrushProperty, "TrackBrush");
-                c.SetResourceReference(RingChartControl.ProgressBrushProperty, "AccentBrush");
-                c.SetResourceReference(RingChartControl.WarningBrushProperty, "WarningBrush");
-                c.SetResourceReference(RingChartControl.DangerBrushProperty, "DangerBrush");
-                return c;
-            }
-            case CardChartKind.HeatMap:
-            {
-                var c = new YearHeatMapControl { Cells = BuildSampleHeatMapCells() };
-                c.SetResourceReference(YearHeatMapControl.EmptyCellBrushProperty, "TrackBrush");
-                c.SetResourceReference(YearHeatMapControl.TextBrushProperty, "TextSecondaryBrush");
-                return c;
-            }
-            case CardChartKind.DayNightArc:
-            {
-                var c = new DayNightArcControl { HourlyActivity = SampleChartData.HourlyActivity };
-                c.SetResourceReference(DayNightArcControl.TrackBrushProperty, "TextTertiaryBrush");
-                c.SetResourceReference(DayNightArcControl.AccentBrushProperty, "AccentBrush");
-                c.SetResourceReference(DayNightArcControl.TextBrushProperty, "TextSecondaryBrush");
-                return c;
-            }
-            default:
-            {
-                var tb = new TextBlock
-                {
-                    Text = "（无预览）", FontSize = 12,
-                    HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
-                    VerticalAlignment = System.Windows.VerticalAlignment.Center
-                };
-                tb.SetResourceReference(TextBlock.ForegroundProperty, "TextSecondaryBrush");
-                return tb;
+                var visible = _cardChartSwitches
+                    .Where(kv => kv.Value.IsChecked == true)
+                    .Select(kv => kv.Key)
+                    .ToList();
+                _configService.SetVisibleCharts(_provider.ProviderId, visible, _accountId);
             }
         }
-    }
 
-    /// <summary>为热力图预览生成一批示例日历单元（最近约 5 周、循环取示例强度）。</summary>
-    private static IEnumerable<YearHeatMapCell> BuildSampleHeatMapCells()
-    {
-        var cells = new List<YearHeatMapCell>();
-        var start = System.DateTime.Today.AddDays(-34);
-        var sample = SampleChartData.UsageTrend;
-        for (int i = 0; i < 35; i++)
+        if (_miniChartSwitches.Count > 0)
         {
-            var pct = sample[i % sample.Count];
-            cells.Add(new YearHeatMapCell
+            bool miniChanged = false;
+            for (int i = 0; i < _miniChartSwitches.Count; i++)
             {
-                Day = start.AddDays(i).ToString("yyyy-MM-dd"),
-                Percent = pct,
-                Background = PreviewHeatBrush(pct)
-            });
+                if ((_miniChartSwitches[i].Value.IsChecked == true) != _miniChartInitialChecked[i])
+                { miniChanged = true; break; }
+            }
+            if (!(_miniChartIsLegacyAll && !miniChanged))
+            {
+                var visible = _miniChartSwitches
+                    .Where(kv => kv.Value.IsChecked == true)
+                    .Select(kv => kv.Key)
+                    .ToList();
+                _configService.SetVisibleMiniCharts(_provider.ProviderId, visible, _accountId);
+            }
         }
-        return cells;
-    }
-
-    /// <summary>示例热力图三档画笔（低绿/中橙/高红），Freeze 后可安全绑定。</summary>
-    private static System.Windows.Media.Brush PreviewHeatBrush(double percent)
-    {
-        byte r, g, b;
-        if (percent >= 66) { r = 0xEF; g = 0x44; b = 0x44; }
-        else if (percent >= 33) { r = 0xF5; g = 0x9E; b = 0x0B; }
-        else { r = 0x22; g = 0xC5; b = 0x5E; }
-        var brush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(r, g, b));
-        brush.Freeze();
-        return brush;
     }
 
     /// <summary>
@@ -633,18 +458,20 @@ public partial class PluginConfigWindow : Window
     }
 
     /// <summary>
-    /// 创建布尔开关控件（CheckBox）
+    /// 创建布尔开关控件（CheckBox）。
+    /// <para>S6：前景色改用主题画刷动态引用（原硬编码 RGB 已移除），随主题切换自适应。</para>
     /// </summary>
     private WpfCheckBox CreateBooleanInput(ConfigField field)
     {
         var currentValue = _config.GetValue(field.Key) ?? field.DefaultValue ?? "false";
-        return new WpfCheckBox
+        var checkBox = new WpfCheckBox
         {
             IsChecked = bool.TryParse(currentValue, out var b) && b,
-            Foreground = new SolidColorBrush(Color.FromRgb(226, 232, 240)),
             FontSize = 14,
             Tag = field.Key
         };
+        checkBox.SetResourceReference(WpfCheckBox.ForegroundProperty, "TextPrimaryBrush");
+        return checkBox;
     }
 
     /// <summary>
@@ -690,7 +517,7 @@ public partial class PluginConfigWindow : Window
     /// req-fix-Kimi-ConfigFields 动态模式：Mode 字段切换时调用。
     /// 1. 重新调用 <c>provider.ConfigFields</c> 拉取与新模式匹配的字段列表
     /// 2. 保留用户已填的字段值（Cookie/ApiKey 等）
-    /// 3. 重新构建整个表单 + 卡片图表区
+    /// 3. 重新构建整个表单（图表启用开关不依赖 mode，无须重建）
     /// </summary>
     private void RebuildFormForModeChange()
     {
@@ -735,9 +562,7 @@ public partial class PluginConfigWindow : Window
             // 3. 重新构建表单
             BuildForm();
 
-            // 4. 卡片图表区不依赖 mode，无须重建
-
-            // 5. 把之前抓取的值填回新控件
+            // 4. 把之前抓取的值填回新控件
             foreach (var (key, value) in currentValues)
             {
                 if (_inputControls.TryGetValue(key, out var control) && value != null)
@@ -916,7 +741,7 @@ public partial class PluginConfigWindow : Window
     }
 
     /// <summary>
-    /// 保存按钮点击 - 收集所有输入值写入 ProviderConfig
+    /// 保存按钮点击 - 收集所有输入值写入 ProviderConfig，并持久化图表/迷你图表启用开关（S6）。
     /// </summary>
     private void OnSaveClick(object sender, RoutedEventArgs e)
     {
@@ -939,6 +764,11 @@ public partial class PluginConfigWindow : Window
 
             _config.SetValue(field.Key, value);
         }
+
+        // S6：持久化卡片图表 / 任务栏迷你图表启用开关（落点同卡片管理页 / 迷你图表页）。
+        // 旧"卡片图表多选"的空集合防御已随该区删除——启用开关写的是 chartId 列表，
+        // 空集合是合法用户选择（= 不显示任何图表），语义与 AccountCustomization 契约一致。
+        PersistChartSwitches();
 
         DialogResult = true;
         Close();
@@ -980,26 +810,6 @@ public partial class PluginConfigWindow : Window
             return wrapper.PasswordBox.Password;
         }
         return "";
-    }
-
-    /// <summary>
-    /// 创建圆角按钮模板
-    /// </summary>
-    private static ControlTemplate CreateRoundedButtonTemplate()
-    {
-        var template = new ControlTemplate(typeof(WpfButton));
-        var border = new FrameworkElementFactory(typeof(Border));
-        border.SetValue(Border.CornerRadiusProperty, new CornerRadius(6));
-        border.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(WpfButton.BackgroundProperty));
-        border.SetValue(Border.PaddingProperty, new TemplateBindingExtension(System.Windows.Controls.Control.PaddingProperty));
-
-        var contentPresenter = new FrameworkElementFactory(typeof(ContentPresenter));
-        contentPresenter.SetValue(ContentPresenter.HorizontalAlignmentProperty, System.Windows.HorizontalAlignment.Center);
-        contentPresenter.SetValue(ContentPresenter.VerticalAlignmentProperty, VerticalAlignment.Center);
-        border.AppendChild(contentPresenter);
-        template.VisualTree = border;
-
-        return template;
     }
 }
 

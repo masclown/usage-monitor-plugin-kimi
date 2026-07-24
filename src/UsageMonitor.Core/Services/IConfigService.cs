@@ -50,9 +50,4 @@ public interface IConfigService
     /// <summary>设置全局用量色阶配置</summary>
     /// <param name="tiers">色阶列表</param>
     void SetUsageTierConfig(IReadOnlyList<UsageTierConfig> tiers);
-
-    /// <summary>设置指定 Provider 的卡片图表类型列表</summary>
-    /// <param name="providerId">Provider 唯一标识</param>
-    /// <param name="kinds">图表类型列表</param>
-    void SetProviderCardChartKinds(string providerId, IReadOnlyList<CardChartKind> kinds);
 }

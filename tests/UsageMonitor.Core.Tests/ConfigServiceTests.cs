@@ -279,4 +279,122 @@ public class ConfigServiceTests : IDisposable
         svc.Load();
         svc.Settings.RefreshIntervalSeconds.Should().BeInRange(30, 86400);
     }
+
+    // -----------------------------------------------------------------
+    // Phase 2 修复：MakeSnapshot 补齐 Accounts/PersistedLoginStates/AccountCustomizations 深拷贝
+    // 验证 Save→重新 Load→三集合数据完好
+    // -----------------------------------------------------------------
+
+    [Fact]
+    public void Save_Then_Load_Preserves_Accounts_LoginStates_AccountCustomizations()
+    {
+        var svc = CreateConfigService();
+        svc.UpdateSettings(s =>
+        {
+            // Accounts
+            s.Accounts.Add(new Account
+            {
+                ProviderId = "MiniMax",
+                AccountId = "acc-001",
+                Nickname = "测试账号",
+                UseNickname = true,
+                IsDefault = true,
+                Enabled = true,
+                CreatedAt = new DateTime(2026, 7, 24, 12, 0, 0)
+            });
+            s.Accounts.Add(new Account
+            {
+                ProviderId = "MiniMax",
+                AccountId = "acc-002",
+                Nickname = null,
+                UseNickname = false,
+                IsDefault = false,
+                Enabled = false,
+                CreatedAt = new DateTime(2026, 7, 24, 13, 0, 0)
+            });
+
+            // PersistedLoginStates
+            s.PersistedLoginStates.Add(new LoginStateInfo
+            {
+                ProviderId = "MiniMax",
+                AccountId = "acc-001",
+                AcquiredAt = new DateTime(2026, 7, 20, 8, 30, 0)
+            });
+
+            // AccountCustomizations
+            var cust = new AccountCustomization
+            {
+                VisibleCharts = new List<string> { "mm.chart.daily_line", "mm.chart.heatmap" },
+                Nickname = "定制昵称",
+                UseNickname = true,
+                VisibleMiniCharts = new List<string> { "mm.mini.ring" }
+            };
+            cust.ChartOrders["mm.chart.daily_line"] = 1;
+            cust.VisibleDataGroups["mm.chart.daily_line"] = new List<string> { "dg1", "dg2" };
+            cust.VisibleTooltipFields["mm.chart.daily_line"] = new List<string> { "field_a" };
+            cust.Cards.Add(new CardConfig
+            {
+                CardId = "default-card",
+                Title = "卡片标题",
+                DisplayOrder = 0,
+                Customization = new AccountCustomization
+                {
+                    VisibleCharts = new List<string> { "mm.chart.usage_bar" }
+                }
+            });
+            s.AccountCustomizations[AccountCustomization.MakeKey("MiniMax", "acc-001")] = cust;
+        });
+        svc.Save();
+
+        // 重新 Load 验证三集合数据完好
+        var reloaded = CreateConfigService();
+        reloaded.Load();
+
+        // Accounts 验证
+        reloaded.Settings.Accounts.Should().HaveCount(2);
+        var acc1 = reloaded.Settings.Accounts.First(a => a.AccountId == "acc-001");
+        acc1.ProviderId.Should().Be("MiniMax");
+        acc1.Nickname.Should().Be("测试账号");
+        acc1.UseNickname.Should().BeTrue();
+        acc1.IsDefault.Should().BeTrue();
+        acc1.Enabled.Should().BeTrue();
+        var acc2 = reloaded.Settings.Accounts.First(a => a.AccountId == "acc-002");
+        acc2.Enabled.Should().BeFalse();
+        acc2.Nickname.Should().BeNull();
+
+        // PersistedLoginStates 验证
+        reloaded.Settings.PersistedLoginStates.Should().HaveCount(1);
+        var ls = reloaded.Settings.PersistedLoginStates[0];
+        ls.ProviderId.Should().Be("MiniMax");
+        ls.AccountId.Should().Be("acc-001");
+        ls.AcquiredAt.Should().Be(new DateTime(2026, 7, 20, 8, 30, 0));
+
+        // AccountCustomizations 验证
+        var key = AccountCustomization.MakeKey("MiniMax", "acc-001");
+        reloaded.Settings.AccountCustomizations.Should().ContainKey(key);
+        var rc = reloaded.Settings.AccountCustomizations[key];
+        rc.VisibleCharts.Should().BeEquivalentTo("mm.chart.daily_line", "mm.chart.heatmap");
+        rc.Nickname.Should().Be("定制昵称");
+        rc.VisibleMiniCharts.Should().BeEquivalentTo("mm.mini.ring");
+        rc.ChartOrders["mm.chart.daily_line"].Should().Be(1);
+        rc.VisibleDataGroups["mm.chart.daily_line"].Should().BeEquivalentTo("dg1", "dg2");
+        rc.VisibleTooltipFields["mm.chart.daily_line"].Should().BeEquivalentTo("field_a");
+        rc.Cards.Should().HaveCount(1);
+        rc.Cards[0].CardId.Should().Be("default-card");
+        rc.Cards[0].Title.Should().Be("卡片标题");
+        rc.Cards[0].Customization.VisibleCharts.Should().BeEquivalentTo("mm.chart.usage_bar");
+    }
+
+    [Fact]
+    public void Save_Then_Load_Preserves_CookieRetentionDays()
+    {
+        var svc = CreateConfigService();
+        svc.UpdateSettings(s => s.CookieRetentionDays = 30);
+        svc.Save();
+
+        var reloaded = CreateConfigService();
+        reloaded.Load();
+
+        reloaded.Settings.CookieRetentionDays.Should().Be(30);
+    }
 }

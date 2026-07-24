@@ -28,6 +28,14 @@ public sealed class DisplayModule : IDisplayModule
     private readonly ConfigService _configService;
     private readonly IRefreshService _refreshService;
     private readonly Action<string>? _reLoginHandler;
+    // S1：统一鉴权管理器（供账号行 Sub 状态灯读取登录态，可为 null 表示未接入）。
+    private readonly UsageMonitor.Core.Services.Auth.AuthManager? _authManager;
+    // S1：每个 Provider 的账号结构签名缓存（accountId+Enabled+cardIds），
+    //   供 SyncCardsWithAccounts 增量比对：仅账号结构真正变化时才重建卡片，
+    //   避免主题 / 刷新间隔等无关配置变更误触发卡片重建。
+    private readonly Dictionary<string, string> _accountSignatures = new(StringComparer.OrdinalIgnoreCase);
+    // S1：防止 SyncCardsWithAccounts 重入的保护标志。
+    private bool _isSyncingCards;
 
     /// <inheritdoc/>
     public event EventHandler? EnabledCardsChanged;
@@ -52,12 +60,14 @@ public sealed class DisplayModule : IDisplayModule
     /// 仅当插件声明了 <c>LoginConfig</c> 且本回调非空时才注入到卡片 VM。
     /// </param>
     public DisplayModule(PluginManager pluginManager, ConfigService configService,
-        IRefreshService refreshService, Action<string>? reLoginHandler)
+        IRefreshService refreshService, Action<string>? reLoginHandler,
+        UsageMonitor.Core.Services.Auth.AuthManager? authManager = null)
     {
         _pluginManager = pluginManager;
         _configService = configService;
         _refreshService = refreshService;
         _reLoginHandler = reLoginHandler;
+        _authManager = authManager;
     }
 
     /// <inheritdoc/>
@@ -65,14 +75,8 @@ public sealed class DisplayModule : IDisplayModule
     {
         foreach (var plugin in _pluginManager.Plugins)
         {
-            // req-109：枚举 (Account, Card) 二元组派生 N 张卡片（每 Provider 可有 N 个）。
-            //   - 无 Accounts 配置 → 走单卡向后兼容路径（(default, default-card)）
-            //   - 有 Accounts → 对每个账号取卡片列表，逐卡片创建 VM
-            var accounts = _configService.GetAccounts(plugin.Provider.ProviderId);
-            var cardTuples = accounts.Count > 0
-                ? accounts.SelectMany(a => _configService.GetCards(plugin.Provider.ProviderId, a.AccountId)
-                    .Select(c => (AccountId: a.AccountId, CardId: c.CardId))).ToList()
-                : new List<(string AccountId, string CardId)> { ("default", "default-card") };
+            // S1：计算该 Provider 的 (Account, Card) 元组列表（过滤禁用账号；无账号时回退默认单卡）
+            var cardTuples = BuildCardTuples(plugin.Provider.ProviderId);
 
             // 读取已保存的显示模式与卡片图表多选（未配置时回退插件声明：req-107 B6 优先 Card.Charts）
             var savedMode = TaskbarModeResolver.Resolve(_configService.Settings, plugin.Provider.ProviderId);
@@ -92,7 +96,7 @@ public sealed class DisplayModule : IDisplayModule
                     break;
             }
 
-            var item = new PluginItemViewModel(plugin.Provider, _configService)
+            var item = new PluginItemViewModel(plugin.Provider, _configService, _authManager)
             {
                 ProviderId = plugin.Provider.ProviderId,
                 DisplayName = plugin.Provider.DisplayName,
@@ -102,7 +106,8 @@ public sealed class DisplayModule : IDisplayModule
                 IsEnabled = plugin.IsEnabled,
                 DisplayMode = savedMode
             };
-            item.InitCardChartKinds(savedCardCharts);
+            // S6：旧 item.InitCardChartKinds(savedCardCharts) 已删除——卡片图表多选写入路径（ProviderCardChartKinds）
+            // 随插件配置窗口瘦身一并清除；savedCardCharts 仅作为读取兼容路径继续流入卡片 VM 驱动渲染。
             // 双向同步：PluginItem 变更时同步到卡片 VM 与配置
             item.PropertyChanged += (_, e) =>
             {
@@ -114,51 +119,169 @@ public sealed class DisplayModule : IDisplayModule
                 {
                     SetPluginEnabled(item.ProviderId, item.IsEnabled);
                 }
-                else if (e.PropertyName == nameof(PluginItemViewModel.CardChartKinds))
-                {
-                    var targets = Usages.Where(u => u.ProviderId == item.ProviderId);
-                    foreach (var t in targets) t.CardChartKinds = item.CardChartKinds;
-                }
             };
             PluginItems.Add(item);
+            // S1：加载该插件下的账号列表（供徽标计数 / 绿点 / 展开列表使用）
+            item.ReloadAccounts();
 
-            // req-091-005：仅当 Provider 声明 LoginConfig 且宿主提供回调时注入重新登录动作。
-            var providerId = plugin.Provider.ProviderId;
-#pragma warning disable CS0618 // LoginConfig 已过时（req-096），此处仍用于判定是否显示重新登录按钮，保持向后兼容
-            var supportsReLogin = plugin.Provider.LoginConfig != null;
-#pragma warning restore CS0618
-            Action? reLoginAction = supportsReLogin && _reLoginHandler != null
-                ? () => _reLoginHandler(providerId)
-                : null;
-
-            // req-109：每个 (Account, Card) 二元组派生一个 ProviderUsageViewModel
-            foreach (var (accountId, cardId) in cardTuples)
-            {
-                var usageVm = new ProviderUsageViewModel(
-                    item.OpenConfigDialog,
-                    () => _refreshService.RefreshProviderAsync(providerId),
-                    reLoginAction,
-                    accountId: accountId,
-                    cardId: cardId)
-                {
-                    ProviderId = plugin.Provider.ProviderId,
-                    DisplayName = plugin.Provider.DisplayName,
-                    IconPath = ProviderUsageViewModel.ResolveIconPath(plugin.Provider.ProviderId),
-                    IsEnabled = plugin.IsEnabled,
-                    DisplayMode = savedMode,
-                    CardChartKinds = savedCardCharts,
-                    RenderKinds = plugin.Provider.DefaultRenderKinds,
-                    CollapseVisibleParts = plugin.Provider.CollapseVisibleParts ?? Array.Empty<string>(),
-                    // req-107 B8：SupportsPeriodSwitch / ExtraTooltipLines 接口成员已收敛为 [Obsolete]；
-                    // 周期切换能力交由 Card.Line.Slicer(Period)、tooltip 扩展行交由 Card.Chart.Tooltip；VM 初始化不再从接口读取。
-                    Provider = plugin.Provider,
-                };
-                usageVm.AttachConfigService(_configService);
-                Usages.Add(usageVm);
-            }
+            // S1：创建卡片 VM（与 RebuildCardsForProvider 共用逻辑）并记录账号结构签名
+            CreateCardVms(plugin, item, cardTuples, savedMode, savedCardCharts);
+            _accountSignatures[plugin.Provider.ProviderId] = BuildAccountSignature(plugin.Provider.ProviderId);
         }
 
         RebuildEnabledCards();
+    }
+
+    /// <summary>
+    /// S1：计算指定 Provider 的 (AccountId, CardId) 元组列表。
+    /// <para>无账号 → 回退单卡向后兼容路径 (default, default-card)；
+    /// 有账号 → 逐账号枚举卡片，并跳过 <c>Enabled=false</c> 的禁用账号（不为其生成卡片）。</para>
+    /// </summary>
+    private List<(string AccountId, string CardId)> BuildCardTuples(string providerId)
+    {
+        var accounts = _configService.GetAccounts(providerId);
+        if (accounts.Count == 0)
+            return new List<(string AccountId, string CardId)> { ("default", "default-card") };
+        return accounts
+            .Where(a => a.Enabled)
+            .SelectMany(a => _configService.GetCards(providerId, a.AccountId)
+                .Select(c => (AccountId: a.AccountId, CardId: c.CardId)))
+            .ToList();
+    }
+
+    /// <summary>
+    /// S1：为指定 Provider 创建卡片 VM 并加入 <see cref="Usages"/>（Build 与 RebuildCardsForProvider 共用）。
+    /// <para>包含重新登录回调注入、账号昵称卡片标题解析、ConfigService 订阅接线。</para>
+    /// </summary>
+    private void CreateCardVms(UsageMonitor.Core.Plugins.LoadedPlugin plugin, PluginItemViewModel item,
+        List<(string AccountId, string CardId)> cardTuples, TaskbarDisplayMode savedMode,
+        IReadOnlyList<CardChartKind> savedCardCharts)
+    {
+        var providerId = plugin.Provider.ProviderId;
+
+        // req-091-005：仅当 Provider 声明 LoginConfig 且宿主提供回调时注入重新登录动作。
+#pragma warning disable CS0618 // LoginConfig 已过时（req-096），此处仍用于判定是否显示重新登录按钮，保持向后兼容
+        var supportsReLogin = plugin.Provider.LoginConfig != null;
+#pragma warning restore CS0618
+        Action? reLoginAction = supportsReLogin && _reLoginHandler != null
+            ? () => _reLoginHandler(providerId)
+            : null;
+
+        // req-109：每个 (Account, Card) 二元组派生一个 ProviderUsageViewModel
+        foreach (var (accountId, cardId) in cardTuples)
+        {
+            // B2：按账号昵称解析卡片标题——账号存在且 UseNickname=true 且昵称非空时显示昵称，
+            // 否则回退 Provider 显示名。昵称变更后由 ProviderUsageViewModel.OnConfigChanged 实时刷新。
+            var account = _configService.GetAccount(providerId, accountId);
+            var cardDisplayName = (account is { UseNickname: true } && !string.IsNullOrWhiteSpace(account.Nickname))
+                ? account.Nickname.Trim()
+                : plugin.Provider.DisplayName;
+
+            var usageVm = new ProviderUsageViewModel(
+                // S6：卡片“⚙ 设置”按钮打开配置窗口时携带本卡片的账号上下文，
+                // 使图表/迷你图表启用开关按当前账号生效（accountId 来自 (Account, Card) 元组）。
+                () => item.OpenConfigDialog(accountId),
+                () => _refreshService.RefreshProviderAsync(providerId),
+                reLoginAction,
+                accountId: accountId,
+                cardId: cardId)
+            {
+                ProviderId = providerId,
+                DisplayName = cardDisplayName,
+                IconPath = ProviderUsageViewModel.ResolveIconPath(providerId),
+                IsEnabled = plugin.IsEnabled,
+                DisplayMode = savedMode,
+                CardChartKinds = savedCardCharts,
+                RenderKinds = plugin.Provider.DefaultRenderKinds,
+                CollapseVisibleParts = plugin.Provider.CollapseVisibleParts ?? Array.Empty<string>(),
+                // req-107 B8：SupportsPeriodSwitch / ExtraTooltipLines 接口成员已收敛为 [Obsolete]；
+                // 周期切换能力交由 Card.Line.Slicer(Period)、tooltip 扩展行交由 Card.Chart.Tooltip；VM 初始化不再从接口读取。
+                Provider = plugin.Provider,
+            };
+            usageVm.AttachConfigService(_configService);
+            Usages.Add(usageVm);
+        }
+    }
+
+    /// <summary>
+    /// S1：构建指定 Provider 的账号结构签名（accountId + Enabled + cardIds）。
+    /// <para>签名变化即视为账号结构变更（增 / 删账号、启停账号、增删卡片），
+    /// 昵称修改不计入（由 ProviderUsageViewModel.ReloadDisplayNameFromAccount 单独处理）。</para>
+    /// </summary>
+    private string BuildAccountSignature(string providerId)
+    {
+        var accounts = _configService.GetAccounts(providerId);
+        if (accounts.Count == 0) return "__legacy__";
+        var parts = new List<string>();
+        foreach (var a in accounts)
+        {
+            var cardIds = string.Join(",", _configService.GetCards(providerId, a.AccountId).Select(c => c.CardId));
+            parts.Add($"{a.AccountId}:{a.Enabled}:{cardIds}");
+        }
+        return string.Join("|", parts);
+    }
+
+    /// <summary>
+    /// S1：重建指定 Provider 的卡片集合（账号增删改后实时刷新主窗口卡片）。
+    /// <para>先移除该 Provider 旧卡片（并解除其 ConfigChanged 订阅防止泄漏），
+    /// 再按最新账号结构重建，最后刷新已启用卡片集合。必须在 UI 线程调用。</para>
+    /// </summary>
+    public void RebuildCardsForProvider(string providerId)
+    {
+        // 移除旧卡片（解除 ConfigService 订阅，防止重复订阅 / 内存泄漏）
+        var oldCards = Usages.Where(u => string.Equals(u.ProviderId, providerId, StringComparison.OrdinalIgnoreCase)).ToList();
+        foreach (var old in oldCards)
+        {
+            old.AttachConfigService(null);
+            Usages.Remove(old);
+        }
+
+        var plugin = _pluginManager.GetPlugin(providerId);
+        var item = PluginItems.FirstOrDefault(p => string.Equals(p.ProviderId, providerId, StringComparison.OrdinalIgnoreCase));
+        if (plugin == null || item == null)
+        {
+            RebuildEnabledCards();
+            return;
+        }
+
+        var cardTuples = BuildCardTuples(providerId);
+        var savedMode = TaskbarModeResolver.Resolve(_configService.Settings, providerId);
+        var savedCardCharts = _configService.GetProviderCardChartKinds(providerId);
+        if (savedCardCharts.Count == 0)
+            savedCardCharts = ChartKindExtractor.ExtractDeclaredChartKinds(plugin.Provider).ToList();
+
+        CreateCardVms(plugin, item, cardTuples, savedMode, savedCardCharts);
+        _accountSignatures[providerId] = BuildAccountSignature(providerId);
+
+        UsageMonitor.Core.Services.FileLogger.Info("DisplayModule",
+            $"RebuildCardsForProvider 完成：{providerId}，卡片数={cardTuples.Count}");
+        RebuildEnabledCards();
+    }
+
+    /// <summary>
+    /// S1：按账号结构签名增量同步卡片集合（ConfigChanged 触发）。
+    /// <para>仅重建账号结构真正变化的 Provider，避免主题 / 刷新间隔等无关配置变更误触发重建。
+    /// 复用既有 ConfigChanged 事件链路，不新增事件。必须在 UI 线程调用。</para>
+    /// </summary>
+    public void SyncCardsWithAccounts()
+    {
+        if (_isSyncingCards) return;
+        _isSyncingCards = true;
+        try
+        {
+            foreach (var plugin in _pluginManager.Plugins)
+            {
+                var providerId = plugin.Provider.ProviderId;
+                var current = BuildAccountSignature(providerId);
+                if (_accountSignatures.TryGetValue(providerId, out var last) && last == current)
+                    continue;
+                RebuildCardsForProvider(providerId);
+            }
+        }
+        finally
+        {
+            _isSyncingCards = false;
+        }
     }
 
     /// <inheritdoc/>

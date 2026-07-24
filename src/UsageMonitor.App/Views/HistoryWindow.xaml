@@ -62,7 +62,7 @@
                                Foreground="{DynamicResource TextSecondaryBrush}"
                                VerticalAlignment="Center" Margin="0,0,8,0" />
                     <ComboBox ItemsSource="{Binding RangeOptions}"
-                              DisplayMemberPath="Value" SelectedValuePath="Key"
+                              ItemTemplate="{StaticResource KvpValueTemplate}" SelectedValuePath="Key"
                               TextSearch.TextPath="Value"
                               SelectedValue="{Binding SelectedRange, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                               Width="130" />
@@ -71,7 +71,7 @@
                                Foreground="{DynamicResource TextSecondaryBrush}"
                                VerticalAlignment="Center" Margin="18,0,8,0" />
                     <ComboBox ItemsSource="{Binding ChartKindOptions}"
-                              DisplayMemberPath="Value" SelectedValuePath="Key"
+                              ItemTemplate="{StaticResource KvpValueTemplate}" SelectedValuePath="Key"
                               TextSearch.TextPath="Value"
                               SelectedValue="{Binding SelectedChartKind, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                               Width="120" />
@@ -162,7 +162,6 @@
             <StackPanel Grid.Column="1" Margin="14,0,0,0">
                 <Border Background="{DynamicResource SurfaceBrush}"
                         CornerRadius="{DynamicResource RadiusCard}" Padding="16"
-                        VerticalAlignment="Stretch"
                         Visibility="{Binding IsSingleProviderSelected, Converter={StaticResource BoolToVisibility}}">
                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
                         <TextBlock Text="当前 Provider 摘要" FontSize="12"
@@ -171,6 +170,7 @@
                         <controls:RingChartControl x:Name="RingChart"
                                                    Percent="{Binding RingLatestPercent, FallbackValue=0, TargetNullValue=0}"
                                                    Size="100" StrokeThickness="9"
+                                                   Width="100" Height="100"
                                                    HorizontalAlignment="Center"
                                                    VerticalAlignment="Center"
                                                    TrackBrush="{DynamicResource TrackBrush}"

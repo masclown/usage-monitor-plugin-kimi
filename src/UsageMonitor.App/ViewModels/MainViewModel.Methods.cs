@@ -17,7 +17,7 @@ namespace UsageMonitor.App.ViewModels;
 
 public partial class MainViewModel : INotifyPropertyChanged
 {
-    public MainViewModel(PluginManager pluginManager, ConfigService configService, IRefreshService refreshService, UsageMonitor.Core.Modules.IDataModule? dataModule = null)
+    public MainViewModel(PluginManager pluginManager, ConfigService configService, IRefreshService refreshService, UsageMonitor.Core.Modules.IDataModule? dataModule = null, UsageMonitor.Core.Services.Auth.AuthManager? authManager = null)
     {
         _pluginManager = pluginManager;
         _configService = configService;
@@ -27,13 +27,27 @@ public partial class MainViewModel : INotifyPropertyChanged
 
         // req-099 B1：创建显示模块（卡片装配 / 渲染 / 过滤 / 任务栏模式 / 图表顺序）。
         // 重新登录回调转发到 TriggerManualReLogin（内部经 HostApp 触发登录流程）。
+        // S1：注入 AuthManager 供账号行 Sub 状态灯读取登录态。
         _displayModule = new UsageMonitor.App.Services.Display.DisplayModule(
-            pluginManager, configService, refreshService, TriggerManualReLogin);
+            pluginManager, configService, refreshService, TriggerManualReLogin, authManager);
         // 已启用卡片集合变化时刷新空状态派生属性（IsEmpty）与绑定。
         _displayModule.EnabledCardsChanged += (_, _) =>
         {
             OnPropertyChanged(nameof(EnabledUsages));
             OnPropertyChanged(nameof(IsEmpty));
+        };
+
+        // S1：账号增删改 → ConfigService.Save() → ConfigChanged → 增量重建卡片集合（复用既有事件链路，不新增事件）。
+        // DisplayModule.SyncCardsWithAccounts 内部按账号结构签名比对，仅重建真正变化的 Provider；
+        // ObservableCollection 绑定 UI，必须确保在 UI 线程执行。
+        _configService.ConfigChanged += (_, _) =>
+        {
+            var dispatcher = System.Windows.Application.Current?.Dispatcher;
+            if (dispatcher == null) return;
+            if (dispatcher.CheckAccess())
+                _displayModule.SyncCardsWithAccounts();
+            else
+                _ = dispatcher.BeginInvoke(new Action(() => _displayModule.SyncCardsWithAccounts()));
         };
 
                 // req-072 U-18：RefreshCommand 执行时更新 LastRefreshTime / RefreshProgress / ErrorCount
@@ -74,25 +88,6 @@ public partial class MainViewModel : INotifyPropertyChanged
             RaiseRequestCloseSettings(saved: false);
         });
 
-        // req-103：恢复默认卡片顺序命令——清空用户自定义顺序，回退到插件启用顺序
-        ResetCardOrderCommand = new RelayCommand(() =>
-        {
-            _configService.Settings.ProviderCardOrder.Clear();
-            _configService.Save();
-            RebuildEnabledUsages();
-            RefreshCardOrderItems();
-        });
-
-        // req-104：保存多进度条字段选择命令
-        SaveMultiProgressFieldsCommand = new RelayCommand(SaveMultiProgressFields);
-
-        // req-097：恢复默认图表顺序命令——清空用户自定义顺序，回退到插件声明顺序
-        ResetChartOrderCommand = new RelayCommand(() =>
-        {
-            _configService.Settings.ProviderChartOrder.Clear();
-            _configService.Save();
-            RefreshChartOrderItems();
-        });
 
         // req-016：初始化主窗口 Logo + 订阅主题切换事件
         // req-032：单 logo 模式，加载一次即可（不再订阅 ThemeChanged 切换 logo）
@@ -101,8 +96,6 @@ public partial class MainViewModel : INotifyPropertyChanged
         // REQ-003：环形图 metric 顺序从设置同步到 ListBox 集合；提供上下移动 + 恢复默认三个命令
         // 使用 RelayCommand<int> 泛型版本（列表索引），CommunityToolkit.Mvvm 8.x 的非泛型 RelayCommand 仅接 Action。
         SyncRingChartMetricOrderFromConfig();
-        // req-026：环形图中心数字选择项集合从插件 Support + Config 计算
-        BuildProviderRingChartMetricGroups();
         MoveRingMetricUpCommand = new RelayCommand<string>(key =>
         {
             if (string.IsNullOrEmpty(key)) return;
@@ -371,17 +364,6 @@ public partial class MainViewModel : INotifyPropertyChanged
     }
 
     /// <summary>
-    /// 根据 Usages 中各 VM 的 IsEnabled 状态重建"已启用"过滤集合，供主窗口 ItemsControl 绑定。
-    /// 取消勾选时调用此方法即可让对应卡片立即从主窗口消失。
-    /// req-103：按 ProviderCardOrder 配置排序（用户自定义顺序优先，未配置的追加到末尾）。
-    /// </summary>
-    private void RebuildEnabledUsages()
-    {
-        // req-099 B1：已启用过滤 / 排序逻辑已抽离到 DisplayModule；集合变化经 EnabledCardsChanged 通知本 VM。
-        _displayModule.RebuildEnabledCards();
-    }
-
-    /// <summary>
     /// 更新插件启用状态：同步配置、插件管理器、用量VM，并刷新主窗口卡片集合。
     /// </summary>
     public void UpdatePluginEnabled(string providerId, bool isEnabled)
@@ -460,68 +442,6 @@ public partial class MainViewModel : INotifyPropertyChanged
     }
 
     /// <summary>
-    /// req-026：从 <c>_pluginManager.Plugins</c> + <c>AppSettings.ProviderEnabledRingChartMetrics</c>
-    /// 重建 <see cref="ProviderRingChartMetricGroups"/>。
-    /// <para>每个启用插件创建一个组（含 ProviderId / DisplayName / AvailableMetrics），组内每个支持的 metric
-    /// 一个 <see cref="RingChartMetricChoice"/>，IsEnabled 由 <c>RingChartMetricResolver</c> 解析。
-    /// 重建时先清空集合，保证绑定侧有最新状态。</para>
-    /// </summary>
-    private void BuildProviderRingChartMetricGroups()
-    {
-        ProviderRingChartMetricGroups.Clear();
-        var settings = _configService.Settings;
-        foreach (var plugin in _pluginManager.Plugins)
-        {
-            var supported = plugin.Provider.SupportedRingChartMetrics ?? Array.Empty<string>();
-            if (supported.Count == 0) continue;
-            var group = new ProviderRingChartMetricGroup
-            {
-                ProviderId = plugin.Provider.ProviderId,
-                ProviderDisplayName = plugin.Provider.DisplayName,
-            };
-            var enabledList = UsageMonitor.App.Helpers.RingChartMetricResolver
-                .GetEnabledMetrics(settings, plugin.Provider.ProviderId);
-            foreach (var key in supported)
-            {
-                group.Metrics.Add(new RingChartMetricChoice
-                {
-                    Key = key,
-                    DisplayName = ResolveRingMetricDisplayName(key),
-                    IsEnabled = UsageMonitor.App.Helpers.RingChartMetricResolver.IsMetricEnabled(enabledList, key)
-                });
-            }
-            // 同步订阅：勾选变化时写回 settings + 通知 ProviderUsageViewModel.EnabledRingChartMetrics
-            foreach (var m in group.Metrics)
-            {
-                m.PropertyChanged += (_, _) =>
-                {
-                    // 收集该 group 当前所有勾选的 key
-                    var keys = group.Metrics.Where(x => x.IsEnabled).Select(x => x.Key).ToList();
-                    settings.ProviderEnabledRingChartMetrics[group.ProviderId] = keys;
-                    _configService.Save();
-                    // 触发刷新卡片上的 EnabledMetrics
-                    OnPropertyChanged(nameof(ProviderRingChartMetricGroups));
-                    SyncProviderEnabledMetricsToVm(group.ProviderId, keys);
-                };
-            }
-            ProviderRingChartMetricGroups.Add(group);
-        }
-    }
-
-    /// <summary>req-026：把某个 Provider 当前勾选的 metric key 集合同步到对应 ProviderUsageViewModel，
-    /// 让卡片上的 RingChartControl 立即刷新。</summary>
-    private void SyncProviderEnabledMetricsToVm(string providerId, IReadOnlyList<string> enabledKeys)
-    {
-        foreach (var vm in Usages)
-        {
-            if (string.Equals(vm.ProviderId, providerId, StringComparison.OrdinalIgnoreCase))
-            {
-                vm.EnabledRingChartMetrics = enabledKeys;
-            }
-        }
-    }
-
-    /// <summary>
     /// req-091-005：手动触发某个 Provider 的重新登录（供卡片 ReLoginCommand 回调）。
     /// <para>
     /// 通过 <see cref="HostApp"/> 转发给 App.TriggerReLogin，复用现有 PluginConfigWindow 的 Cookie 获取流程。
@@ -546,20 +466,6 @@ public partial class MainViewModel : INotifyPropertyChanged
         {
             vm.EnabledRingChartMetrics = globalEnabled;
         }
-    }
-
-    /// <summary>req-026：根据 metric key 解析中文显示名（控件未配置时回退 RingChartMetricKeys 常量名）。</summary>
-    private static string ResolveRingMetricDisplayName(string key)
-    {
-        return key switch
-        {
-            "Percent" => "已用百分比",
-            "Credits" => "积分余额",
-            "WeeklyLimit" => "本周限额",
-            "RemainingQuota" => "剩余额度",
-            "ApiTokenUsed" => "已用 Token",
-            _ => key
-        };
     }
 
     /// <summary>

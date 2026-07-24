@@ -7,6 +7,7 @@ using System.Windows.Media;
 using System.Windows.Media.Animation;  // req-094：DoubleAnimation / QuadraticEase 用于 Percent 平滑过渡
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
+using UsageMonitor.App.Helpers;
 using UsageMonitor.App.ViewModels;
 using UsageMonitor.Core.Models;
 using Brush = System.Windows.Media.Brush;
@@ -1019,7 +1020,10 @@ public class RingChartControl : FrameworkElement, IHoverTooltipProvider
         return geometry;
     }
 
-    /// <summary>根据百分比选择画笔。req-093：支持 <see cref="CurrentMetricIsInverted"/> 反转模式与数据附带阈值。</summary>
+    /// <summary>根据百分比选择画笔。req-093：支持 <see cref="CurrentMetricIsInverted"/> 反转模式与数据附带阈值。
+    /// <para>B5：每个分支加 null 兜底链，最终回退到全局 <see cref="UsageTierScale.ResolveBrush"/>，
+    /// 避免画刷 DP 未绑定时 Pen(null) 导致弧不可见（黑环问题）。显式绑定消费方（MainWindow/HistoryWindow）行为不受影响。</para>
+    /// </summary>
     private Brush SelectBrush(double percent)
     {
         var warning = CurrentMetricWarningThreshold ?? WarningThreshold;
@@ -1027,14 +1031,16 @@ public class RingChartControl : FrameworkElement, IHoverTooltipProvider
         if (CurrentMetricIsInverted)
         {
             // 反转模式（剩余量语义）：低百分比危险
-            if (percent <= danger) return DangerBrush;
-            if (percent <= warning) return WarningBrush;
-            return ProgressBrush;
+            // Phase0 评审修复：兜底 ResolveBrush 按“已用量语义”取色，需将剩余量转换为已用量（100-percent），
+            // 否则低剩余（如 10%）会误取绿色（防御性修复：当前画刷 DP 恒非 null，此分支不可达）
+            if (percent <= danger) return DangerBrush ?? WarningBrush ?? ProgressBrush ?? UsageTierScale.ResolveBrush(100.0 - percent);
+            if (percent <= warning) return WarningBrush ?? ProgressBrush ?? UsageTierScale.ResolveBrush(100.0 - percent);
+            return ProgressBrush ?? UsageTierScale.ResolveBrush(100.0 - percent);
         }
         // 正常模式（已用量语义）：高百分比危险
-        if (percent >= danger) return DangerBrush;
-        if (percent >= warning) return WarningBrush;
-        return ProgressBrush;
+        if (percent >= danger) return DangerBrush ?? WarningBrush ?? ProgressBrush ?? UsageTierScale.ResolveBrush(percent);
+        if (percent >= warning) return WarningBrush ?? ProgressBrush ?? UsageTierScale.ResolveBrush(percent);
+        return ProgressBrush ?? UsageTierScale.ResolveBrush(percent);
     }
 
     /// <summary>req-051：创建半圆环几何图形。0% 在 8 点钟，100% 在 4 点钟，顺时针 240 度弧。</summary>

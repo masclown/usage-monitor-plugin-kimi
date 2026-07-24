@@ -343,17 +343,21 @@ internal static class MiniMaxDomExtractor
             };
             
             // 5h 限额：优先按结构（第1个带 aria-label 的 div），兜底按关键词匹配
-            const interval5hEl = findByStructure(0) || findByAriaLabel(['5h', '5小时', 'interval', '限额']);
+            const interval5hStruct = findByStructure(0);
+            const interval5hEl = interval5hStruct || findByAriaLabel(['5h', '5小时', 'interval', '限额']);
             
             // 周限额：优先按结构（第2个带 aria-label 的 div），兜底按关键词匹配
-            const weeklyEl = findByStructure(1) || findByAriaLabel(['周', 'week', 'weekly', '限额']);
+            const weeklyStruct = findByStructure(1);
+            const weeklyEl = weeklyStruct || findByAriaLabel(['周', 'week', 'weekly', '限额']);
             
             // 视频赠送：按关键词匹配（多语言）
             const videoEl = findByAriaLabel(['视频', 'video', '赠送', 'gift']);
             
             return JSON.stringify({
                 interval5h: get(interval5hEl),
+                interval5hSrc: interval5hEl ? (interval5hStruct ? 'structure' : 'aria') : null,
                 weekly:    get(weeklyEl),
+                weeklySrc: weeklyEl ? (weeklyStruct ? 'structure' : 'aria') : null,
                 video:     getAll(videoEl),
                 credit:    document.body.innerText.match(/\u79ef\u5206[\s\S]{0,50}/)?.[0] || null,
                 pageTitle: document.title
@@ -376,6 +380,26 @@ internal static class MiniMaxDomExtractor
             m.WeeklyUsedPercent = ExtractPercent(m.WeeklyAriaLabel);
             m.IntervalTotalPercent = ExtractTotalPercent(m.Interval5hAriaLabel);
             m.WeeklyTotalPercent = ExtractTotalPercent(m.WeeklyAriaLabel);
+
+            // B1 日志加固：5h/周百分比来自 aria-label 关键词兜底路径时记录来源，便于定位数据质量问题
+            var interval5hSrc = GetStr(root, "interval5hSrc");
+            var weeklySrc = GetStr(root, "weeklySrc");
+            if (interval5hSrc == "aria")
+                FileLogger.Info(LogSource, $"5h 用量百分比 来源=DOM兜底 (aria-label 关键词匹配), 原始文本='{m.Interval5hAriaLabel}'");
+            if (weeklySrc == "aria")
+                FileLogger.Info(LogSource, $"周用量百分比 来源=DOM兜底 (aria-label 关键词匹配), 原始文本='{m.WeeklyAriaLabel}'");
+
+            // B1 合理性校验：解析出的百分比超出 0-100 范围时丢弃并记警告，防止异常 DOM 文本污染下游数据
+            if (m.IntervalUsedPercent > 100)
+            {
+                FileLogger.Warn(LogSource, $"5h 用量百分比={m.IntervalUsedPercent} 超出 0-100 范围，已丢弃 (原始文本='{m.Interval5hAriaLabel}')");
+                m.IntervalUsedPercent = -1;
+            }
+            if (m.WeeklyUsedPercent > 100)
+            {
+                FileLogger.Warn(LogSource, $"周用量百分比={m.WeeklyUsedPercent} 超出 0-100 范围，已丢弃 (原始文本='{m.WeeklyAriaLabel}')");
+                m.WeeklyUsedPercent = -1;
+            }
         }
         catch (Exception ex)
         {
@@ -655,6 +679,11 @@ internal static class MiniMaxDomExtractor
                 System.Diagnostics.Debug.WriteLine($"[MiniMaxDomExtractor] Parse error for {kv.Key}: {ex.Message}");
             }
         }
+
+        // B1 日志加固：JSON 接口路径未捕获到周用量数据时记警告
+        // （remains_percent 未被拦截，或响应中无 general 模型的 current_weekly_used_percent 字段；将回退 DOM 提取值）
+        if (!extras.ContainsKey("mm_weeklyUsedPercent"))
+            FileLogger.Warn(LogSource, "JSON 接口路径未捕获到周用量数据 (mm_weeklyUsedPercent)，将使用 DOM 兜底值");
 
         // Set primary display: 5h used percent drives the progress bar.
         double primaryPct = interval5hUsed >= 0 ? interval5hUsed : 0;

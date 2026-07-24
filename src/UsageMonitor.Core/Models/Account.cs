@@ -29,6 +29,13 @@ public sealed class Account
     public bool IsDefault { get; set; }
 
     /// <summary>
+    /// 账号是否启用（S1 插件管理页账号列表的启用开关）。
+    /// <para>默认 <c>true</c>；旧配置反序列化缺失该字段时保持启用，保证向后兼容。
+    /// 由 <c>ConfigService.UpdateAccount</c> 持久化，用于后续按账号过滤卡片显示。</para>
+    /// </summary>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>
     /// 生成账号复合键：<c>ProviderId:AccountId</c>（与 <see cref="AccountCustomization.MakeKey"/> 二段前缀一致）。
     /// </summary>
     public static string MakeKey(string providerId, string accountId = "default")

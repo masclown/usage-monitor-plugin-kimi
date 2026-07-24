@@ -36,11 +36,16 @@ public static class ChartKindExtractor
         return provider.SupportedCardCharts ?? System.Array.Empty<CardChartKind>();
     }
 
-    /// <summary>DeclarativeChartKind（req-107 新）→ CardChartKind（req-005 旧）映射；null 表示旧枚举无对应值。</summary>
+    /// <summary>
+    /// DeclarativeChartKind（req-107 新）→ CardChartKind（req-005 旧）映射；null 表示旧枚举无对应值。
+    /// <para>声明式 Bar 语义为「进度条组」（5h/周/视频进度条），由 LimitBars/MetricBar 专用渲染路径呈现，
+    /// 不映射为 <see cref="CardChartKind.Bar"/>，避免通用 BarChartControl 对进度条数据做无意义的二次柱状渲染。</para>
+    /// </summary>
     private static CardChartKind? MapDeclarativeToCardKind(DeclarativeChartKind d) => d switch
     {
         DeclarativeChartKind.Line => CardChartKind.Line,
-        DeclarativeChartKind.Bar => CardChartKind.Bar,
+        // 声明式 Bar = 进度条组（专用渲染路径），旧枚举 CardChartKind.Bar 是通用柱状图，语义不匹配 → 跳过
+        DeclarativeChartKind.Bar => null,
         DeclarativeChartKind.Ring => CardChartKind.Ring,
         DeclarativeChartKind.HeatMap => CardChartKind.HeatMap,
         // DeclarativeChartKind.Number / MiniRingChart / MiniText 无对应旧枚举（req-107 新增）

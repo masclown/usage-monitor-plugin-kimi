@@ -50,8 +50,11 @@ public static class AppUiStrings
         ["settings.plugins.title"] = "已安装插件",
         // 插件配置窗口
         ["pluginconfig.title"] = "插件配置",
-        ["pluginconfig.cardchart.title"] = "卡片图表",
-        ["pluginconfig.cardchart.hint"] = "勾选要在主窗口该服务商卡片中展示的图表（可多选，下方为示例预览）",
+        // S6：旧卡片图表多选区已删除，改为按插件声明 chartId 的启用开关（卡片 / 迷你图表各一组）
+        ["pluginconfig.charts.title"] = "卡片图表",
+        ["pluginconfig.charts.hint"] = "按插件声明的图表开关显示（与设置窗口【卡片管理】页同一配置落点）",
+        ["pluginconfig.minicharts.title"] = "任务栏迷你图表",
+        ["pluginconfig.minicharts.hint"] = "按插件声明的迷你图表开关显示（与设置窗口【任务栏迷你图表】页同一配置落点）",
         ["pluginconfig.getcookie"] = "获取登录态",
         ["pluginconfig.getcookie.tip"] = "自动启动独立 Edge 窗口并打开登录页，登录完成后自动获取 Cookie",
         // 通用
@@ -78,8 +81,10 @@ public static class AppUiStrings
         ["settings.ring.centerMetric"] = "Ring center metric (click to toggle, scroll to reorder)",
         ["settings.plugins.title"] = "Installed plugins",
         ["pluginconfig.title"] = "Plugin configuration",
-        ["pluginconfig.cardchart.title"] = "Card charts",
-        ["pluginconfig.cardchart.hint"] = "Select charts to show on this provider's card (multi-select; preview below)",
+        ["pluginconfig.charts.title"] = "Card charts",
+        ["pluginconfig.charts.hint"] = "Toggle declared card charts on/off (same setting as the Card management page)",
+        ["pluginconfig.minicharts.title"] = "Taskbar mini charts",
+        ["pluginconfig.minicharts.hint"] = "Toggle declared mini charts on/off (same setting as the Taskbar mini charts page)",
         ["pluginconfig.getcookie"] = "Get login state",
         ["pluginconfig.getcookie.tip"] = "Launches a standalone Edge window to the login page and captures cookies after sign-in",
         ["common.cancel"] = "Cancel",

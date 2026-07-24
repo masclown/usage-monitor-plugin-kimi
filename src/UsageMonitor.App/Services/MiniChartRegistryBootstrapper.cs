@@ -152,7 +152,10 @@ public static class MiniChartRegistryBootstrapper
             Tooltip = MiniChartTooltip.Default,
             ContentKind = contentKind,
             SecondaryKind = secondaryKind,
-            ShowLogo = showLogo
+            ShowLogo = showLogo,
+            // req-107 B4：透传数据组与切片器声明，供渲染端（MiniChartItemViewModel）滚轮切组。
+            DataGroups = mini.DataGroups.Count > 0 ? mini.DataGroups : null,
+            Slicer = mini.Slicer
         };
         return true;
     }

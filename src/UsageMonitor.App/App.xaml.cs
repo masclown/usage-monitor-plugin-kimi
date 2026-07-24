@@ -296,8 +296,8 @@ public partial class App : Application
         _miniChartRegistry = new TaskbarMiniChartRegistry();
         MiniChartRegistryBootstrapper.RegisterBuiltins(_miniChartRegistry, _pluginManager, _configService);
 
-        // 创建ViewModel
-        _viewModel = new MainViewModel(_pluginManager, _configService, _refreshService, _dataModule);
+        // 创建ViewModel（S1：注入 AuthManager 供插件管理页账号行状态灯与卡片重建使用）
+        _viewModel = new MainViewModel(_pluginManager, _configService, _refreshService, _dataModule, _authManager);
         // req-091-005：注入 App 引用，供卡片 ReLoginCommand 回调触发重新登录
         _viewModel.HostApp = this;
 
@@ -581,14 +581,14 @@ public partial class App : Application
             }
 
             // 复用 PluginConfigWindow 的 Cookie 获取流程（异步执行）
+            // S6：旧卡片图表多选参数（supportedCardCharts / currentCardCharts）已随该区删除；
+            // 重新登录场景不传 provider，窗口仅呈现认证表单，不显示图表启用开关。
             var configWindow = new Views.PluginConfigWindow(
                 plugin.Provider.DisplayName,
                 plugin.Provider.ConfigFields,
                 _configService.GetProviderConfig(providerId, plugin.Provider),
                 plugin.Provider.LoginConfig,
-                ChartKindExtractor.ExtractDeclaredChartKinds(plugin.Provider),
-                _configService.GetProviderCardChartKinds(providerId),
-                _configService);
+                configService: _configService);
 
             if (_mainWindow != null) configWindow.Owner = _mainWindow;
             var dialogResult = configWindow.ShowDialog();

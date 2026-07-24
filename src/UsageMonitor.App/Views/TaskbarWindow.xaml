@@ -33,26 +33,33 @@
                            VerticalAlignment="Center" Margin="0,0,4,0" />
                 <TextBlock FontSize="12" Foreground="{DynamicResource AccentBrush}"
                            VerticalAlignment="Center"
-                           Text="{Binding UsagePercent, Mode=OneWay, StringFormat={}{0:F0}%}" />
+                           Text="{Binding UsagePercent, Mode=OneWay, StringFormat={}{0:F0}%, TargetNullValue=--, FallbackValue=--}" />
             </StackPanel>
         </DataTemplate>
 
         <!-- req-088 B5：圆环图模式模板 -->
+        <!--
+            Phase0 评审修复：WarningThreshold/DangerThreshold 设为 101（超出 percent 上限 100），
+            使 SelectBrush 永远命中 ProgressBrush（即 TierBrush 绑定）——用户色阶不被构造函数
+            自动填充的主题 WarningBrush/DangerBrush 覆盖（构造函数 L376-385 在 DP 为 null 时
+            SetValue 主题资源，模板未绑定这两项则本地值保留）。
+            req-107 B4：Grid 挂 PreviewMouseWheel 滚轮切数据组；ToolTip 改绑 CompositeTooltipText（标题+正文）。
+        -->
         <DataTemplate x:Key="MiniChartRingChartTemplate" DataType="{x:Type views:MiniChartItemViewModel}">
-            <Grid Width="38" Height="38" Margin="0,0,6,0" Background="Transparent">
+            <Grid Width="38" Height="38" Margin="0,0,6,0" Background="Transparent"
+                  PreviewMouseWheel="OnRingChartPreviewMouseWheel">
                 <controls:RingChartControl Width="38" Height="38"
-                                            Percent="{Binding UsagePercent, Mode=OneWay}"
+                                            Percent="{Binding UsagePercent, Mode=OneWay, FallbackValue=0, TargetNullValue=0}"
                                             Size="38" StrokeThickness="3.5"
                                             TrackBrush="{DynamicResource TrackBrush}"
-                                            ProgressBrush="{DynamicResource AccentBrush}"
-                                            WarningBrush="{DynamicResource WarningBrush}"
-                                            DangerBrush="{DynamicResource DangerBrush}"
+                                            ProgressBrush="{Binding TierBrush, Mode=OneWay}"
+                                            WarningThreshold="101" DangerThreshold="101"
                                             HorizontalAlignment="Center"
                                             VerticalAlignment="Top"
                                             IsHalfRing="True"
                                             ShowHoverTooltip="False"
                                             Tag="{Binding ProviderId, Mode=OneWay}"
-                                            ToolTip="{Binding TooltipTitle, Mode=OneWay}"
+                                            ToolTip="{Binding CompositeTooltipText, Mode=OneWay}"
                                             ToolTipService.Placement="Top"
                                             ToolTipService.VerticalOffset="-8"
                                             ToolTipService.InitialShowDelay="{Binding TooltipShowDelayMs}" />

@@ -1,3 +1,5 @@
+using UsageMonitor.Core.Models;
+
 namespace UsageMonitor.Core.Plugins.MiniChart;
 
 /// <summary>
@@ -38,7 +40,7 @@ public sealed class MiniChartDescriptor
     /// <summary>视觉样式（默认 Compact）。</summary>
     public MiniChartStyle Style { get; init; } = MiniChartStyle.Compact;
 
-    /// <summary>色阶配置（默认沿用 req-009 全局色阶）。</summary>
+    /// <summary>色阶配置。null 表示走全局色阶——由 App 层 MiniChartItemViewModel.TierBrush 落地 UsageTierScale 色阶。</summary>
     public MiniChartColorTier? ColorTier { get; init; }
 
     /// <summary>
@@ -92,6 +94,19 @@ public sealed class MiniChartDescriptor
     };
 
     /// <summary>
+    /// req-107 B4：数据组列表（来自 <c>taskbar.miniCharts[].dataGroups</c> 声明）。
+    /// <para>null 或空 = 无数据组声明（旧注册路径 / 单值图表），渲染端走原有单值逻辑；
+    /// 多组时渲染端按切片器交互（滚轮）循环切换当前组。</para>
+    /// </summary>
+    public IReadOnlyList<DataGroup>? DataGroups { get; init; }
+
+    /// <summary>
+    /// req-107 B4：切片器声明（来自 <c>taskbar.miniCharts[].slicer</c>）。
+    /// <para>携带交互方式（Scroll = 滚轮切组）与默认选中组 Id（<see cref="SlicerSpec.Default"/>）。</para>
+    /// </summary>
+    public SlicerSpec? Slicer { get; init; }
+
+    /// <summary>
     /// 辅助构造：用最常用字段快速构造一个 Text 类型描述符。
     /// </summary>
     public static MiniChartDescriptor ForText(string providerId, double? usagePercent = null)
@@ -114,7 +129,8 @@ public sealed class MiniChartDescriptor
             Kind = MiniChartKind.MiniRingChart,
             DataSource = usagePercent,
             Style = MiniChartStyle.Compact,
-            // 传 null 而非 MiniChartColorTier.Default，让渲染层走全局 UsageTierScale 色阶
+            // 传 null 而非 MiniChartColorTier.Default：null 时由 App 层 MiniChartItemViewModel.TierBrush
+            // 落地全局 UsageTierScale 色阶（Core 不引用 App，仅以注释标注契约）
             ColorTier = null,
             Tooltip = MiniChartTooltip.Default
         };

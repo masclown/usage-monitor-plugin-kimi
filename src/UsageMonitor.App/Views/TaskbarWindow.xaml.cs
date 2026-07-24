@@ -80,6 +80,8 @@ public partial class TaskbarWindow : Window
         // req-088 B5：构建 VisibleMiniCharts 集合（从 Registry + EnabledUsages 关联）。
         RebuildVisibleMiniCharts();
         _viewModel.EnabledUsages.CollectionChanged += OnEnabledUsagesChanged;
+        // S4：订阅配置变更，设置页保存 Mini 配置后即时重建任务栏迷你图（带签名守卫）。
+        _configService.ConfigChanged += OnConfigChanged;
         foreach (var u in _viewModel.EnabledUsages)
         {
             AttachUsageVmListeners(u);
@@ -131,6 +133,8 @@ public partial class TaskbarWindow : Window
         {
             _visibilityCheckTimer?.Stop();
             _visibilityCheckTimer = null;
+            // S4：退订配置变更事件，避免窗口关闭后仍触发重建。
+            _configService.ConfigChanged -= OnConfigChanged;
             // req-105：关闭时也确保 timer 释放。
             foreach (var item in VisibleMiniCharts)
                 item.StopCountdownTimer();
@@ -138,12 +142,35 @@ public partial class TaskbarWindow : Window
     }
 
     /// <summary>
+    /// S4：当前可见迷你图列表的签名（ProviderId:ChartId 拼接），用于 ConfigChanged 守卫比较，
+    /// 避免位置/宽度保存等高频 ConfigChanged 触发无意义的重建（防闪烁、防 timer 重置）。
+    /// </summary>
+    private string _lastMiniChartSignature = string.Empty;
+
+    /// <summary>
     /// req-088 B5：从 Registry 拉取所有 descriptor，关联到 EnabledUsages 中的 ProviderUsageViewModel，
     /// 组装为 MiniChartItemViewModel 列表写入 VisibleMiniCharts。
+    /// <para>Phase 2 修复：增加签名守卫，与 OnConfigChanged 路径共用 _lastMiniChartSignature，
+    /// 避免 EnabledUsagesChanged 路径无谓重建（账号操作触发任务栏多次重建）。</para>
     /// </summary>
     private void RebuildVisibleMiniCharts()
     {
-        VisibleMiniCharts.Clear();
+        var newList = BuildVisibleMiniChartList();
+        var newSignature = ComputeMiniChartSignature(newList);
+        // 签名未变则跳过重建（与 OnConfigChanged 路径共用签名字段，避免双重计算或状态不一致）。
+        if (string.Equals(newSignature, _lastMiniChartSignature, StringComparison.Ordinal))
+            return;
+        ReplaceVisibleMiniCharts(newList);
+    }
+
+    /// <summary>
+    /// S4：构建可见迷你图列表（不写入集合，供重建与签名比较复用）。
+    /// <para>过滤规则与 req-088/req-099/req-109 保持一致：仅显示已启用且有对应卡片 VM 的 Provider；
+    /// 按用户配置 VisibleMiniCharts 精确过滤（null 表示全部可见）。</para>
+    /// </summary>
+    private List<MiniChartItemViewModel> BuildVisibleMiniChartList()
+    {
+        var result = new List<MiniChartItemViewModel>();
         var usages = _viewModel.EnabledUsages.ToDictionary(u => u.ProviderId, StringComparer.OrdinalIgnoreCase);
         foreach (var descriptor in _miniChartRegistry.GetAll())
         {
@@ -154,7 +181,8 @@ public partial class TaskbarWindow : Window
             //   - visibleMiniCharts == null → 全部可见（向后兼容）
             //   - descriptor.ChartId == null → 旧注册路径，不按 chartId 过滤（仅 Provider 粒度：空集合则隐藏）
             //   - descriptor.ChartId != null → 按 chartId 精确过滤（不在列表则隐藏）
-            var visibleMiniCharts = _viewModel.GetEffectiveVisibleMiniCharts(descriptor.ProviderId);
+            // Phase 2 修复：从 usageVm 透传真实 AccountId/CardId，避免硬编码 "default" 导致有账号用户的配置静默失效。
+            var visibleMiniCharts = _viewModel.GetEffectiveVisibleMiniCharts(descriptor.ProviderId, usageVm.AccountIdSafe, usageVm.CardIdSafe);
             if (visibleMiniCharts != null)
             {
                 if (descriptor.ChartId != null)
@@ -166,8 +194,54 @@ public partial class TaskbarWindow : Window
                     continue;
                 }
             }
-            VisibleMiniCharts.Add(new MiniChartItemViewModel(descriptor, usageVm));
+            result.Add(new MiniChartItemViewModel(descriptor, usageVm));
         }
+        return result;
+    }
+
+    /// <summary>
+    /// S4：计算迷你图列表签名（ProviderId:ChartId 按序拼接），用于守卫比较。
+    /// </summary>
+    private static string ComputeMiniChartSignature(IEnumerable<MiniChartItemViewModel> items)
+        => string.Join("|", items.Select(i => $"{i.ProviderId}:{i.Descriptor.ChartId ?? string.Empty}"));
+
+    /// <summary>
+    /// S4：用新列表替换 VisibleMiniCharts（停旧 timer → 清空 → 写入 → 启新 timer → 重算窗口宽度）。
+    /// <para>替换后更新签名缓存；窗口已加载时为新项启动倒计时 timer（StartCountdownTimer 幂等）。</para>
+    /// </summary>
+    private void ReplaceVisibleMiniCharts(List<MiniChartItemViewModel> newList)
+    {
+        foreach (var item in VisibleMiniCharts)
+            item.StopCountdownTimer();
+        VisibleMiniCharts.Clear();
+        foreach (var item in newList)
+            VisibleMiniCharts.Add(item);
+        _lastMiniChartSignature = ComputeMiniChartSignature(newList);
+        if (IsLoaded)
+        {
+            foreach (var item in VisibleMiniCharts)
+                item.StartCountdownTimer();
+        }
+        // 迷你图增减会影响窗口宽度，重算一次（内部对 _hwnd/拖拽态有守卫）
+        RecalculateSize();
+    }
+
+    /// <summary>
+    /// S4：ConfigService 配置变更回调——带守卫地重建迷你图列表。
+    /// <para>设置页保存 Mini 配置（SetMiniChartConfiguration → Save → ConfigChanged）后即时刷新任务栏；
+    /// 位置/宽度保存等高频变更因签名不变而被跳过，避免闪烁与 timer 重置。异步调度到 UI 线程执行。</para>
+    /// </summary>
+    private void OnConfigChanged(object? sender, EventArgs e)
+    {
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            var newList = BuildVisibleMiniChartList();
+            var newSignature = ComputeMiniChartSignature(newList);
+            // 签名未变（如仅保存窗口位置/宽度）→ 跳过重建
+            if (string.Equals(newSignature, _lastMiniChartSignature, StringComparison.Ordinal))
+                return;
+            ReplaceVisibleMiniCharts(newList);
+        }), DispatcherPriority.Normal);
     }
 
     /// <summary>
@@ -497,7 +571,21 @@ public partial class TaskbarWindow : Window
     }
 
     private void OnRingChartMetricKeyChanged(object sender, System.Windows.DependencyPropertyChangedEventArgs e) { }
-    private void OnRingChartPreviewMouseWheel(object sender, System.Windows.Input.MouseWheelEventArgs e) { }
+
+    /// <summary>
+    /// req-107 B4：迷你环滚轮切换数据组。
+    /// <para>滚轮向上 = 上一组（delta -1），滚轮向下 = 下一组（delta +1），循环切换。
+    /// 实际发生切换时标记 Handled 阻止 ScrollViewer 横向滚动；
+    /// 无数据组或仅 1 组时不处理，滚轮事件透传给外层 ScrollViewer。</para>
+    /// </summary>
+    private void OnRingChartPreviewMouseWheel(object sender, System.Windows.Input.MouseWheelEventArgs e)
+    {
+        if (sender is not FrameworkElement fe) return;
+        if (fe.DataContext is not MiniChartItemViewModel item) return;
+        var delta = e.Delta > 0 ? -1 : 1; // 向上滚 = 上一组，向下滚 = 下一组
+        if (item.CycleDataGroup(delta))
+            e.Handled = true; // 切换成功才吞掉事件，避免任务栏窗口内横向滚动
+    }
 }
 
 /// <summary>

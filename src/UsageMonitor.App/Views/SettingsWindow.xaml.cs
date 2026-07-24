@@ -74,21 +74,6 @@ public partial class SettingsWindow : Window
 
         // 加载安全页 ACL 状态
         LoadSecurityTabStatus();
-
-        // req-103：初始化卡片排序列表
-        RefreshCardOrderIfNeeded();
-
-        // req-104：初始化多进度条字段列表
-        RefreshMultiProgressFieldItemsIfNeeded();
-
-        // req-097：初始化图表顺序列表
-        RefreshChartOrderItemsIfNeeded();
-
-        // req-098：初始化任务栏迷你图表配置项
-        RefreshTaskbarMiniChartOptionsIfNeeded();
-
-        // req-107 B6 演进：刷新卡片图表与数据组配置项
-        RefreshCardChartConfigProvidersIfNeeded();
     }
 
     /// <summary>
@@ -313,231 +298,107 @@ public partial class SettingsWindow : Window
         }
     }
 
-    /// <summary>
-    /// req-103：切换到「卡片排序」分区时刷新列表。
-    /// </summary>
-    private void RefreshCardOrderIfNeeded()
-    {
-        if (DataContext is MainViewModel vm)
-            vm.RefreshCardOrderItems();
-    }
-
-    /// <summary>
-    /// req-104：切换到「多进度条」分区时刷新字段列表。
-    /// </summary>
-    private void RefreshMultiProgressFieldItemsIfNeeded()
-    {
-        if (DataContext is MainViewModel vm)
-            vm.RefreshMultiProgressFieldItems();
-    }
-
-    /// <summary>
-    /// req-097：切换到「图表顺序」分区时刷新列表。
-    /// </summary>
-    private void RefreshChartOrderItemsIfNeeded()
-    {
-        if (DataContext is MainViewModel vm)
-            vm.RefreshChartOrderItems();
-    }
-
-    /// <summary>
-    /// req-098：切换到「任务栏迷你图表」分区时刷新列表。
-    /// <para>从 <c>_pluginManager.Plugins</c> 重新收集 SupportedMiniCharts 非空的 Provider，
-    /// 与既有用户配置合并（保留用户已修改项）。</para>
-    /// </summary>
-    private void RefreshTaskbarMiniChartOptionsIfNeeded()
-    {
-        if (DataContext is MainViewModel vm)
-            vm.RefreshTaskbarMiniChartOptions();
-    }
-
-    private void RefreshCardChartConfigProvidersIfNeeded()
-    {
-        if (DataContext is MainViewModel vm)
-            vm.RefreshCardChartConfigProviders();
-    }
-
     // =====================================================================
-    // req-107 B6 演进：卡片图表与数据组拖拽事件处理器
+    // S4：任务栏迷你图表页事件处理（与 S2 卡片管理页同构）
     // =====================================================================
 
-    private System.Windows.Point _cardChartDragStartPoint;
-    private bool _cardChartIsDragging;
-
-    /// <summary>
-    /// req-105：Tooltip 字段勾选切换（ToolBox 里的每个 CheckBox）。
-    /// 从可视树向上找到 <see cref="CardChartConfigItem"/>，从 Tag 读字段名，调 VM。
-    /// </summary>
-    private void OnTooltipFieldToggleClick(object sender, System.Windows.RoutedEventArgs e)
+    /// <summary>S4：Mini 图表账号节点展开/收起切换。</summary>
+    private void OnMiniAccountNodeToggleClick(object sender, RoutedEventArgs e)
     {
-        if (sender is not System.Windows.Controls.CheckBox cb || cb.Tag is not string fieldName) return;
-        var chart = FindAncestor<ViewModels.CardChartConfigItem>(cb);
-        if (DataContext is not MainViewModel vm) return;
-        vm.ToggleTooltipField(chart, fieldName);
+        if ((sender as FrameworkElement)?.DataContext is ViewModels.MiniAccountNode node)
+            node.IsExpanded = !node.IsExpanded;
     }
 
-    /// <summary>req-109：保存 Mini 图表配置（可见性裁剪 + 排序）。</summary>
-    private void OnSaveMiniChartConfigClick(object sender, System.Windows.RoutedEventArgs e)
+    /// <summary>S4：Mini 图表节点展开/收起切换。</summary>
+    private void OnMiniChartNodeToggleClick(object sender, RoutedEventArgs e)
     {
-        if (DataContext is not MainViewModel vm) return;
-        vm.SaveMiniChartConfig();
-        System.Windows.MessageBox.Show(this, "Mini 图表配置已保存", "提示",
-            System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
+        if ((sender as FrameworkElement)?.DataContext is ViewModels.MiniChartNode node)
+            node.IsExpanded = !node.IsExpanded;
     }
 
-    private static T? FindAncestor<T>(System.Windows.DependencyObject? start) where T : class
+    // --- S4：Mini 图表拖拽排序 ---
+    private ViewModels.MiniChartNode? _miniChartDragSource;
+    private System.Windows.Point _miniChartDragStartPos;
+
+    /// <summary>S4：Mini 图表拖拽开始（记录拖拽源）。</summary>
+    private void OnMiniChartDragStart(object sender, MouseButtonEventArgs e)
     {
-        var current = start;
-        while (current != null)
+        if ((sender as FrameworkElement)?.Tag is ViewModels.MiniChartNode node)
         {
-            if (current is FrameworkElement fe && fe.DataContext is T match) return match;
-            current = System.Windows.Media.VisualTreeHelper.GetParent(current);
-        }
-        return null;
-    }
-
-    private void CardChartItemsListBox_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-    {
-        _cardChartDragStartPoint = e.GetPosition(null);
-        _cardChartIsDragging = false;
-    }
-
-    private void CardChartItemsListBox_PreviewMouseMove(object sender, System.Windows.Input.MouseEventArgs e)
-    {
-        if (e.LeftButton != MouseButtonState.Pressed || _cardChartIsDragging)
-            return;
-        var currentPos = e.GetPosition(null);
-        var diff = _cardChartDragStartPoint - currentPos;
-        if (Math.Abs(diff.X) > SystemParameters.MinimumHorizontalDragDistance ||
-            Math.Abs(diff.Y) > SystemParameters.MinimumVerticalDragDistance)
-        {
-            if (sender is not System.Windows.Controls.ListBox lb) return;
-            var dragged = FindVisualParent<System.Windows.Controls.ListBoxItem>(e.OriginalSource as DependencyObject);
-            if (dragged?.DataContext is not ViewModels.CardChartConfigItem item) return;
-            _cardChartIsDragging = true;
-            var dragData = new System.Windows.DataObject("CardChartConfigItem", item);
-            System.Windows.DragDrop.DoDragDrop(lb, dragData, System.Windows.DragDropEffects.Move);
-            _cardChartIsDragging = false;
+            _miniChartDragSource = node;
+            _miniChartDragStartPos = e.GetPosition(null);
         }
     }
 
-    private void CardChartItemsListBox_DragEnter(object sender, System.Windows.DragEventArgs e)
+    /// <summary>S4：Mini 图表拖拽移动（达到阈值后执行拖放并保存）。</summary>
+    private void OnMiniChartDragMove(object sender, System.Windows.Input.MouseEventArgs e)
     {
-        e.Effects = e.Data.GetDataPresent("CardChartConfigItem")
-            ? System.Windows.DragDropEffects.Move
-            : System.Windows.DragDropEffects.None;
-        e.Handled = true;
-    }
-
-    private void CardChartItemsListBox_Drop(object sender, System.Windows.DragEventArgs e)
-    {
-        if (!e.Data.GetDataPresent("CardChartConfigItem")) return;
-        if (DataContext is not MainViewModel vm) return;
-        if (e.Data.GetData("CardChartConfigItem") is not ViewModels.CardChartConfigItem dropped) return;
-        var target = FindVisualParent<System.Windows.Controls.ListBoxItem>(e.OriginalSource as DependencyObject);
-        if (target?.DataContext is not ViewModels.CardChartConfigItem targetItem) return;
-        var items = vm.CardChartConfigItems;
-        var oldIndex = items.IndexOf(dropped);
-        var newIndex = items.IndexOf(targetItem);
-        if (oldIndex < 0 || newIndex < 0 || oldIndex == newIndex) return;
-        items.Move(oldIndex, newIndex);
-        e.Handled = true;
-    }
-
-    // =====================================================================
-    // REQ-103 卡片排序拖拽事件处理器
-    // =====================================================================
-
-    private System.Windows.Point _cardOrderDragStartPoint;
-    private bool _cardOrderIsDragging;
-
-    /// <summary>
-    /// req-103：记录拖拽起始点。
-    /// </summary>
-    private void CardOrderListBox_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-    {
-        _cardOrderDragStartPoint = e.GetPosition(null);
-        _cardOrderIsDragging = false;
-    }
-
-    /// <summary>
-    /// req-103：检测拖拽距离，超过阈值后启动拖拽操作。
-    /// </summary>
-    private void CardOrderListBox_PreviewMouseMove(object sender, System.Windows.Input.MouseEventArgs e)
-    {
-        if (e.LeftButton != MouseButtonState.Pressed || _cardOrderIsDragging)
-            return;
-
-        var currentPos = e.GetPosition(null);
-        var diff = _cardOrderDragStartPoint - currentPos;
-
-        if (Math.Abs(diff.X) > SystemParameters.MinimumHorizontalDragDistance ||
-            Math.Abs(diff.Y) > SystemParameters.MinimumVerticalDragDistance)
+        if (DragReorderCore(sender, _miniChartDragSource, _miniChartDragStartPos, e,
+            el => FindAncestorDataContext<ViewModels.MiniChartNode>(el),
+            el => FindAncestorDataContext<ViewModels.MiniAccountNode>(el)?.Save()))
         {
-            if (sender is not System.Windows.Controls.ListBox listBox) return;
-            var draggedItem = FindVisualParent<System.Windows.Controls.ListBoxItem>(e.OriginalSource as DependencyObject);
-            if (draggedItem?.Content is not Helpers.CardOrderItem cardOrderItem) return;
+            _miniChartDragSource = null;
+        }
+    }
 
-            _cardOrderIsDragging = true;
-            var dragData = new System.Windows.DataObject("CardOrderItem", cardOrderItem);
-            System.Windows.DragDrop.DoDragDrop(listBox, dragData, System.Windows.DragDropEffects.Move);
-            _cardOrderIsDragging = false;
+    // --- S4：Mini 数据组拖拽排序 ---
+    private ViewModels.MiniDataGroupNode? _miniDataGroupDragSource;
+    private System.Windows.Point _miniDataGroupDragStartPos;
+
+    /// <summary>S4：Mini 数据组拖拽开始。</summary>
+    private void OnMiniDataGroupDragStart(object sender, MouseButtonEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is ViewModels.MiniDataGroupNode node)
+        {
+            _miniDataGroupDragSource = node;
+            _miniDataGroupDragStartPos = e.GetPosition(null);
+        }
+    }
+
+    /// <summary>S4：Mini 数据组拖拽移动。</summary>
+    private void OnMiniDataGroupDragMove(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        if (DragReorderCore(sender, _miniDataGroupDragSource, _miniDataGroupDragStartPos, e,
+            el => FindAncestorDataContext<ViewModels.MiniDataGroupNode>(el),
+            el => FindAncestorDataContext<ViewModels.MiniAccountNode>(el)?.Save()))
+        {
+            _miniDataGroupDragSource = null;
         }
     }
 
     /// <summary>
-    /// req-103：拖拽悬停时设置效果。
+    /// S4：泛型拖拽重排核心逻辑（Mini 图表 / 数据组共用）。
+    /// <para>达到系统拖拽阈值后，在同一个 ItemsControl 内将拖拽源移动到目标位置，
+    /// 并调用 saveAfterMove 持久化。返回 true 表示拖拽已结束（已移动或已中止），调用方应清空拖拽源。</para>
     /// </summary>
-    private void CardOrderListBox_DragEnter(object sender, System.Windows.DragEventArgs e)
+    private bool DragReorderCore<TNode>(object sender, TNode? source, System.Windows.Point dragStartPos,
+        System.Windows.Input.MouseEventArgs e,
+        Func<DependencyObject?, TNode?> findTarget,
+        Action<DependencyObject?> saveAfterMove) where TNode : class
     {
-        if (e.Data.GetDataPresent("CardOrderItem"))
-            e.Effects = System.Windows.DragDropEffects.Move;
-        else
-            e.Effects = System.Windows.DragDropEffects.None;
-        e.Handled = true;
-    }
+        if (source == null || e.LeftButton != MouseButtonState.Pressed) return true;
+        var pos = e.GetPosition(null);
+        if (Math.Abs(pos.X - dragStartPos.X) < SystemParameters.MinimumHorizontalDragDistance &&
+            Math.Abs(pos.Y - dragStartPos.Y) < SystemParameters.MinimumVerticalDragDistance)
+            return false; // 未达阈值，拖拽仍在进行
 
-    /// <summary>
-    /// req-103：放下时执行排序并持久化。
-    /// </summary>
-    private void CardOrderListBox_Drop(object sender, System.Windows.DragEventArgs e)
-    {
-        if (!e.Data.GetDataPresent("CardOrderItem")) return;
-        if (DataContext is not MainViewModel vm) return;
-
-        var droppedItem = e.Data.GetData("CardOrderItem") as Helpers.CardOrderItem;
-        if (droppedItem == null) return;
-
-        // 找到目标位置
-        var targetItem = FindVisualParent<System.Windows.Controls.ListBoxItem>(e.OriginalSource as DependencyObject);
-        if (targetItem?.Content is not Helpers.CardOrderItem targetCardItem) return;
-
-        var items = vm.CardOrderItems;
-        var oldIndex = items.IndexOf(droppedItem);
-        var newIndex = items.IndexOf(targetCardItem);
-
-        if (oldIndex < 0 || newIndex < 0 || oldIndex == newIndex) return;
-
-        // 移动元素
-        items.Move(oldIndex, newIndex);
-
-        // 持久化排序结果
-        vm.SaveCardOrder();
-
-        e.Handled = true;
-    }
-
-    /// <summary>
-    /// 向上查找指定类型的父元素。
-    /// </summary>
-    private static T? FindVisualParent<T>(DependencyObject? child) where T : DependencyObject
-    {
-        while (child != null)
+        var target = findTarget(e.OriginalSource as DependencyObject);
+        if (target != null && !ReferenceEquals(target, source))
         {
-            if (child is T parent) return parent;
-            child = VisualTreeHelper.GetParent(child);
+            var sourceElement = sender as FrameworkElement;
+            var itemsControl = FindVisualParent<ItemsControl>(sourceElement);
+            if (itemsControl?.ItemsSource is System.Collections.ObjectModel.ObservableCollection<TNode> coll)
+            {
+                var fromIdx = coll.IndexOf(source);
+                var toIdx = coll.IndexOf(target);
+                if (fromIdx >= 0 && toIdx >= 0)
+                {
+                    coll.Move(fromIdx, toIdx);
+                    saveAfterMove(sourceElement);
+                }
+            }
         }
-        return null;
+        return true;
     }
 
     /// <summary>
@@ -590,72 +451,6 @@ public partial class SettingsWindow : Window
         }
     }
 
-    // =====================================================================
-    // REQ-097 图表顺序拖拽事件处理器
-    // =====================================================================
-
-    private System.Windows.Point _chartOrderDragStartPoint;
-    private bool _chartOrderIsDragging;
-
-    /// <summary>
-    /// req-097：记录拖拽起始点。
-    /// </summary>
-    private void ChartOrderListBox_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-    {
-        _chartOrderDragStartPoint = e.GetPosition(null);
-        _chartOrderIsDragging = false;
-    }
-
-    /// <summary>
-    /// req-097：检测拖拽距离，超过阈值启动拖拽。
-    /// </summary>
-    private void ChartOrderListBox_PreviewMouseMove(object sender, System.Windows.Input.MouseEventArgs e)
-    {
-        if (e.LeftButton != MouseButtonState.Pressed || _chartOrderIsDragging) return;
-        var currentPos = e.GetPosition(null);
-        var diff = _chartOrderDragStartPoint - currentPos;
-        if (Math.Abs(diff.X) > SystemParameters.MinimumHorizontalDragDistance ||
-            Math.Abs(diff.Y) > SystemParameters.MinimumVerticalDragDistance)
-        {
-            if (sender is not System.Windows.Controls.ListBox listBox) return;
-            var draggedItem = FindVisualParent<System.Windows.Controls.ListBoxItem>(e.OriginalSource as DependencyObject);
-            if (draggedItem?.Content is not Helpers.ChartOrderItem chartOrderItem) return;
-            _chartOrderIsDragging = true;
-            var dragData = new System.Windows.DataObject("ChartOrderItem", chartOrderItem);
-            System.Windows.DragDrop.DoDragDrop(listBox, dragData, System.Windows.DragDropEffects.Move);
-            _chartOrderIsDragging = false;
-        }
-    }
-
-    /// <summary>
-    /// req-097：拖拽进入时设置效果。
-    /// </summary>
-    private void ChartOrderListBox_DragEnter(object sender, System.Windows.DragEventArgs e)
-    {
-        e.Effects = e.Data.GetDataPresent("ChartOrderItem") ? System.Windows.DragDropEffects.Move : System.Windows.DragDropEffects.None;
-        e.Handled = true;
-    }
-
-    /// <summary>
-    /// req-097：放置时调整顺序。
-    /// </summary>
-    private void ChartOrderListBox_Drop(object sender, System.Windows.DragEventArgs e)
-    {
-        if (!e.Data.GetDataPresent("ChartOrderItem")) return;
-        if (DataContext is not MainViewModel vm) return;
-        var droppedItem = e.Data.GetData("ChartOrderItem") as Helpers.ChartOrderItem;
-        if (droppedItem == null) return;
-        var targetItem = FindVisualParent<System.Windows.Controls.ListBoxItem>(e.OriginalSource as DependencyObject);
-        if (targetItem?.Content is not Helpers.ChartOrderItem targetChartItem) return;
-        var items = vm.ChartOrderItems;
-        var oldIndex = items.IndexOf(droppedItem);
-        var newIndex = items.IndexOf(targetChartItem);
-        if (oldIndex < 0 || newIndex < 0 || oldIndex == newIndex) return;
-        items.Move(oldIndex, newIndex);
-        vm.SaveChartOrder();
-        e.Handled = true;
-    }
-
     /// <summary>
     /// req-107 B9：设置界面“校验插件”按钮——选择插件 defaults.json 即校验，
     /// 复用与 <c>--validate-plugin</c> 命令行相同的 <see cref="UsageMonitor.Core.Plugins.PluginValidator"/> 校验代码。
@@ -694,14 +489,168 @@ public partial class SettingsWindow : Window
     }
 
     /// <summary>
-    /// req-107 B6 演进：设置界面「保存配置」按钮——把当前 Provider 的卡片图表与数据组配置写回 ConfigService。
+    /// S1：账号昵称 TextBox 失焦时提交（仅在校验通过时落盘，重名拒绝保存）。
+    /// 实时校验在 ViewModel.Nickname setter 中完成，此处仅负责触发持久化。
     /// </summary>
-    private void OnSaveCardChartConfigClick(object sender, RoutedEventArgs e)
+    private void OnAccountNicknameLostFocus(object sender, RoutedEventArgs e)
     {
-        if (DataContext is not MainViewModel vm) return;
-        vm.SaveCardChartConfig();
-        vm.ReloadCardChartConfigItems();
-        System.Windows.MessageBox.Show(this, "卡片图表配置已保存", "提示",
-            System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
+        if ((sender as System.Windows.Controls.TextBox)?.DataContext is ViewModels.PluginAccountItemViewModel accountVm)
+        {
+            accountVm.CommitNickname();
+        }
     }
+
+    // =====================================================================
+    // S2：卡片管理页事件处理
+    // =====================================================================
+
+    /// <summary>S2：账号节点展开/收起切换。</summary>
+    private void OnAccountNodeToggleClick(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is ViewModels.AccountNode node)
+            node.IsExpanded = !node.IsExpanded;
+    }
+
+    /// <summary>S2：图表节点展开/收起切换。</summary>
+    private void OnChartNodeToggleClick(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is ViewModels.ChartNode node)
+            node.IsExpanded = !node.IsExpanded;
+    }
+
+    /// <summary>S2：添加图表按钮——弹出 ContextMenu 显示可添加的图表列表。</summary>
+    private void OnAddChartClick(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is not ViewModels.AccountNode node) return;
+        if (node.AvailableCharts.Count == 0)
+        {
+            System.Windows.MessageBox.Show(this, "所有声明图表均已添加。", "提示",
+                System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
+            return;
+        }
+
+        // 用 ContextMenu 展示可添加图表
+        var menu = new ContextMenu();
+        foreach (var chart in node.AvailableCharts)
+        {
+            var item = new MenuItem { Header = chart.ChartId, Tag = chart };
+            item.Click += (_, _) => node.AddChartCommand.Execute(chart);
+            menu.Items.Add(item);
+        }
+        menu.PlacementTarget = sender as UIElement;
+        menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+        menu.IsOpen = true;
+    }
+
+    // --- S2：图表拖拽排序 ---
+    private ViewModels.ChartNode? _chartDragSource;
+    private System.Windows.Point _chartDragStartPos;
+
+    /// <summary>S2：图表拖拽开始（记录拖拽源）。</summary>
+    private void OnChartDragStart(object sender, MouseButtonEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is ViewModels.ChartNode node)
+        {
+            _chartDragSource = node;
+            _chartDragStartPos = e.GetPosition(null);
+        }
+    }
+
+    /// <summary>S2：图表拖拽移动（达到阈值后执行拖放）。</summary>
+    private void OnChartDragMove(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        if (_chartDragSource == null || e.LeftButton != MouseButtonState.Pressed) return;
+        var pos = e.GetPosition(null);
+        if (Math.Abs(pos.X - _chartDragStartPos.X) < SystemParameters.MinimumHorizontalDragDistance &&
+            Math.Abs(pos.Y - _chartDragStartPos.Y) < SystemParameters.MinimumVerticalDragDistance) return;
+
+        // 查找拖拽目标（同一 ItemsControl 内的另一个 ChartNode）
+        var target = FindAncestorDataContext<ViewModels.ChartNode>(e.OriginalSource as DependencyObject);
+        if (target != null && !ReferenceEquals(target, _chartDragSource))
+        {
+            // 找到父账号节点并执行移动
+            var sourceElement = sender as FrameworkElement;
+            var itemsControl = FindVisualParent<ItemsControl>(sourceElement);
+            if (itemsControl?.ItemsSource is System.Collections.ObjectModel.ObservableCollection<ViewModels.ChartNode> charts)
+            {
+                var fromIdx = charts.IndexOf(_chartDragSource);
+                var toIdx = charts.IndexOf(target);
+                if (fromIdx >= 0 && toIdx >= 0)
+                {
+                    charts.Move(fromIdx, toIdx);
+                    // 拖拽后保存顺序
+                    var accountNode = FindAncestorDataContext<ViewModels.AccountNode>(sourceElement);
+                    accountNode?.Save();
+                }
+            }
+        }
+        _chartDragSource = null;
+    }
+
+    // --- S2：数据组拖拽排序 ---
+    private ViewModels.DataGroupNode? _dataGroupDragSource;
+    private System.Windows.Point _dataGroupDragStartPos;
+
+    /// <summary>S2：数据组拖拽开始。</summary>
+    private void OnDataGroupDragStart(object sender, MouseButtonEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is ViewModels.DataGroupNode node)
+        {
+            _dataGroupDragSource = node;
+            _dataGroupDragStartPos = e.GetPosition(null);
+        }
+    }
+
+    /// <summary>S2：数据组拖拽移动。</summary>
+    private void OnDataGroupDragMove(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        if (_dataGroupDragSource == null || e.LeftButton != MouseButtonState.Pressed) return;
+        var pos = e.GetPosition(null);
+        if (Math.Abs(pos.X - _dataGroupDragStartPos.X) < SystemParameters.MinimumHorizontalDragDistance &&
+            Math.Abs(pos.Y - _dataGroupDragStartPos.Y) < SystemParameters.MinimumVerticalDragDistance) return;
+
+        var target = FindAncestorDataContext<ViewModels.DataGroupNode>(e.OriginalSource as DependencyObject);
+        if (target != null && !ReferenceEquals(target, _dataGroupDragSource))
+        {
+            var sourceElement = sender as FrameworkElement;
+            var itemsControl = FindVisualParent<ItemsControl>(sourceElement);
+            if (itemsControl?.ItemsSource is System.Collections.ObjectModel.ObservableCollection<ViewModels.DataGroupNode> groups)
+            {
+                var fromIdx = groups.IndexOf(_dataGroupDragSource);
+                var toIdx = groups.IndexOf(target);
+                if (fromIdx >= 0 && toIdx >= 0)
+                {
+                    groups.Move(fromIdx, toIdx);
+                    // 拖拽后保存顺序
+                    var accountNode = FindAncestorDataContext<ViewModels.AccountNode>(sourceElement);
+                    accountNode?.Save();
+                }
+            }
+        }
+        _dataGroupDragSource = null;
+    }
+
+    /// <summary>S2：向上查找可视化树中指定类型的 DataContext。</summary>
+    private static T? FindAncestorDataContext<T>(DependencyObject? element) where T : class
+    {
+        while (element != null)
+        {
+            if (element is FrameworkElement fe && fe.DataContext is T result)
+                return result;
+            element = VisualTreeHelper.GetParent(element);
+        }
+        return null;
+    }
+
+    /// <summary>S2：向上查找可视化树中指定类型的父元素。</summary>
+    private static T? FindVisualParent<T>(DependencyObject? element) where T : DependencyObject
+    {
+        while (element != null)
+        {
+            if (element is T result) return result;
+            element = VisualTreeHelper.GetParent(element);
+        }
+        return null;
+    }
+
 }

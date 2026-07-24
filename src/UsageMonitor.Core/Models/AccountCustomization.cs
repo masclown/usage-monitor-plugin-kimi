@@ -82,4 +82,59 @@ public sealed class AccountCustomization
     /// <param name="cardId">卡片 ID（缺省 "default-card"）。</param>
     public static string MakeKey(string providerId, string accountId = "default", string cardId = "default-card")
         => $"{providerId}:{(string.IsNullOrEmpty(accountId) ? "default" : accountId)}:{(string.IsNullOrEmpty(cardId) ? "default-card" : cardId)}";
+
+    /// <summary>
+    /// 深拷贝当前实例（所有集合字段逐一新建独立副本），供 <c>ConfigService.MakeSnapshot</c> 使用，
+    /// 避免快照与 <c>_settings</c> 共享引用导致并发修改或数据丢失。
+    /// </summary>
+    public AccountCustomization Clone()
+    {
+        var clone = new AccountCustomization
+        {
+            VisibleCharts = VisibleCharts == null ? null : new List<string>(VisibleCharts),
+            ChartOrders = new Dictionary<string, int>(ChartOrders),
+            CurrentDataGroupIds = new Dictionary<string, string>(CurrentDataGroupIds),
+            ChartColorTierSources = new Dictionary<string, string>(ChartColorTierSources),
+            Nickname = Nickname,
+            UseNickname = UseNickname,
+            ChartTitles = new Dictionary<string, string>(ChartTitles),
+            VisibleProgressFields = VisibleProgressFields == null ? null : new List<string>(VisibleProgressFields),
+            VisibleMetricFields = VisibleMetricFields == null ? null : new List<string>(VisibleMetricFields),
+            VisibleMiniCharts = VisibleMiniCharts == null ? null : new List<string>(VisibleMiniCharts),
+        };
+
+        // VisibleDataGroups：Dictionary<string, List<string>?>
+        foreach (var kvp in VisibleDataGroups)
+            clone.VisibleDataGroups[kvp.Key] = kvp.Value == null ? null : new List<string>(kvp.Value);
+
+        // DataGroupOrders：Dictionary<string, Dictionary<string, int>>
+        foreach (var kvp in DataGroupOrders)
+            clone.DataGroupOrders[kvp.Key] = new Dictionary<string, int>(kvp.Value);
+
+        // VisibleTooltipFields：Dictionary<string, List<string>?>
+        foreach (var kvp in VisibleTooltipFields)
+            clone.VisibleTooltipFields[kvp.Key] = kvp.Value == null ? null : new List<string>(kvp.Value);
+
+        // VisibleMiniDataGroups：Dictionary<string, List<string>?>
+        foreach (var kvp in VisibleMiniDataGroups)
+            clone.VisibleMiniDataGroups[kvp.Key] = kvp.Value == null ? null : new List<string>(kvp.Value);
+
+        // MiniDataGroupOrders：Dictionary<string, Dictionary<string, int>>
+        foreach (var kvp in MiniDataGroupOrders)
+            clone.MiniDataGroupOrders[kvp.Key] = new Dictionary<string, int>(kvp.Value);
+
+        // Cards：List<CardConfig>（逐项深拷贝）
+        foreach (var card in Cards)
+        {
+            clone.Cards.Add(new CardConfig
+            {
+                CardId = card.CardId,
+                Title = card.Title,
+                DisplayOrder = card.DisplayOrder,
+                Customization = card.Customization.Clone()
+            });
+        }
+
+        return clone;
+    }
 }

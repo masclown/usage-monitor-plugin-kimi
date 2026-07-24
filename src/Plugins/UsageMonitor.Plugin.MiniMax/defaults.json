@@ -58,7 +58,7 @@
       {
         "chartId": "mm.chart.daily_line",
         "kind": "Line",
-        "defaultOrder": 2,
+        "defaultOrder": 3,
         "slicer": {
           "mode": "Period",
           "position": "TopRight",
@@ -80,7 +80,7 @@
       {
         "chartId": "mm.chart.cache_heatmap",
         "kind": "HeatMap",
-        "defaultOrder": 3,
+        "defaultOrder": 4,
         "tooltip": { "fields": ["daily_cache_hit_value"] },
         "colorTiers": {
           "thresholds": [0, 30, 60, 80, 100],
@@ -100,7 +100,7 @@
       {
         "chartId": "mm.chart.remaining_number",
         "kind": "Number",
-        "defaultOrder": 4,
+        "defaultOrder": 2,
         "dataGroups": [
           { "id": "mm.number.remaining", "fields": [{ "fieldName": "remaining_credits", "role": "Value" }] }
         ]

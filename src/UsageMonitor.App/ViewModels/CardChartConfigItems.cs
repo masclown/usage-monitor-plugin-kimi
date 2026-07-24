@@ -33,30 +33,6 @@ public sealed class CardChartConfigItem : INotifyPropertyChanged
 }
 
 /// <summary>
-/// req-109：单个 Mini 图表配置 VM 项（任务栏 Mini 图表同构）。供 <c>SettingsSection_TaskbarMiniChart</c> 绑定。
-/// </summary>
-public sealed class MiniChartConfigItem : INotifyPropertyChanged
-{
-    public string ChartId { get; init; } = "";
-    public string Kind { get; init; } = "";
-    public string ProviderId { get; init; } = "";
-    public string AccountId { get; init; } = "default";
-    public string CardId { get; init; } = "default-card";
-
-    private bool _isVisible;
-    /// <summary>是否在任务栏显示此 Mini 图表。</summary>
-    public bool IsVisible
-    {
-        get => _isVisible;
-        set { if (_isVisible != value) { _isVisible = value; OnPropertyChanged(); } }
-    }
-
-    public event PropertyChangedEventHandler? PropertyChanged;
-    private void OnPropertyChanged([CallerMemberName] string? name = null)
-        => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
-}
-
-/// <summary>
 /// 单个数据组的配置 VM 项（嵌套在 <see cref="CardChartConfigItem.DataGroups"/> 内）。
 /// </summary>
 public sealed class DataGroupConfigItem : INotifyPropertyChanged

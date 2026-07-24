@@ -162,6 +162,7 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
     /// <summary>
     /// 配置变更时重新读取 MiniMax ProviderConfig 中 4 个进度条开关并通知属性变更。
     /// req-104：同时通知 CardMetricBarData/CardMetricGridData 变更以应用字段过滤。
+    /// B2：同时刷新卡片标题昵称（设置窗口修改昵称 → UpdateAccount → Save → ConfigChanged → 此处实时生效）。
     /// </summary>
     private void OnConfigChanged(object? sender, EventArgs e)
     {
@@ -169,6 +170,23 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         // req-104：配置变更时重新过滤多进度条/数字网格字段
         OnPropertyChanged(nameof(CardMetricBarData));
         OnPropertyChanged(nameof(CardMetricGridData));
+        // B2：昵称变更后实时刷新卡片标题
+        ReloadDisplayNameFromAccount();
+    }
+
+    /// <summary>
+    /// B2：从 ConfigService 重新读取账号昵称并更新卡片标题。
+    /// 账号存在且 UseNickname=true 且昵称非空时显示昵称，否则回退 Provider 显示名。
+    /// </summary>
+    private void ReloadDisplayNameFromAccount()
+    {
+        if (ConfigService == null || string.IsNullOrEmpty(_providerId)) return;
+        var account = ConfigService.GetAccount(_providerId, AccountIdSafe);
+        var targetName = (account is { UseNickname: true } && !string.IsNullOrWhiteSpace(account.Nickname))
+            ? account.Nickname.Trim()
+            : Provider?.DisplayName;
+        if (!string.IsNullOrEmpty(targetName) && DisplayName != targetName)
+            DisplayName = targetName;
     }
 
     /// <summary>
@@ -870,8 +888,8 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
 
     /// <summary>
     /// req-026：当前 Provider 启用的环形图中心 metric key 集合。
-    /// <para>绑定到 RingChartControl.EnabledMetrics，由 <c>MainViewModel.BuildProviderRingChartMetricGroups</c>
-    /// 在用户勾选变更时通过 <c>SyncProviderEnabledMetricsToVm</c> 同步。null / 空集合表示“全部启用”，
+    /// <para>绑定到 RingChartControl.EnabledMetrics，由 <c>MainViewModel.SyncGlobalEnabledMetricsToAllProviders</c>
+    /// 在用户勾选变更时同步。null / 空集合表示“全部启用”，
     /// 控件会沿用旧行为不显灰。</para>
     /// </summary>
     public IReadOnlyList<string> EnabledRingChartMetrics
