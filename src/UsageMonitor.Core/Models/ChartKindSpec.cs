@@ -127,11 +127,11 @@ public static class ChartKindSpecRegistry
                 AllowedValueTypes = percentOnly,
                 SupportsColorTiers = true
             },
-            // 迷你文本：无切片器；Reset/Meta 文本
+            // 迷你文本：DataGroup 切片（问题7：与迷你圆环对齐，支持 5h/周等数据组滚轮切换）；Reset/Meta/Value 文本
             new()
             {
                 Kind = DeclarativeChartKind.MiniText,
-                SupportedSlicerModes = System.Array.Empty<SlicerMode>(),
+                SupportedSlicerModes = new[] { SlicerMode.DataGroup },
                 RequiredRoles = System.Array.Empty<FieldRole>(),
                 OptionalRoles = new[] { FieldRole.Reset, FieldRole.Meta, FieldRole.Value },
                 AllowedValueTypes = System.Array.Empty<UsageFieldDataType>(),

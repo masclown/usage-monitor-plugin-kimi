@@ -152,6 +152,10 @@ public partial class MainViewModel : INotifyPropertyChanged
         // 必须在 Usages 集合构建完成后调用
         SyncGlobalEnabledMetricsToAllProviders();
 
+        // 问题1/9：启动时从 usage_field_versions 恢复各卡片的最近字段快照（fire-and-forget，
+        // 首次刷新到达后 VM 会自行跳过晚到的快照）。
+        _ = RestorePersistedFieldSnapshotsAsync();
+
         // 监听历史数据变化
         _dataModule.ProviderHistoryChanged += OnProviderHistoryChanged;
         _dataModule.HistoryChanged += OnAnyHistoryChanged;
@@ -331,6 +335,38 @@ public partial class MainViewModel : INotifyPropertyChanged
         foreach (var vm in Usages)
         {
             vm.RecolorHeatMapCells();
+        }
+    }
+
+    /// <summary>
+    /// 问题1/9：启动时从持久化仓库读取各卡片 (ProviderId, AccountId) 的最近字段快照，
+    /// 回填到对应 <see cref="ProviderUsageViewModel"/>（数据概览 / 进度条 / 5h 倒计时等）。
+    /// <para>同 (Provider, Account) 多卡片共享一次查询；构造函数在 UI 线程调用，await 后继续在 UI 线程回填，
+    /// 无需额外 Dispatcher 切换；失败仅记日志，不影响启动。</para>
+    /// </summary>
+    private async Task RestorePersistedFieldSnapshotsAsync()
+    {
+        try
+        {
+            // 快照按 (ProviderId, AccountId) 维度缓存，避免同 Provider 多卡片重复查库。
+            var cache = new Dictionary<string, Dictionary<string, object>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var vm in Usages.ToList())
+            {
+                if (vm == null || string.IsNullOrEmpty(vm.ProviderId)) continue;
+                var key = $"{vm.ProviderId}::{vm.AccountIdSafe}";
+                if (!cache.TryGetValue(key, out var fields))
+                {
+                    fields = await _dataModule.GetLatestFieldsAsync(vm.ProviderId, vm.AccountIdSafe);
+                    cache[key] = fields ?? new Dictionary<string, object>();
+                    fields = cache[key];
+                }
+                if (fields.Count == 0) continue;
+                vm.RestoreFromFieldSnapshot(fields);
+            }
+        }
+        catch (Exception ex)
+        {
+            UsageMonitor.Core.Services.FileLogger.Error("MainViewModel", "RestorePersistedFieldSnapshotsAsync failed", ex);
         }
     }
 

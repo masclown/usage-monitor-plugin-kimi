@@ -244,6 +244,12 @@ public sealed class DataModule : IDataModule
             : Task.CompletedTask;
 
     /// <inheritdoc/>
+    public Task<Dictionary<string, object>> GetLatestFieldsAsync(string providerId, string accountId)
+        => _repository != null
+            ? _repository.GetLatestFieldsAsync(providerId, accountId)
+            : Task.FromResult(new Dictionary<string, object>());
+
+    /// <inheritdoc/>
     public void RecordRefreshAggregate(string providerId, string triggerKind)
     {
         // req-099 B2：本方法由 RefreshService.RecordRefreshAggregateAsync 迁移而来，数据聚合/持久化集中在数据模块。

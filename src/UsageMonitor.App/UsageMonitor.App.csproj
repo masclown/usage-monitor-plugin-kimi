@@ -9,13 +9,13 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
 
-    <!-- 项目版本号（0.31.1-beta）：TooltipFieldCatalog大幅增强(+83行) / YearHeatMapControl年度热力图增强(+63行) / ProviderUsageViewModel增强(+110行) / TaskbarMiniChartRegistry增强(+50行) / SettingsWindow与Converters增强；用于程序集元数据 + 文件属性。 -->
+    <!-- 项目版本号（0.32.0-beta）：MiniTooltipFieldCatalog迷你Tooltip字段目录 / MiniChartItemViewModel大幅增强(+130行) / MiniChartManageViewModel大幅增强(+89行) / ProviderUsageViewModel大幅增强(+98行) / TaskbarWindow增强 / UsageHistoryRepository增强 / TooltipFieldSemanticsTests与BugfixBatchNineTests大量测试新增；用于程序集元数据 + 文件属性。 -->
     <!-- 显式设置 5 个属性，避免被 SDK 衍生规则变动影响。 -->
-    <Version>0.31.1-beta</Version>
-    <AssemblyVersion>0.31.1.0</AssemblyVersion>
-    <FileVersion>0.31.1.0</FileVersion>
-    <InformationalVersion>0.31.1-beta</InformationalVersion>
-    <ProductVersion>0.31.1-beta</ProductVersion>
+    <Version>0.32.0-beta</Version>
+    <AssemblyVersion>0.32.0.0</AssemblyVersion>
+    <FileVersion>0.32.0.0</FileVersion>
+    <InformationalVersion>0.32.0-beta</InformationalVersion>
+    <ProductVersion>0.32.0-beta</ProductVersion>
     <AssemblyTitle>UsageMonitor</AssemblyTitle>
     <Product>UsageMonitor</Product>
     <Company>UsageMonitor</Company>

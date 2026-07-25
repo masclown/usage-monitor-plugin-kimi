@@ -74,6 +74,13 @@ public sealed class AccountCustomization
     /// <summary>req-109：各 Mini 图表的数据组排序（miniChartId → dataGroupId → 序号；序号越小越靠前）。</summary>
     public Dictionary<string, Dictionary<string, int>> MiniDataGroupOrders { get; set; } = new();
 
+    /// <summary>问题8：各 Mini 图表的 Tooltip/文本显示字段（miniChartId → 字段名列表）。
+    /// <para>可选字段：当前 Provider（__provider_name__）/ 账号名（account_display_name）/
+    /// 5h 用量百分比（five_hour_used_percent）/ 周用量百分比（weekly_used_percent）/ 刷新倒计时（__refresh_countdown__）。
+    /// null = 沿用 defaults.json 声明的 <c>tooltip.fields</c>；空集合 = 不显示 tooltip；非空 = 仅显示列表内字段。</para>
+    /// </summary>
+    public Dictionary<string, List<string>?> MiniTooltipFields { get; set; } = new();
+
     /// <summary>用量卡片折叠分界线位置：折叠时保持可见的图表数量（即分界线位于有序图表列表第 N 项之后）。
     /// <para>null = 未设置，宿主按插件声明的 <c>card.collapseDividerIndex</c> 兜底，仍无则默认分界线位于图表列表末尾（折叠时全部图表可见）。
     /// 0 = 折叠时隐藏全部图表。用户可在【卡片管理】页拖拽分界线调整。</para>
@@ -129,6 +136,10 @@ public sealed class AccountCustomization
         // MiniDataGroupOrders：Dictionary<string, Dictionary<string, int>>
         foreach (var kvp in MiniDataGroupOrders)
             clone.MiniDataGroupOrders[kvp.Key] = new Dictionary<string, int>(kvp.Value);
+
+        // MiniTooltipFields：Dictionary<string, List<string>?>（问题8）
+        foreach (var kvp in MiniTooltipFields)
+            clone.MiniTooltipFields[kvp.Key] = kvp.Value == null ? null : new List<string>(kvp.Value);
 
         // Cards：List<CardConfig>（逐项深拷贝）
         foreach (var card in Cards)

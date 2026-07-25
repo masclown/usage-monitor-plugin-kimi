@@ -232,7 +232,7 @@
           "timeRanges": ["Last7Days", "Last30Days"],
           "default": "Last30Days"
         },
-        "tooltip": { "fields": ["daily_token_value"] },
+        "tooltip": { "fields": ["__date__", "daily_token_value"] },
         "dataGroups": [
           {
             "id": "mm.line.daily_tokens",
@@ -249,7 +249,7 @@
         "display": "缓存热力图",
         "kind": "HeatMap",
         "defaultOrder": 4,
-        "tooltip": { "fields": ["daily_cache_hit_value"] },
+        "tooltip": { "fields": ["__date__", "daily_cache_hit_value"] },
         "colorTiers": {
           "thresholds": [0, 30, 60, 80, 100],
           "colors": ["#F5F5F5", "#FFE082", "#FFB74D", "#E64A19", "#B71C1C"]
@@ -290,20 +290,25 @@
     "miniCharts": [
       {
         "chartId": "mm.mini.ring",
+        "display": "限额圆环",
         "kind": "MiniRingChart",
         "slicer": { "mode": "DataGroup", "interaction": "Scroll", "default": "mm.taskbar.5h" },
-        "tooltip": { "fields": ["five_hour_used_percent"] },
+        "tooltip": { "fields": ["__provider_name__", "five_hour_used_percent", "weekly_used_percent", "__refresh_countdown__"] },
         "colorTiers": { "ref": "global:usage-tier-default" },
         "dataGroups": [
-          { "id": "mm.taskbar.5h", "fields": [{ "fieldName": "five_hour_used_percent", "role": "Value" }] },
-          { "id": "mm.taskbar.weekly", "fields": [{ "fieldName": "weekly_used_percent", "role": "Value" }] }
+          { "id": "mm.taskbar.5h", "display": "5h 限额", "fields": [{ "fieldName": "five_hour_used_percent", "role": "Value" }] },
+          { "id": "mm.taskbar.weekly", "display": "本周限额", "fields": [{ "fieldName": "weekly_used_percent", "role": "Value" }] }
         ]
       },
       {
         "chartId": "mm.mini.text",
+        "display": "用量文本",
         "kind": "MiniText",
+        "slicer": { "mode": "DataGroup", "interaction": "Scroll", "default": "mm.taskbar.5h" },
+        "tooltip": { "fields": ["__provider_name__", "five_hour_used_percent", "weekly_used_percent", "__refresh_countdown__"] },
         "dataGroups": [
-          { "id": "mm.taskbar.reset", "fields": [{ "fieldName": "five_hour_reset_at", "role": "Reset" }] }
+          { "id": "mm.taskbar.5h", "display": "5h 限额", "fields": [{ "fieldName": "five_hour_used_percent", "role": "Value" }] },
+          { "id": "mm.taskbar.weekly", "display": "本周限额", "fields": [{ "fieldName": "weekly_used_percent", "role": "Value" }] }
         ]
       }
     ]

@@ -82,7 +82,7 @@ public class MiniChartManageViewModel : INotifyPropertyChanged
 
     /// <summary>保存指定账号的 mini 图表配置到 ConfigService（统一走 SetMiniChartConfiguration）。
     /// <para>仅持久化 Mini 专属字段：VisibleMiniCharts（启用列表，顺序即显示顺序）、
-    /// VisibleMiniDataGroups、MiniDataGroupOrders。</para>
+    /// VisibleMiniDataGroups、MiniDataGroupOrders、MiniTooltipFields（问题8）。</para>
     /// </summary>
     internal void SaveAccountConfig(MiniAccountNode accountNode)
     {
@@ -94,6 +94,7 @@ public class MiniChartManageViewModel : INotifyPropertyChanged
                 VisibleMiniCharts = accountNode.MiniCharts.Where(c => c.IsEnabled).Select(c => c.ChartId).ToList(),
                 VisibleMiniDataGroups = new Dictionary<string, List<string>?>(),
                 MiniDataGroupOrders = new Dictionary<string, Dictionary<string, int>>(),
+                MiniTooltipFields = new Dictionary<string, List<string>?>(),
             };
 
             foreach (var chart in accountNode.MiniCharts)
@@ -107,6 +108,9 @@ public class MiniChartManageViewModel : INotifyPropertyChanged
                 for (int j = 0; j < chart.DataGroups.Count; j++)
                     groupOrders[chart.DataGroups[j].GroupId] = j;
                 config.MiniDataGroupOrders[chart.ChartId] = groupOrders;
+
+                // 问题8：Tooltip/文本显示字段（勾选即仅显示列表内字段，全取消 = 不显示）
+                config.MiniTooltipFields[chart.ChartId] = chart.TooltipFields.Where(f => f.IsChecked).Select(f => f.FieldName).ToList();
             }
 
             _configService.SetMiniChartConfiguration(accountNode.ProviderId, config, accountNode.AccountId);
@@ -227,7 +231,7 @@ public class MiniAccountNode : INotifyPropertyChanged
 
 /// <summary>
 /// S4 二级节点：mini 图表（拖拽手柄 + 启用 CheckBox + 图表名 + 展开按钮）。
-/// <para>展开后显示数据组列表。与卡片管理页 <c>ChartNode</c> 同构（无 tooltip 字段多选——Mini 配置不持久化 tooltip）。</para>
+/// <para>展开后显示数据组列表与 Tooltip 字段多选（问题8），与卡片管理页 <c>ChartNode</c> 同构。</para>
 /// </summary>
 public class MiniChartNode : INotifyPropertyChanged
 {
@@ -272,14 +276,18 @@ public class MiniChartNode : INotifyPropertyChanged
     /// <summary>数据组节点集合。</summary>
     public ObservableCollection<MiniDataGroupNode> DataGroups { get; } = new();
 
+    /// <summary>问题8：Tooltip/文本显示字段多选项集合（固定 5 项目录，与卡片管理页 S5 同构）。</summary>
+    public ObservableCollection<MiniTooltipFieldItem> TooltipFields { get; } = new();
+
     /// <summary>创建 mini 图表节点并初始化数据组。</summary>
     public MiniChartNode(MiniAccountNode parent, MiniChartDeclaration declaration, bool isVisible, AccountCustomization eff)
     {
         _parent = parent;
         ChartId = declaration.ChartId;
         _isEnabled = isVisible;
-        DisplayName = ExtractChartName(declaration.ChartId);
-        KindText = declaration.Kind.ToString();
+        // 问题6：优先插件声明的中文 display，回退 chartId 尾段；类型描述用中文映射。
+        DisplayName = !string.IsNullOrWhiteSpace(declaration.Display) ? declaration.Display! : ExtractChartName(declaration.ChartId);
+        KindText = KindToChinese(declaration.Kind);
 
         // 初始化数据组（可见性 + 排序从 Mini 专属字段读取）
         var visibleGroups = eff.VisibleMiniDataGroups.TryGetValue(ChartId, out var vg) ? vg : null;
@@ -294,6 +302,16 @@ public class MiniChartNode : INotifyPropertyChanged
             bool groupVisible = visibleGroups == null || visibleGroups.Contains(dg.Id);
             DataGroups.Add(new MiniDataGroupNode(this, dg, groupVisible));
         }
+
+        // 问题8：初始化 Tooltip/文本字段多选（用户配置优先，回退声明的 tooltip.fields）
+        var savedFields = eff.MiniTooltipFields.TryGetValue(ChartId, out var sf) ? sf : null;
+        foreach (var option in UsageMonitor.App.Helpers.MiniTooltipFieldCatalog.GetOptions())
+        {
+            bool isChecked = savedFields == null
+                ? declaration.Tooltip?.Fields?.Contains(option.FieldName) == true
+                : savedFields.Contains(option.FieldName);
+            TooltipFields.Add(new MiniTooltipFieldItem(this, option.FieldName, option.Display, isChecked));
+        }
     }
 
     /// <summary>从 ChartId 提取简短显示名（去掉 Provider 前缀）。</summary>
@@ -303,6 +321,19 @@ public class MiniChartNode : INotifyPropertyChanged
         var parts = chartId.Split('.');
         return parts.Length > 2 ? string.Join(".", parts.Skip(2)) : chartId;
     }
+
+    /// <summary>问题6：迷你图表类型中文映射（与卡片管理页 KindToChinese 同构，设置界面展示用）。</summary>
+    private static string KindToChinese(DeclarativeChartKind kind) => kind switch
+    {
+        DeclarativeChartKind.MiniRingChart => "迷你圆环",
+        DeclarativeChartKind.MiniText => "迷你文本",
+        DeclarativeChartKind.Ring => "环形图",
+        DeclarativeChartKind.Bar => "进度条",
+        DeclarativeChartKind.Line => "折线图",
+        DeclarativeChartKind.HeatMap => "热力图",
+        DeclarativeChartKind.Number => "数字",
+        _ => kind.ToString()
+    };
 
     /// <summary>通知父账号保存配置。</summary>
     internal void NotifyChanged() => _parent.Save();
@@ -351,8 +382,9 @@ public class MiniDataGroupNode : INotifyPropertyChanged
         _parent = parent;
         GroupId = dataGroup.Id;
         _isEnabled = isVisible;
-        DisplayName = ExtractGroupName(dataGroup.Id);
-        FieldChips = dataGroup.Fields.Select(f => f.FieldName).ToList();
+        // 问题6：优先插件声明的中文 display，回退从组 ID 提取；字段 chips 显示中文标签。
+        DisplayName = !string.IsNullOrWhiteSpace(dataGroup.Display) ? dataGroup.Display! : ExtractGroupName(dataGroup.Id);
+        FieldChips = dataGroup.Fields.Select(f => UsageMonitor.App.Helpers.TooltipFieldCatalog.GetDisplay(f.FieldName)).ToList();
     }
 
     /// <summary>从数据组 ID 提取简短显示名。</summary>
@@ -360,6 +392,51 @@ public class MiniDataGroupNode : INotifyPropertyChanged
     {
         var parts = groupId.Split('.');
         return parts.Length > 2 ? string.Join(".", parts.Skip(2)) : groupId;
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+    /// <summary>属性变更通知。</summary>
+    private void OnPropertyChanged([CallerMemberName] string? name = null)
+        => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+}
+
+/// <summary>
+/// 问题8：Mini 图表 Tooltip/文本字段多选项（每字段一个带 IsChecked 的 item VM，勾选即持久化）。
+/// <para>与卡片管理页 <c>TooltipFieldItem</c> 同构，父节点为 <see cref="MiniChartNode"/>。</para>
+/// </summary>
+public class MiniTooltipFieldItem : INotifyPropertyChanged
+{
+    private readonly MiniChartNode _parent;
+    private bool _isChecked;
+
+    /// <summary>字段名（SDK 字段或虚拟字段）。</summary>
+    public string FieldName { get; }
+
+    /// <summary>中文显示名。</summary>
+    public string Display { get; }
+
+    /// <summary>是否选中（勾选即持久化）。</summary>
+    public bool IsChecked
+    {
+        get => _isChecked;
+        set
+        {
+            if (_isChecked != value)
+            {
+                _isChecked = value;
+                OnPropertyChanged();
+                _parent.NotifyChanged();
+            }
+        }
+    }
+
+    /// <summary>创建 Mini tooltip 字段选项。</summary>
+    public MiniTooltipFieldItem(MiniChartNode parent, string fieldName, string display, bool isChecked)
+    {
+        _parent = parent;
+        FieldName = fieldName;
+        Display = display;
+        _isChecked = isChecked;
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;

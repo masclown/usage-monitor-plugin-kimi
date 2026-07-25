@@ -51,6 +51,15 @@ public interface IDataModule
     Task LoadPersistedHistoryAsync(IEnumerable<string> providerIds, int pointsPerProvider);
 
     /// <summary>
+    /// 启动恢复（问题1/9）：读取指定 (Provider, Account) 在 <c>usage_field_versions</c> 表中的最新字段快照。
+    /// <para>供 UI 在首次刷新前回填卡片显示（数据概览 / 进度条 / 5h 倒计时等）；
+    /// 纯内存模式（无仓库）返回空字典。</para>
+    /// </summary>
+    /// <param name="providerId">Provider 唯一标识。</param>
+    /// <param name="accountId">账号 ID（空时按 "default" 处理）。</param>
+    Task<Dictionary<string, object>> GetLatestFieldsAsync(string providerId, string accountId);
+
+    /// <summary>
     /// req-013：在一次成功刷新后，把当前内存快照区间的 最大/最小/末尾/平均 用量百分比
     /// 写入刷新聚合表（供历史窗口 DataGrid 展示）。fire-and-forget，失败仅日志。
     /// </summary>

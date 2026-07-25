@@ -23,18 +23,21 @@
     -->
     <Window.Resources>
         <!-- req-088 B5：文字模式模板
-             req-079 U-33：IsDataReady=false（数据尚未就绪 / 刷新中且无缓存）时显示骨架屏占位，避免空白闪烁 -->
+             req-079 U-33：IsDataReady=false（数据尚未就绪 / 刷新中且无缓存）时显示骨架屏占位，避免空白闪烁
+             问题7/8：正文改绑 MiniTextBody（字段驱动/当前数据组百分比）；挂滚轮切数据组；tooltip 改绑 CompositeTooltipText -->
         <DataTemplate x:Key="MiniChartTextTemplate" DataType="{x:Type views:MiniChartItemViewModel}">
-            <Grid VerticalAlignment="Center" Margin="0,0,16,0">
+            <Grid VerticalAlignment="Center" Margin="0,0,16,0" Background="Transparent"
+                  PreviewMouseWheel="OnRingChartPreviewMouseWheel">
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center"
-                            ToolTip="{Binding TooltipTitle, Mode=OneWay}"
+                            ToolTip="{Binding CompositeTooltipText, Mode=OneWay}"
                             ToolTipService.InitialShowDelay="{Binding TooltipShowDelayMs}">
                     <TextBlock Text="{Binding ProviderId, Mode=OneWay}" FontSize="12" FontWeight="SemiBold"
                                Foreground="{DynamicResource TextPrimaryBrush}"
-                               VerticalAlignment="Center" Margin="0,0,4,0" />
+                               VerticalAlignment="Center" Margin="0,0,4,0"
+                               Visibility="{Binding ShowProviderInText, Converter={StaticResource BoolToVisibility}}" />
                     <TextBlock FontSize="12" Foreground="{DynamicResource AccentBrush}"
                                VerticalAlignment="Center"
-                               Text="{Binding UsagePercent, Mode=OneWay, StringFormat={}{0:F0}%, TargetNullValue=--, FallbackValue=--}" />
+                               Text="{Binding MiniTextBody, Mode=OneWay}" />
                 </StackPanel>
                 <!-- req-079 U-33：骨架屏（尺寸与文字模式一致，微光扫过动画） -->
                 <controls:SkeletonPlaceholder Width="88" Height="14" CornerRadius="4"
@@ -51,8 +54,13 @@
             req-107 B4：Grid 挂 PreviewMouseWheel 滚轮切数据组；ToolTip 改绑 CompositeTooltipText（标题+正文）。
         -->
         <DataTemplate x:Key="MiniChartRingChartTemplate" DataType="{x:Type views:MiniChartItemViewModel}">
+            <!-- 问题8：tooltip 改挂在透明 Grid 上（整个 38x38 区域可命中），避免半环中心空白区悬停不弹 tooltip -->
             <Grid Width="38" Height="38" Margin="0,0,6,0" Background="Transparent"
-                  PreviewMouseWheel="OnRingChartPreviewMouseWheel">
+                  PreviewMouseWheel="OnRingChartPreviewMouseWheel"
+                  ToolTip="{Binding CompositeTooltipText, Mode=OneWay}"
+                  ToolTipService.Placement="Top"
+                  ToolTipService.VerticalOffset="-8"
+                  ToolTipService.InitialShowDelay="{Binding TooltipShowDelayMs}">
                 <controls:RingChartControl Width="38" Height="38"
                                             Percent="{Binding UsagePercent, Mode=OneWay, FallbackValue=0, TargetNullValue=0}"
                                             Size="38" StrokeThickness="3.5"
@@ -63,11 +71,7 @@
                                             VerticalAlignment="Top"
                                             IsHalfRing="True"
                                             ShowHoverTooltip="False"
-                                            Tag="{Binding ProviderId, Mode=OneWay}"
-                                            ToolTip="{Binding CompositeTooltipText, Mode=OneWay}"
-                                            ToolTipService.Placement="Top"
-                                            ToolTipService.VerticalOffset="-8"
-                                            ToolTipService.InitialShowDelay="{Binding TooltipShowDelayMs}" />
+                                            Tag="{Binding ProviderId, Mode=OneWay}" />
                 <!-- req-079 U-33：骨架屏（半环足迹 38x20 顶部对齐，微光扫过动画） -->
                 <controls:SkeletonPlaceholder Height="20" CornerRadius="10" VerticalAlignment="Top"
                                               Visibility="{Binding IsDataReady, Converter={StaticResource BoolToVisibility}, ConverterParameter=Invert}" />

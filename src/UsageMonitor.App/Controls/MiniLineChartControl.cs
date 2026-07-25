@@ -98,7 +98,7 @@ public class MiniLineChartControl : FrameworkElement, IHoverTooltipProvider
         nameof(IsLoading), typeof(bool), typeof(MiniLineChartControl),
         new FrameworkPropertyMetadata(false, FrameworkPropertyMetadataOptions.AffectsRender));
 
-    /// <summary>req-105：Tooltip 显示字段白名单（SDK 字段名集合，卡片管理页驱动）；非空时仅展示列表内字段对应的主值/缓存命中行。</summary>
+    /// <summary>req-105：Tooltip 显示字段白名单（SDK 字段名集合，卡片管理页驱动）；null = 不过滤，非 null（含空）= 仅展示列表内字段。</summary>
     public static readonly DependencyProperty TooltipFieldsProperty = DependencyProperty.Register(
         nameof(TooltipFields), typeof(IReadOnlyList<string>), typeof(MiniLineChartControl),
         new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
@@ -181,7 +181,7 @@ public class MiniLineChartControl : FrameworkElement, IHoverTooltipProvider
         set => SetValue(IsLoadingProperty, value);
     }
 
-    /// <summary>req-105：Tooltip 显示字段白名单（null/空 = 展示全部，向后兼容）。</summary>
+    /// <summary>req-105：Tooltip 显示字段白名单（null = 不过滤全部展示；非 null 含空集合 = 白名单过滤）。</summary>
     public IReadOnlyList<string>? TooltipFields
     {
         get => (IReadOnlyList<string>?)GetValue(TooltipFieldsProperty);
@@ -934,31 +934,36 @@ public class MiniLineChartControl : FrameworkElement, IHoverTooltipProvider
         var index = GetIndex(position.X);
         var value = Values[index];
         var provider = string.IsNullOrWhiteSpace(ProviderName) ? "用量" : ProviderName;
-
-        // Title：优先 Dates[index]（真实日期），否则用旧的 "Provider · 第 N 点" 形式兜底
-        string title;
-        if (Dates != null && index < Dates.Count && !string.IsNullOrEmpty(Dates[index]))
-            title = Dates[index];
-        else
-            title = $"{provider} · 第 {index + 1} 点";
-
-        // req-034 修复：格式化数值（如 250.71M），不拼接单位
-        var valueText = FormatTokenValue(value);
-
-        // req-105：Tooltip 字段白名单过滤（null/空 = 展示全部，向后兼容）。
-        // daily_token_value 控制主值显示；daily_cache_hit_value 控制缓存命中行；其余勾选字段由 VM 经 ExtraTooltipLines 注入。
+    
+        // req-105 三态语义（问题2/3）：TooltipFields == null → 不过滤（全部显示，向后兼容）；
+        // 非 null（含空集合）→ 白名单过滤：__date__ 控制日期标题，daily_token_value 控制主值，
+        // daily_cache_hit_value 控制缓存命中行；其余勾选字段由 VM 经 ExtraTooltipLines 注入。
         var fields = TooltipFields;
-        bool hasFilter = fields != null && fields.Count > 0;
+        bool hasFilter = fields != null;
+        bool showDate = !hasFilter || fields!.Contains(UsageMonitor.App.Helpers.TooltipFieldCatalog.DateVirtual);
         bool showValue = !hasFilter || fields!.Contains(UsageMonitor.Core.Models.UsageFields.DailyTokenValue);
         bool showCacheHit = !hasFilter || fields!.Contains(UsageMonitor.Core.Models.UsageFields.DailyCacheHitValue);
-
-        // Detail：合并 ExtraTooltipLines + 每独立的缓存命中率
+    
+        // Title：仅在「日期」字段启用时显示——优先 Dates[index]（真实日期），否则用旧的 "Provider · 第 N 点" 形式兜底
+        string title = string.Empty;
+        if (showDate)
+        {
+            if (Dates != null && index < Dates.Count && !string.IsNullOrEmpty(Dates[index]))
+                title = Dates[index];
+            else
+                title = $"{provider} · 第 {index + 1} 点";
+        }
+    
+        // req-034 修复：格式化数值（如 250.71M），不拼接单位
+        var valueText = FormatTokenValue(value);
+    
+        // Detail：合并 ExtraTooltipLines + 每日独立的缓存命中率
         string? detail = null;
         if (ExtraTooltipLines != null && ExtraTooltipLines.Count > 0)
         {
             detail = string.Join("\n", ExtraTooltipLines);
         }
-        // req-034 修复：使用每独立的缓存命中率
+        // req-034 修复：使用每日独立的缓存命中率
         double dayCacheHit = -1;
         if (showCacheHit && DailyCacheHitPercents != null && index < DailyCacheHitPercents.Count)
             dayCacheHit = DailyCacheHitPercents[index];
@@ -967,7 +972,10 @@ public class MiniLineChartControl : FrameworkElement, IHoverTooltipProvider
             if (detail != null) detail += "\n";
             detail += $"缓存命中 {dayCacheHit:0.00}%";
         }
-
+    
+        // 问题3：全部字段未勾选（无标题、无主值、无详情）时不弹 tooltip。
+        if (string.IsNullOrEmpty(title) && !showValue && string.IsNullOrEmpty(detail)) return false;
+    
         data = new HoverTooltipData(title, showValue ? valueText : string.Empty, detail);
         return true;
     }

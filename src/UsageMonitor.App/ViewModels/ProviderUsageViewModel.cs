@@ -666,38 +666,41 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
 
     /// <summary>
     /// req-105：返回指定图表的有效 Tooltip 显示字段（供卡片 Tooltip 渲染端消费）。
-    /// <para>优先用户配置的 <c>VisibleTooltipFields[chartId]</c>（非 null 时）；否则回退 defaults.json 声明的 <c>chart.Tooltip.Fields</c>。</para>
+    /// <para>三态语义（问题2/3/4）：用户配置非 null → 直接返回（空集合 = 不显示 tooltip）；
+    /// 无用户配置 → 回退 defaults.json 声明的 <c>chart.Tooltip.Fields</c>；
+    /// 声明也无（null/空）→ 返回 null（= 不过滤，全部显示，向后兼容）。</para>
     /// </summary>
-    public IReadOnlyList<string> GetEffectiveTooltipFieldsForChart(string chartId)
+    public IReadOnlyList<string>? GetEffectiveTooltipFieldsForChart(string chartId)
     {
         if (ConfigService == null || string.IsNullOrEmpty(_providerId) || string.IsNullOrEmpty(chartId))
-            return Array.Empty<string>();
+            return null;
         var eff = ConfigService.GetEffectiveAccountCustomization(_providerId, _accountId, _cardId);
         if (eff.VisibleTooltipFields != null && eff.VisibleTooltipFields.TryGetValue(chartId, out var userFields) && userFields != null)
             return userFields;
-        // 回退：defaults.json 声明的 chart.Tooltip.Fields
+        // 回退：defaults.json 声明的 chart.Tooltip.Fields（声明缺失或空时返回 null = 不过滤）
         var chart = Provider?.Card?.Charts.FirstOrDefault(c => c.ChartId == chartId);
-        return chart?.Tooltip?.Fields ?? (IReadOnlyList<string>)Array.Empty<string>();
+        var declared = chart?.Tooltip?.Fields;
+        return declared is { Count: > 0 } ? declared : null;
     }
 
-    /// <summary>req-105：折线图的有效 Tooltip 显示字段（定位声明中的 Line 图表并读取其配置）。</summary>
-    public IReadOnlyList<string> EffectiveLineTooltipFields
+    /// <summary>req-105：折线图的有效 Tooltip 显示字段（定位声明中的 Line 图表并读取其配置；null = 不过滤）。</summary>
+    public IReadOnlyList<string>? EffectiveLineTooltipFields
     {
         get
         {
             var lineChart = Provider?.Card?.Charts.FirstOrDefault(c => c.Kind == DeclarativeChartKind.Line);
-            if (lineChart == null) return Array.Empty<string>();
+            if (lineChart == null) return null;
             return GetEffectiveTooltipFieldsForChart(lineChart.ChartId);
         }
     }
 
-    /// <summary>req-105：热力图的有效 Tooltip 显示字段（定位声明中的 HeatMap 图表并读取其配置）。</summary>
-    public IReadOnlyList<string> EffectiveHeatMapTooltipFields
+    /// <summary>req-105：热力图的有效 Tooltip 显示字段（定位声明中的 HeatMap 图表并读取其配置；null = 不过滤）。</summary>
+    public IReadOnlyList<string>? EffectiveHeatMapTooltipFields
     {
         get
         {
             var heatMap = Provider?.Card?.Charts.FirstOrDefault(c => c.Kind == DeclarativeChartKind.HeatMap);
-            if (heatMap == null) return Array.Empty<string>();
+            if (heatMap == null) return null;
             return GetEffectiveTooltipFieldsForChart(heatMap.ChartId);
         }
     }
@@ -733,7 +736,7 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
     /// <para>「字段名称」虚拟字段 → 折线主值字段的显示名（静态行）；日期由控件标题逐点自处理；
     /// 原生值字段 daily_token_value/daily_cache_hit_value 由控件逐点渲染，不在此生成静态行。</para>
     /// </summary>
-    private IReadOnlyList<string>? BuildExtraTooltipLines(IReadOnlyList<string> fields)
+    private IReadOnlyList<string>? BuildExtraTooltipLines(IReadOnlyList<string>? fields)
     {
         if (fields == null || fields.Count == 0) return null;
         var lines = new List<string>();
@@ -1416,6 +1419,77 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         else
         {
             DailyCacheHitPercents = Array.Empty<double>();
+        }
+    }
+
+    /// <summary>
+    /// 问题1/9：启动时把持久化的最近字段快照（usage_field_versions）回填到卡片显示。
+    /// <para>仅在尚未收到实时刷新数据时生效（<see cref="HasReceivedData"/> 为 true 时跳过，避免旧快照覆盖新数据）；
+    /// 快照统一封装为 UsageInfo 走 <see cref="UpdateFromUsage"/> 的声明式渲染路径，
+    /// 回填数据概览 / 进度条 / five_hour_reset_at（5h 倒计时启动即开始走秒）等；
+    /// <see cref="LastUpdateText"/> 显示快照时间（含日期），避免被误认为实时数据。</para>
+    /// </summary>
+    /// <param name="fields">标准字段名 → 最新值字典（来自 <c>IDataModule.GetLatestFieldsAsync</c>）。</param>
+    public void RestoreFromFieldSnapshot(IReadOnlyDictionary<string, object> fields)
+    {
+        if (fields == null || fields.Count == 0) return;
+        if (HasReceivedData) return; // 已收到实时数据，跳过恢复（防止异步恢复晚于首次刷新）
+
+        // 最近一次刷新失败的快照不恢复（避免启动就显示错误态）
+        if (fields.TryGetValue(UsageMonitor.Core.Models.UsageFields.IsSuccess, out var ok) && ok is bool okFlag && !okFlag) return;
+
+        var extra = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+        foreach (var kv in fields) extra[kv.Key] = kv.Value;
+
+        var snapshotTime = fields.TryGetValue(UsageMonitor.Core.Models.UsageFields.LastUpdated, out var lu) && lu is DateTime luDt
+            ? luDt : DateTime.Now;
+
+        var usage = new UsageInfo
+        {
+            ProviderId = _providerId,
+            ProviderName = DisplayName,
+            AccountId = _accountId,
+            IsSuccess = true,
+            Extra = extra,
+            LastUpdated = snapshotTime
+        };
+
+#pragma warning disable CS0618 // 旧量值字段回填（API 型插件的回退渲染路径依赖）
+        if (TryReadDouble(fields, UsageMonitor.Core.Models.UsageFields.UsedAmount, out var usedAmount)) usage.UsedAmount = (decimal)usedAmount;
+        if (TryReadDouble(fields, UsageMonitor.Core.Models.UsageFields.TotalAmount, out var totalAmount)) usage.TotalAmount = (decimal)totalAmount;
+        if (TryReadDouble(fields, UsageMonitor.Core.Models.UsageFields.UsedTokens, out var usedTokens)) usage.UsedTokens = (long)usedTokens;
+        if (TryReadDouble(fields, UsageMonitor.Core.Models.UsageFields.TotalTokens, out var totalTokens)) usage.TotalTokens = (long)totalTokens;
+        if (fields.TryGetValue(UsageMonitor.Core.Models.UsageFields.Unit, out var unit) && unit is string unitStr && !string.IsNullOrEmpty(unitStr))
+            usage.Unit = unitStr;
+
+        // 无任何可展示数据时跳过（避免把卡片初始占位替换成“暂无数据”）
+        var primaryMetric = Provider?.Card?.PrimaryMetric;
+        bool hasDeclarative = !string.IsNullOrEmpty(primaryMetric) && extra.ContainsKey(primaryMetric!);
+        bool hasLegacy = usage.UsedAmount != 0 || usage.UsedTokens != 0 || usage.TotalAmount != 0;
+#pragma warning restore CS0618
+        if (!hasDeclarative && !hasLegacy) return;
+
+        UpdateFromUsage(usage);
+
+        // 快照时间显示含日期（区分实时刷新的 HH:mm:ss）
+        LastUpdateText = snapshotTime.ToString("MM-dd HH:mm");
+        UsageMonitor.Core.Services.FileLogger.Info("ProviderUsageViewModel",
+            $"{_providerId}:{AccountIdSafe} 已从字段快照恢复 {fields.Count} 个字段（快照时间 {snapshotTime:yyyy-MM-dd HH:mm:ss}）");
+    }
+
+    /// <summary>问题1：从字段快照字典容错读取数值（double/long/string 装箱兼容）。</summary>
+    private static bool TryReadDouble(IReadOnlyDictionary<string, object> fields, string key, out double value)
+    {
+        value = 0;
+        if (!fields.TryGetValue(key, out var raw) || raw == null) return false;
+        try
+        {
+            value = Convert.ToDouble(raw, System.Globalization.CultureInfo.InvariantCulture);
+            return true;
+        }
+        catch
+        {
+            return double.TryParse(raw.ToString(), out value);
         }
     }
 

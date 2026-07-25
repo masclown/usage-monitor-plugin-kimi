@@ -152,7 +152,9 @@ public static class MiniChartRegistryBootstrapper
             ShowLogo = showLogo,
             // req-107 B4：透传数据组与切片器声明，供渲染端（MiniChartItemViewModel）滚轮切组。
             DataGroups = mini.DataGroups.Count > 0 ? mini.DataGroups : null,
-            Slicer = mini.Slicer
+            Slicer = mini.Slicer,
+            // 问题8：透传声明的 tooltip.fields（SDK/虚拟字段名），作为用户未配置时的默认字段集。
+            DeclaredTooltipFields = mini.Tooltip?.Fields is { Count: > 0 } declaredFields ? declaredFields : null
         };
         return true;
     }

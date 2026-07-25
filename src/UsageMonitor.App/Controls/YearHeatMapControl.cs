@@ -457,11 +457,12 @@ public class YearHeatMapControl : FrameworkElement, IHoverTooltipProvider
             if (!hit.Bounds.Contains(position)) continue;
             _hoverIndex = i;
 
-            // req-105：Tooltip 字段白名单过滤（null/空 = 展示全部，向后兼容）。
-            // 主值字段（TooltipValueField，如 daily_cache_hit_value）控制数值行；
-            // 「字段名称」虚拟字段控制标签行；「日期」虚拟字段控制日期标题。
+            // req-105 三态语义（问题3）：TooltipFields == null → 不过滤（全部展示，向后兼容）；
+            // 非 null（含空集合）→ 白名单过滤：主值字段（TooltipValueField，如 daily_cache_hit_value）控制
+            // 数值行与对比行；「字段名称」虚拟字段控制标签行；「日期」虚拟字段控制日期标题；
+            // 全部未勾选时不弹 tooltip。
             var fields = TooltipFields;
-            bool hasFilter = fields != null && fields.Count > 0;
+            bool hasFilter = fields != null;
             bool showValue = !hasFilter
                 || string.IsNullOrEmpty(TooltipValueField)
                 || fields!.Contains(TooltipValueField);
@@ -469,19 +470,26 @@ public class YearHeatMapControl : FrameworkElement, IHoverTooltipProvider
                 && !string.IsNullOrEmpty(TooltipFieldLabel);
             bool showDate = !hasFilter || fields!.Contains(UsageMonitor.App.Helpers.TooltipFieldCatalog.DateVirtual);
 
+            // 问题3：启用过滤且无任何可展示内容时直接不弹 tooltip。
+            if (hasFilter && !showValue && !showName && !showDate) return false;
+
             var value = string.IsNullOrWhiteSpace(hit.Cell.ValueText)
                 ? $"{hit.Cell.Percent:0.##}"
                 : hit.Cell.ValueText;
             var unit = string.IsNullOrWhiteSpace(hit.Cell.Unit) ? string.Empty : $" {hit.Cell.Unit}";
 
-            // 标题：日期（「日期」虚拟字段未勾选时回退为主值字段标签或空）。
-            var title = showDate ? hit.Cell.Day : (showName ? TooltipFieldLabel! : hit.Cell.Day);
+            // 标题：仅在「日期」字段启用时显示日期；未勾选时不再回退显示日期（问题3），
+            // 改为回退主值字段标签（仅当字段名称勾选）或空。
+            var title = showDate ? hit.Cell.Day : (showName ? TooltipFieldLabel! : string.Empty);
             // 数值行：主值字段未勾选时不展示数值。
             var valueText = showValue ? $"{value}{unit}" : string.Empty;
-            // 详情：字段名称行（独立行） + 原有对比文本。
-            string? detail = hit.Cell.ComparisonText;
+            // 详情：对比文本（与主值字段同源，受主值字段控制） + 字段名称行（独立行）。
+            string? detail = showValue ? hit.Cell.ComparisonText : null;
             if (showName)
                 detail = string.IsNullOrEmpty(detail) ? TooltipFieldLabel : $"{TooltipFieldLabel}\n{detail}";
+
+            // 无任何内容时不弹 tooltip（保险）。
+            if (string.IsNullOrEmpty(title) && string.IsNullOrEmpty(valueText) && string.IsNullOrEmpty(detail)) return false;
 
             data = new HoverTooltipData(title, valueText, detail);
             return true;

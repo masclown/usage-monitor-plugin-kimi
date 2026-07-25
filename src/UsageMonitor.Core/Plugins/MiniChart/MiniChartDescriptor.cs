@@ -94,6 +94,14 @@ public sealed class MiniChartDescriptor
     };
 
     /// <summary>
+    /// 问题8：插件 defaults.json 声明的 Mini 图表 Tooltip 字段列表（<c>taskbar.miniCharts[].tooltip.fields</c>）。
+    /// <para>与旧 <see cref="ToolTipFields"/>（req-098 占位符机制）不同，本字段承载 SDK 字段名/虚拟字段名
+    /// （如 five_hour_used_percent / __provider_name__ / __refresh_countdown__），
+    /// 作为用户未配置 <c>AccountCustomization.MiniTooltipFields</c> 时的默认值。null = 未声明。</para>
+    /// </summary>
+    public IReadOnlyList<string>? DeclaredTooltipFields { get; init; }
+
+    /// <summary>
     /// req-107 B4：数据组列表（来自 <c>taskbar.miniCharts[].dataGroups</c> 声明）。
     /// <para>null 或空 = 无数据组声明（旧注册路径 / 单值图表），渲染端走原有单值逻辑；
     /// 多组时渲染端按切片器交互（滚轮）循环切换当前组。</para>

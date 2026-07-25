@@ -198,16 +198,62 @@ public partial class TaskbarWindow : Window
                     continue;
                 }
             }
-            result.Add(new MiniChartItemViewModel(descriptor, usageVm));
+            result.Add(new MiniChartItemViewModel(descriptor, usageVm)
+            {
+                // 问题8：解析本 mini 图表的有效 Tooltip/文本字段（用户配置优先，回退声明；null = 沿用旧渲染）
+                EffectiveTooltipFields = ResolveMiniTooltipFields(descriptor, usageVm),
+                AccountName = ResolveAccountName(descriptor.ProviderId, usageVm.AccountIdSafe)
+            });
         }
         return result;
     }
 
     /// <summary>
-    /// S4：计算迷你图列表签名（ProviderId:ChartId 按序拼接），用于守卫比较。
+    /// 问题8：解析指定 mini 图表的有效 Tooltip/文本字段。
+    /// <para>三态语义：用户配置（AccountCustomization.MiniTooltipFields[chartId]）非 null → 直接返回；
+    /// 无用户配置 → 回退声明的 tooltip.fields（DeclaredTooltipFields）；都无 → null（沿用旧渲染路径）。</para>
+    /// </summary>
+    private IReadOnlyList<string>? ResolveMiniTooltipFields(MiniChartDescriptor descriptor, ProviderUsageViewModel usageVm)
+    {
+        try
+        {
+            if (descriptor.ChartId != null)
+            {
+                var eff = _configService.GetEffectiveAccountCustomization(descriptor.ProviderId, usageVm.AccountIdSafe, usageVm.CardIdSafe);
+                if (eff.MiniTooltipFields.TryGetValue(descriptor.ChartId, out var userFields) && userFields != null)
+                    return userFields;
+            }
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Warn("TaskbarWindow", $"ResolveMiniTooltipFields({descriptor.ProviderId}:{descriptor.ChartId}) failed: {ex.Message}");
+        }
+        return descriptor.DeclaredTooltipFields;
+    }
+
+    /// <summary>问题8：解析账号显示名（昵称优先，回退账号 ID）。</summary>
+    private string ResolveAccountName(string providerId, string accountId)
+    {
+        try
+        {
+            var account = _configService.GetAccounts(providerId)
+                .FirstOrDefault(a => string.Equals(a.AccountId, accountId, StringComparison.OrdinalIgnoreCase));
+            if (account != null && !string.IsNullOrWhiteSpace(account.Nickname)) return account.Nickname!;
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Warn("TaskbarWindow", $"ResolveAccountName({providerId}:{accountId}) failed: {ex.Message}");
+        }
+        return accountId;
+    }
+
+    /// <summary>
+    /// S4：计算迷你图列表签名（ProviderId:ChartId:有效字段 按序拼接），用于守卫比较。
+    /// <para>问题8：签名包含有效 Tooltip 字段，保证设置页仅改字段勾选时也能触发重建。</para>
     /// </summary>
     private static string ComputeMiniChartSignature(IEnumerable<MiniChartItemViewModel> items)
-        => string.Join("|", items.Select(i => $"{i.ProviderId}:{i.Descriptor.ChartId ?? string.Empty}"));
+        => string.Join("|", items.Select(i =>
+            $"{i.ProviderId}:{i.Descriptor.ChartId ?? string.Empty}:{(i.EffectiveTooltipFields == null ? "~" : string.Join(",", i.EffectiveTooltipFields))}"));
 
     /// <summary>
     /// S4：用新列表替换 VisibleMiniCharts（停旧 timer → 清空 → 写入 → 启新 timer → 重算窗口宽度）。
@@ -544,13 +590,13 @@ public partial class TaskbarWindow : Window
     }
 
     /// <summary>
-    /// 测量 MiniText 模板的实际宽度（DIP）。基于 ProviderId + UsagePercent 字面估算，避免 FormattedText 在 Loaded 前 NRE。
+    /// 测量 MiniText 模板的实际宽度（DIP）。问题8：按 ShowProviderInText + MiniTextBody 字面估算，避免 FormattedText 在 Loaded 前 NRE。
     /// </summary>
     private double MeasureMiniTextWidth(MiniChartItemViewModel item)
     {
-        var displayId = item.ProviderId ?? "";
-        var pctText = item.UsagePercent.HasValue ? $"{item.UsagePercent.Value:F0}%" : "--";
-        return displayId.Length * 8.0 + pctText.Length * 7.5 + 24;
+        var displayId = item.ShowProviderInText ? (item.ProviderId ?? "") : "";
+        var bodyText = item.MiniTextBody ?? "";
+        return displayId.Length * 8.0 + bodyText.Length * 7.5 + 24;
     }
 
     public void RecalculateSize()

@@ -8,6 +8,9 @@ public sealed class MiniChartDeclaration
     /// <summary>迷你图表稳定 ID（如 "mm.mini.ring"）。</summary>
     public required string ChartId { get; init; }
 
+    /// <summary>迷你图表中文显示名（可空；缺省时宿主回退到从 <see cref="ChartId"/> 提取的短名）。供设置界面展示（问题6）。</summary>
+    public string? Display { get; init; }
+
     /// <summary>图表类型（MiniRingChart / MiniText 等）。</summary>
     public DeclarativeChartKind Kind { get; init; } = DeclarativeChartKind.MiniRingChart;
 

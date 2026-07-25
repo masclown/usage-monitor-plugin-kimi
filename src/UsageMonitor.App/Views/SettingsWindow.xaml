@@ -679,9 +679,10 @@
                                                     Style="{StaticResource GhostButtonStyle}" Padding="14,6"
                                                     HorizontalAlignment="Left" Margin="0,4,0,0" />
 
-                                            <!-- 添加图表按钮：置于白色折叠框内（图表列表之后） -->
-                                            <Button Content="+ 添加图表" Padding="9,4" Margin="0,6,0,0"
+                                            <!-- 添加图表按钮：置于白色折叠框内（图表列表之后）。问题5：与图表按钮同尺寸（Padding 14,6）、文字居中，保持浅红色 AccentSoft 样式 -->
+                                            <Button Content="+ 添加图表" Padding="14,6" Margin="0,6,0,0"
                                                     HorizontalAlignment="Left"
+                                                    HorizontalContentAlignment="Center"
                                                     Style="{StaticResource AccentSoftButtonStyle}"
                                                     ToolTip="添加图表"
                                                     Click="OnAddChartClick" />
@@ -1166,6 +1167,23 @@
                                                                                         </ItemsControl>
                                                                                     </StackPanel>
                                                                                 </Grid>
+                                                                            </DataTemplate>
+                                                                        </ItemsControl.ItemTemplate>
+                                                                    </ItemsControl>
+
+                                                                    <!-- 问题8：Tooltip/文本显示字段多选（与卡片管理页 S5 同构，勾选即保存） -->
+                                                                    <TextBlock Text="Tooltip 字段" FontSize="12" FontWeight="SemiBold"
+                                                                               Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,10,0,6" />
+                                                                    <ItemsControl ItemsSource="{Binding TooltipFields}">
+                                                                        <ItemsControl.ItemsPanel>
+                                                                            <ItemsPanelTemplate>
+                                                                                <WrapPanel Orientation="Horizontal" />
+                                                                            </ItemsPanelTemplate>
+                                                                        </ItemsControl.ItemsPanel>
+                                                                        <ItemsControl.ItemTemplate>
+                                                                            <DataTemplate>
+                                                                                <CheckBox Content="{Binding Display}" IsChecked="{Binding IsChecked}"
+                                                                                          Margin="0,0,12,4" FontSize="12" />
                                                                             </DataTemplate>
                                                                         </ItemsControl.ItemTemplate>
                                                                     </ItemsControl>

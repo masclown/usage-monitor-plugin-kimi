@@ -1055,6 +1055,8 @@ public class ConfigService : IConfigService
                 effective.VisibleMiniCharts = acct.VisibleMiniCharts != null ? new List<string>(acct.VisibleMiniCharts) : null;
                 effective.VisibleMiniDataGroups = CopyStringToListDict(acct.VisibleMiniDataGroups);
                 effective.MiniDataGroupOrders = CopyStringToIntDictDict(acct.MiniDataGroupOrders);
+                // 问题8：Mini 图表 Tooltip/文本字段
+                effective.MiniTooltipFields = CopyStringToListDict(acct.MiniTooltipFields);
                 effective.CollapseDividerIndex = acct.CollapseDividerIndex;
             }
 
@@ -1196,6 +1198,8 @@ public class ConfigService : IConfigService
             acct.VisibleMiniCharts = config.VisibleMiniCharts != null ? new List<string>(config.VisibleMiniCharts) : null;
             acct.VisibleMiniDataGroups = CopyStringToListDict(config.VisibleMiniDataGroups);
             acct.MiniDataGroupOrders = CopyStringToIntDictDict(config.MiniDataGroupOrders);
+            // 问题8：各 Mini 图表的 Tooltip/文本显示字段随 Mini 配置一起持久化
+            acct.MiniTooltipFields = CopyStringToListDict(config.MiniTooltipFields);
         }
         Save();
     }

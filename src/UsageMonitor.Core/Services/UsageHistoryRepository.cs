@@ -1353,6 +1353,8 @@ ORDER BY updated_at DESC;
 
     /// <summary>
     /// req-092：根据 value_type 反序列化字段值。
+    /// <para>问题1 修复："json" 类型改用 <see cref="DeserializeJsonValue"/> 通用转换，
+    /// 支持数组（如 daily_token_values）还原为 List&lt;object&gt;，供启动字段快照恢复图表数据。</para>
     /// </summary>
     private static object? DeserializeFieldValue(string fieldValue, string valueType)
     {
@@ -1364,13 +1366,61 @@ ORDER BY updated_at DESC;
                 "number" => JsonSerializer.Deserialize<double>(fieldValue),
                 "bool" => JsonSerializer.Deserialize<bool>(fieldValue),
                 "datetime" => JsonSerializer.Deserialize<DateTime>(fieldValue),
-                "json" => JsonSerializer.Deserialize<Dictionary<string, object>>(fieldValue),
+                "json" => DeserializeJsonValue(fieldValue),
                 _ => fieldValue
             };
         }
         catch
         {
             return fieldValue;
+        }
+    }
+
+    /// <summary>
+    /// 问题1：把 JSON 文本还原为原生 CLR 对象（数组 → List&lt;object&gt;，对象 → Dictionary&lt;string, object&gt;，
+    /// 数字优先 long 否则 double），保证快照恢复后可被 VM 的 ReadLongList 等可枚举读取器消费。
+    /// </summary>
+    private static object? DeserializeJsonValue(string fieldValue)
+    {
+        var elem = JsonSerializer.Deserialize<JsonElement>(fieldValue);
+        return ConvertJsonElement(elem);
+    }
+
+    /// <summary>问题1：递归转换 JsonElement 为原生 CLR 对象（供字段快照恢复使用）。</summary>
+    private static object? ConvertJsonElement(JsonElement elem)
+    {
+        switch (elem.ValueKind)
+        {
+            case JsonValueKind.Array:
+            {
+                var list = new List<object>();
+                foreach (var item in elem.EnumerateArray())
+                {
+                    var converted = ConvertJsonElement(item);
+                    if (converted != null) list.Add(converted);
+                }
+                return list;
+            }
+            case JsonValueKind.Object:
+            {
+                var dict = new Dictionary<string, object>();
+                foreach (var prop in elem.EnumerateObject())
+                {
+                    var converted = ConvertJsonElement(prop.Value);
+                    if (converted != null) dict[prop.Name] = converted;
+                }
+                return dict;
+            }
+            case JsonValueKind.String:
+                return elem.GetString();
+            case JsonValueKind.Number:
+                return elem.TryGetInt64(out var l) ? l : elem.GetDouble();
+            case JsonValueKind.True:
+                return true;
+            case JsonValueKind.False:
+                return false;
+            default:
+                return null;
         }
     }
 

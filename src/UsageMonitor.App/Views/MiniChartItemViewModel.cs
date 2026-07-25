@@ -31,6 +31,15 @@ public class MiniChartItemViewModel : INotifyPropertyChanged
     /// <summary>关联的 ProviderUsageViewModel（用于同步实时数据；null 时显示空状态）。</summary>
     public ViewModels.ProviderUsageViewModel? UsageVm { get; }
 
+    /// <summary>
+    /// 问题8：本 mini 图表的有效 Tooltip/文本显示字段（用户配置优先，回退声明；由 TaskbarWindow 构建时解析注入）。
+    /// <para>null = 无字段配置（沿用旧渲染路径）；空集合 = 不显示 tooltip；非空 = 按字段目录顺序渲染行/片段。</para>
+    /// </summary>
+    public IReadOnlyList<string>? EffectiveTooltipFields { get; set; }
+
+    /// <summary>问题8：账号显示名（昵称优先，回退账号 ID；由 TaskbarWindow 构建时解析注入）。</summary>
+    public string? AccountName { get; set; }
+
     /// <summary>唯一 ProviderId（来自 Descriptor，转发给 XAML 便于调试）。</summary>
     public string ProviderId => Descriptor.ProviderId;
 
@@ -138,15 +147,116 @@ public class MiniChartItemViewModel : INotifyPropertyChanged
 
     /// <summary>
     /// req-107 B4：复合 Tooltip 文本（标题 + 换行 + 正文）。
-    /// <para>正文为空时仅返回标题，保证无数据组场景与原有 TooltipTitle 行为一致。</para>
+    /// <para>问题8：有效字段配置（<see cref="EffectiveTooltipFields"/> 非 null）时按字段逐行构建；
+    /// 空集合/无可展示内容时返回 null（WPF ToolTip 为 null 时不显示）；
+    /// 无字段配置时回退旧行为（正文为空时仅返回标题）。</para>
     /// </summary>
-    public string CompositeTooltipText
+    public string? CompositeTooltipText
     {
         get
         {
+            var fields = EffectiveTooltipFields;
+            if (fields != null)
+            {
+                var lines = BuildFieldTooltipLines(fields);
+                return lines.Count > 0 ? string.Join("\n", lines) : null;
+            }
             var title = TooltipTitle;
             var body = TooltipBody;
             return string.IsNullOrEmpty(body) ? title : $"{title}\n{body}";
+        }
+    }
+
+    /// <summary>
+    /// 问题8：按有效字段构建 tooltip 行列表（按 <see cref="MiniTooltipFieldCatalog"/> 目录顺序，取不到值的字段跳过）。
+    /// </summary>
+    private List<string> BuildFieldTooltipLines(IReadOnlyList<string> fields)
+    {
+        var lines = new List<string>();
+        foreach (var option in MiniTooltipFieldCatalog.GetOptions())
+        {
+            if (!fields.Contains(option.FieldName, StringComparer.OrdinalIgnoreCase)) continue;
+            switch (option.FieldName)
+            {
+                case MiniTooltipFieldCatalog.ProviderNameVirtual:
+                    lines.Add(UsageVm?.DisplayName ?? ProviderId);
+                    break;
+                case UsageFields.AccountDisplayName:
+                    if (!string.IsNullOrWhiteSpace(AccountName)) lines.Add($"账号：{AccountName}");
+                    break;
+                case UsageFields.FiveHourUsedPercent:
+                {
+                    var v = ResolveMiniFieldValue(UsageFields.FiveHourUsedPercent);
+                    if (v.HasValue) lines.Add($"5h 已用 {v.Value:0}%");
+                    break;
+                }
+                case UsageFields.WeeklyUsedPercent:
+                {
+                    var v = ResolveMiniFieldValue(UsageFields.WeeklyUsedPercent);
+                    if (v.HasValue) lines.Add($"本周已用 {v.Value:0}%");
+                    break;
+                }
+                case MiniTooltipFieldCatalog.RefreshCountdownVirtual:
+                    if (!string.IsNullOrEmpty(RefreshCountdownText)) lines.Add(RefreshCountdownText);
+                    break;
+            }
+        }
+        return lines;
+    }
+
+    /// <summary>
+    /// 问题8：MiniText 模板是否显示 Provider 名片段（无字段配置时沿用旧行为始终显示）。
+    /// </summary>
+    public bool ShowProviderInText
+        => EffectiveTooltipFields == null
+           || EffectiveTooltipFields.Contains(MiniTooltipFieldCatalog.ProviderNameVirtual, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// 问题8：MiniText 模板的正文片段（Provider 名之外的内容）。
+    /// <para>有字段配置时按目录顺序拼接紧凑片段（账号名 / "5h x%" / "周 x%" / 倒计时）；
+    /// 无字段配置时回退当前数据组百分比（问题7：滚轮切 5h/周）。</para>
+    /// </summary>
+    public string MiniTextBody
+    {
+        get
+        {
+            var fields = EffectiveTooltipFields;
+            if (fields != null)
+            {
+                var parts = new List<string>();
+                foreach (var option in MiniTooltipFieldCatalog.GetOptions())
+                {
+                    if (!fields.Contains(option.FieldName, StringComparer.OrdinalIgnoreCase)) continue;
+                    switch (option.FieldName)
+                    {
+                        case UsageFields.AccountDisplayName:
+                            if (!string.IsNullOrWhiteSpace(AccountName)) parts.Add(AccountName!);
+                            break;
+                        case UsageFields.FiveHourUsedPercent:
+                        {
+                            var v = ResolveMiniFieldValue(UsageFields.FiveHourUsedPercent);
+                            parts.Add(v.HasValue ? $"5h {v.Value:0}%" : "5h --");
+                            break;
+                        }
+                        case UsageFields.WeeklyUsedPercent:
+                        {
+                            var v = ResolveMiniFieldValue(UsageFields.WeeklyUsedPercent);
+                            parts.Add(v.HasValue ? $"周 {v.Value:0}%" : "周 --");
+                            break;
+                        }
+                        case MiniTooltipFieldCatalog.RefreshCountdownVirtual:
+                        {
+                            var countdown = UsageVm?.FiveHourCountdownText;
+                            if (!string.IsNullOrWhiteSpace(countdown) && countdown != "00:00:00") parts.Add(countdown!);
+                            break;
+                        }
+                    }
+                }
+                return string.Join(" ", parts);
+            }
+            // 回退：当前数据组百分比（与旧模板 StringFormat 行为一致）
+            var val = UsagePercent;
+            return val.HasValue ? $"{val.Value:0}%" : "--";
         }
     }
 
@@ -224,6 +334,8 @@ public class MiniChartItemViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(TooltipTitle));
         OnPropertyChanged(nameof(TooltipBody));
         OnPropertyChanged(nameof(CompositeTooltipText));
+        // 问题8：MiniText 回退模式下正文随当前组切换
+        OnPropertyChanged(nameof(MiniTextBody));
         return true;
     }
 
@@ -312,7 +424,16 @@ public class MiniChartItemViewModel : INotifyPropertyChanged
         {
             Interval = TimeSpan.FromSeconds(1)
         };
-        _countdownTimer.Tick += (_, _) => OnPropertyChanged(nameof(RefreshCountdownText));
+        _countdownTimer.Tick += (_, _) =>
+        {
+            OnPropertyChanged(nameof(RefreshCountdownText));
+            // 问题8：倒计时字段可能参与 tooltip/文本渲染，每秒同步刷新。
+            if (EffectiveTooltipFields != null)
+            {
+                OnPropertyChanged(nameof(CompositeTooltipText));
+                OnPropertyChanged(nameof(MiniTextBody));
+            }
+        };
         _countdownTimer.Start();
     }
 
@@ -350,6 +471,9 @@ public class MiniChartItemViewModel : INotifyPropertyChanged
         // req-107 B4：数据组相关派生属性随数据刷新联动
         OnPropertyChanged(nameof(CurrentDataGroupName));
         OnPropertyChanged(nameof(CompositeTooltipText));
+        // 问题8：MiniText 字段驱动正文随数据刷新联动
+        OnPropertyChanged(nameof(MiniTextBody));
+        OnPropertyChanged(nameof(ShowProviderInText));
         // req-105：刷新动态倒计时。FiveHourCountdownText 由 MainViewModel 全局 timer 每秒刷新。
         OnPropertyChanged(nameof(RefreshCountdownText));
     }
