@@ -183,7 +183,11 @@ private readonly ConcurrentDictionary<string, int> _consecutiveFailures = new();
         {
             await RefreshPluginAsync(plugin, triggerKind, perCts.Token);
 
-            // 成功：重置连续失败计数
+            // 成功：重置 Provider 级连续失败计数（仅对应本方法 catch 中的超时/异常计数）。
+            // 注意：账号级计数（key="Provider:Account"）有意不在此重置——
+            // RefreshPluginAsync 就地消化单账号异常，本方法的"成功"不代表各账号取数成功，
+            // 若在此重置账号计数会使账号级熔断永远无法触发；
+            // 账号级计数由账号循环自治：成功归零，熔断到期后半开放行一次自动恢复。
             _consecutiveFailures[providerId] = 0;
         }
         catch (OperationCanceledException) when (!overallToken.IsCancellationRequested)
@@ -281,6 +285,8 @@ private readonly ConcurrentDictionary<string, int> _consecutiveFailures = new();
         if (enabledAccounts.Count == 0)
         {
             FileLogger.Info("RefreshService", $"req-110 门控：{providerId} 无已启用账号，跳过刷新");
+            // 本轮零产出：清除上一轮账号数据缓存，避免 BuildAccountUsageList 把旧数据当新数据分发。
+            _lastAccountUsages.TryRemove(providerId, out _);
             return;
         }
 
@@ -410,6 +416,8 @@ private readonly ConcurrentDictionary<string, int> _consecutiveFailures = new();
             if (accountUsages.Count == 0)
             {
                 FileLogger.Info("RefreshService", $"req-110：{providerId} 全部启用账号被门控/熔断跳过，本轮未取数");
+                // 本轮零产出：清除上一轮账号数据缓存，避免后续 UsageRefreshed 事件分发 stale 数据。
+                _lastAccountUsages.TryRemove(providerId, out _);
                 return;
             }
 

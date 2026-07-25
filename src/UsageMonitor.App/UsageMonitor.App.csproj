@@ -9,13 +9,13 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
 
-    <!-- 项目版本号（0.29.0-beta）：ConfigService大幅增强(+250行) / RefreshService大幅重构(+260行) / UsageHistoryRepository增强(+110行) / 新增CredentialProbe凭据探测 / 账户中心生命周期规范 / 认证提供者增强 / 大量测试新增；用于程序集元数据 + 文件属性。 -->
+    <!-- 项目版本号（0.29.1-beta）：RefreshService修复(+71行) / RefreshServiceTests测试增强(+136行)；用于程序集元数据 + 文件属性。 -->
     <!-- 显式设置 5 个属性，避免被 SDK 衍生规则变动影响。 -->
-    <Version>0.29.0-beta</Version>
-    <AssemblyVersion>0.29.0.0</AssemblyVersion>
-    <FileVersion>0.29.0.0</FileVersion>
-    <InformationalVersion>0.29.0-beta</InformationalVersion>
-    <ProductVersion>0.29.0-beta</ProductVersion>
+    <Version>0.29.1-beta</Version>
+    <AssemblyVersion>0.29.1.0</AssemblyVersion>
+    <FileVersion>0.29.1.0</FileVersion>
+    <InformationalVersion>0.29.1-beta</InformationalVersion>
+    <ProductVersion>0.29.1-beta</ProductVersion>
     <AssemblyTitle>UsageMonitor</AssemblyTitle>
     <Product>UsageMonitor</Product>
     <Company>UsageMonitor</Company>

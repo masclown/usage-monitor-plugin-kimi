@@ -334,4 +334,108 @@ public class RefreshServiceTests : IDisposable
         cfg.GetAccount("bindtest", "default")!.BoundStableId.Should().Be("abcdef0123456789");
         mgr.GetPlugin("bindtest")!.LastUsage!.AccountId.Should().Be("default");
     }
+
+    // -----------------------------------------------------------------
+    // req-110：零产出早退路径必须清除 _lastAccountUsages 旧缓存，
+    // 避免下一轮事件分发把上一轮 stale 数据当新数据推给 UI
+    // -----------------------------------------------------------------
+
+    [Fact]
+    public async Task RefreshProviderAsync_All_Accounts_Gated_Clears_Stale_Account_Usages()
+    {
+        // 第一轮成功刷新写入 _lastAccountUsages；随后移除凭据使全部账号被门控④跳过，
+        // 第二轮必须清除旧缓存——UsageRefreshed 不得再分发第一轮的 stale 数据。
+        var provider = new FakeUsageProvider("stalecred");
+        var mgr = BuildManagerWith(provider);
+        var cfg = BuildConfigService("stalecred");
+        var svc = new RefreshService(mgr, cfg);
+
+        var eventCount = 0;
+        svc.UsageRefreshed += (_, _) => eventCount++;
+
+        await svc.RefreshProviderAsync("stalecred");
+        eventCount.Should().Be(1, "第一轮成功取数应分发事件");
+
+        // 移除凭据 → 门控④（账号未配置凭据）跳过全部账号，accountUsages 零产出
+        cfg.Settings.ProviderConfigs["stalecred"].SetValue("ApiKey", "");
+
+        await svc.RefreshProviderAsync("stalecred");
+
+        provider.GetUsageCallCount.Should().Be(1, "第二轮被门控跳过，不应再取数");
+        eventCount.Should().Be(1, "零产出时不得分发上一轮的 stale 账号数据");
+    }
+
+    [Fact]
+    public async Task RefreshProviderAsync_Accounts_Disabled_Clears_Stale_Account_Usages()
+    {
+        // 第一轮成功刷新后禁用全部账号 → 门控③（无已启用账号）早退，
+        // 同样必须清除旧缓存，不得分发 stale 数据。
+        var provider = new FakeUsageProvider("staleacct");
+        var mgr = BuildManagerWith(provider);
+        var cfg = BuildConfigService("staleacct");
+        var svc = new RefreshService(mgr, cfg);
+
+        var eventCount = 0;
+        svc.UsageRefreshed += (_, _) => eventCount++;
+
+        await svc.RefreshProviderAsync("staleacct");
+        eventCount.Should().Be(1, "第一轮成功取数应分发事件");
+
+        // 禁用唯一账号 → 门控③早退
+        cfg.Settings.Accounts.First(a => a.ProviderId == "staleacct").Enabled = false;
+
+        await svc.RefreshProviderAsync("staleacct");
+
+        provider.GetUsageCallCount.Should().Be(1, "第二轮被门控跳过，不应再取数");
+        eventCount.Should().Be(1, "零产出时不得分发上一轮的 stale 账号数据");
+    }
+
+    // -----------------------------------------------------------------
+    // req-110 P2-3：账号级熔断的自动恢复链路——到期半开放行一次，
+    // 成功后账号计数归零、熔断解除（验证恢复不依赖 Provider 级重置）
+    // -----------------------------------------------------------------
+
+    [Fact]
+    public async Task Account_Circuit_Breaker_Auto_Recovers_Via_HalfOpen_After_Expiry()
+    {
+        // 阶段 1：连续 5 次失败触发账号级熔断（key = "recover:default"）；
+        // 阶段 2：熔断期内跳过；阶段 3：把到期时间拨到过去 → 半开放行一次 →
+        // 成功后 L356 将账号计数归零，熔断完全解除——证明恢复不需要 Provider 级成功重置账号计数。
+        var shouldFail = true;
+        var provider = new FakeUsageProvider(
+            "recover",
+            getUsageHandler: (_, _) => shouldFail
+                ? throw new InvalidOperationException("account fails")
+                : Task.FromResult(new UsageInfo
+                {
+                    ProviderId = "recover",
+                    ProviderName = "Recover",
+                    IsSuccess = true
+                }));
+        var mgr = BuildManagerWith(provider);
+        var cfg = BuildConfigService("recover");
+        var svc = new RefreshService(mgr, cfg);
+
+        // 阶段 1：5 次失败 → 账号级熔断开启
+        for (int i = 0; i < 5; i++)
+            await svc.RefreshProviderAsync("recover");
+        provider.GetUsageCallCount.Should().Be(5);
+
+        var circuit = ReflectionHelpers.GetField<ConcurrentDictionary<string, DateTime>>(svc, "_circuitOpenUntil")!;
+        circuit.Should().ContainKey("recover:default", "连续 5 次失败后账号级熔断应开启");
+
+        // 阶段 2：熔断期内再刷 → 账号被跳过，不取数
+        await svc.RefreshProviderAsync("recover");
+        provider.GetUsageCallCount.Should().Be(5, "熔断期内账号应被跳过");
+
+        // 阶段 3：模拟熔断到期（拨到过去）+ 数据源恢复 → 半开放行一次并成功
+        circuit["recover:default"] = DateTime.UtcNow.AddMinutes(-1);
+        shouldFail = false;
+        await svc.RefreshProviderAsync("recover");
+
+        provider.GetUsageCallCount.Should().Be(6, "熔断到期后半开应放行一次尝试");
+        var failures = ReflectionHelpers.GetField<ConcurrentDictionary<string, int>>(svc, "_consecutiveFailures")!;
+        failures["recover:default"].Should().Be(0, "账号刷新成功后计数在账号循环内就地归零（不依赖 Provider 级重置）");
+        circuit.Should().NotContainKey("recover:default", "半开尝试成功后熔断应解除");
+    }
 }
