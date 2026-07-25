@@ -83,6 +83,23 @@ public class YearHeatMapControl : FrameworkElement, IHoverTooltipProvider
         nameof(TextBrush), typeof(Brush), typeof(YearHeatMapControl),
         new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
 
+    /// <summary>req-105：Tooltip 字段白名单（卡片管理 tooltip 字段配置驱动）。
+    /// <para>null/空 = 展示全部（向后兼容）；非空 = 仅展示列表内字段（含虚拟字段 __field_name__/__date__）。</para>
+    /// </summary>
+    public static readonly DependencyProperty TooltipFieldsProperty = DependencyProperty.Register(
+        nameof(TooltipFields), typeof(System.Collections.Generic.IReadOnlyList<string>), typeof(YearHeatMapControl),
+        new FrameworkPropertyMetadata(null));
+
+    /// <summary>req-105：热力图主值字段名（SDK 标准字段，用于 TooltipFields 白名单匹配，如 daily_cache_hit_value）。</summary>
+    public static readonly DependencyProperty TooltipValueFieldProperty = DependencyProperty.Register(
+        nameof(TooltipValueField), typeof(string), typeof(YearHeatMapControl),
+        new FrameworkPropertyMetadata(null));
+
+    /// <summary>req-105：主值字段中文显示名（「字段名称」虚拟字段勾选时作为独立标签行展示）。</summary>
+    public static readonly DependencyProperty TooltipFieldLabelProperty = DependencyProperty.Register(
+        nameof(TooltipFieldLabel), typeof(string), typeof(YearHeatMapControl),
+        new FrameworkPropertyMetadata(null));
+
     public IEnumerable Cells
     {
         get => (IEnumerable)GetValue(CellsProperty);
@@ -111,6 +128,27 @@ public class YearHeatMapControl : FrameworkElement, IHoverTooltipProvider
     {
         get => (Brush)GetValue(TextBrushProperty);
         set => SetValue(TextBrushProperty, value);
+    }
+
+    /// <summary>req-105：Tooltip 字段白名单（null/空 = 展示全部）。</summary>
+    public System.Collections.Generic.IReadOnlyList<string>? TooltipFields
+    {
+        get => (System.Collections.Generic.IReadOnlyList<string>?)GetValue(TooltipFieldsProperty);
+        set => SetValue(TooltipFieldsProperty, value);
+    }
+
+    /// <summary>req-105：热力图主值字段名（用于白名单匹配）。</summary>
+    public string? TooltipValueField
+    {
+        get => (string?)GetValue(TooltipValueFieldProperty);
+        set => SetValue(TooltipValueFieldProperty, value);
+    }
+
+    /// <summary>req-105：主值字段中文显示名（字段名称行）。</summary>
+    public string? TooltipFieldLabel
+    {
+        get => (string?)GetValue(TooltipFieldLabelProperty);
+        set => SetValue(TooltipFieldLabelProperty, value);
     }
 
     private readonly List<(Rect Bounds, YearHeatMapCell Cell)> _hitCells = new();
@@ -418,11 +456,34 @@ public class YearHeatMapControl : FrameworkElement, IHoverTooltipProvider
             var hit = _hitCells[i];
             if (!hit.Bounds.Contains(position)) continue;
             _hoverIndex = i;
+
+            // req-105：Tooltip 字段白名单过滤（null/空 = 展示全部，向后兼容）。
+            // 主值字段（TooltipValueField，如 daily_cache_hit_value）控制数值行；
+            // 「字段名称」虚拟字段控制标签行；「日期」虚拟字段控制日期标题。
+            var fields = TooltipFields;
+            bool hasFilter = fields != null && fields.Count > 0;
+            bool showValue = !hasFilter
+                || string.IsNullOrEmpty(TooltipValueField)
+                || fields!.Contains(TooltipValueField);
+            bool showName = hasFilter && fields!.Contains(UsageMonitor.App.Helpers.TooltipFieldCatalog.FieldNameVirtual)
+                && !string.IsNullOrEmpty(TooltipFieldLabel);
+            bool showDate = !hasFilter || fields!.Contains(UsageMonitor.App.Helpers.TooltipFieldCatalog.DateVirtual);
+
             var value = string.IsNullOrWhiteSpace(hit.Cell.ValueText)
                 ? $"{hit.Cell.Percent:0.##}"
                 : hit.Cell.ValueText;
             var unit = string.IsNullOrWhiteSpace(hit.Cell.Unit) ? string.Empty : $" {hit.Cell.Unit}";
-            data = new HoverTooltipData(hit.Cell.Day, $"{value}{unit}", hit.Cell.ComparisonText);
+
+            // 标题：日期（「日期」虚拟字段未勾选时回退为主值字段标签或空）。
+            var title = showDate ? hit.Cell.Day : (showName ? TooltipFieldLabel! : hit.Cell.Day);
+            // 数值行：主值字段未勾选时不展示数值。
+            var valueText = showValue ? $"{value}{unit}" : string.Empty;
+            // 详情：字段名称行（独立行） + 原有对比文本。
+            string? detail = hit.Cell.ComparisonText;
+            if (showName)
+                detail = string.IsNullOrEmpty(detail) ? TooltipFieldLabel : $"{TooltipFieldLabel}\n{detail}";
+
+            data = new HoverTooltipData(title, valueText, detail);
             return true;
         }
         return false;

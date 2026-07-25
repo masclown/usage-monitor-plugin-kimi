@@ -238,6 +238,10 @@ public static class PluginValidator
             result.Errors.Add($"{context}：存在空字段名");
             return;
         }
+        // 虚拟字段（如 __field_name__ / __date__，tooltip 显示控制用，非真实 SDK 数据字段）不参与白名单校验。
+        if (fieldName.StartsWith("__", StringComparison.OrdinalIgnoreCase)
+            && fieldName.EndsWith("__", StringComparison.OrdinalIgnoreCase))
+            return;
         if (!UsageFieldMetadataRegistry.IsRegistered(fieldName))
             result.Errors.Add($"{context}：字段 {fieldName} 非 SDK 合法字段（白名单校验失败）");
     }

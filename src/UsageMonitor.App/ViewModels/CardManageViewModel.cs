@@ -467,9 +467,9 @@ public class ChartNode : CardChartListItem
             DataGroups.Add(new DataGroupNode(this, dg, groupVisible));
         }
 
-        // 初始化 tooltip 字段（实例级配置优先，回退图表级，再回退声明）
+        // 初始化 tooltip 字段（按图表声明的数据组派生可选项，避免列出当前图表不涉及的字段；实例级配置优先，回退图表级，再回退声明）
         var savedFields = ResolveTooltipFields(eff, instanceId, declaration.ChartId);
-        foreach (var option in TooltipFieldCatalog.CommonFields)
+        foreach (var option in TooltipFieldCatalog.GetFieldsForChart(declaration))
         {
             bool isChecked = savedFields == null
                 ? declaration.Tooltip?.Fields?.Contains(option.FieldName) == true

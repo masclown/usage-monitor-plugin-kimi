@@ -475,6 +475,39 @@ public class LimitBarsSectionVisibilityConverter : IMultiValueConverter
 }
 
 /// <summary>
+/// 余额快照区（BalanceSnapshot section）可见性转换器：values[0]=IsDetailExpanded，values[1]=CollapseVisibleParts，values[2]=kind("balanceSnapshot")，values[3]=HasDeclarativeCardCharts。
+/// <para>声明式插件（HasDeclarativeCardCharts=true）时余额快照内容已作为 Number 图表槽位（数据概览）并入图表区有序列表，
+/// 本区段恒隐藏避免重复渲染；非声明式插件回退旧逻辑：展开或 CollapseVisibleParts 含 "balanceSnapshot" 时可见。</para>
+/// </summary>
+public class BalanceSnapshotSectionVisibilityConverter : IMultiValueConverter
+{
+    /// <summary>按声明式数据概览并入槽位/旧逻辑决定余额快照区可见性。</summary>
+    public object Convert(object[] values, Type targetType, object parameter, CultureInfo culture)
+    {
+        // values[3]: HasDeclarativeCardCharts —— 声明式插件时余额快照恒隐藏（内容已由 Number 槽位呈现）
+        bool isDeclarative = values.Length > 3 && values[3] is bool d && d;
+        if (isDeclarative) return Visibility.Collapsed;
+
+        bool isExpanded = values.Length > 0 && values[0] is bool e && e;
+        if (isExpanded) return Visibility.Visible;
+
+        var kind = values.Length > 2 ? values[2]?.ToString() : "balanceSnapshot";
+        if (string.IsNullOrEmpty(kind)) return Visibility.Collapsed;
+        if (values.Length > 1 && values[1] is IEnumerable<string> parts)
+        {
+            foreach (var p in parts)
+                if (string.Equals(p, kind, StringComparison.OrdinalIgnoreCase))
+                    return Visibility.Visible;
+        }
+        return Visibility.Collapsed;
+    }
+
+    /// <summary>不支持反向转换。</summary>
+    public object[] ConvertBack(object value, Type[] targetTypes, object parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
+/// <summary>
 /// REQ-003：环形图中心数字 metric 键（字符串）转人类可读提示。
 /// 用于设置窗口中 ListBox 显示：内部存储 "Percent" / "Credits" / "WeeklyLimit" /
 /// "RemainingQuota" / "ApiTokenUsed" 等机器键，绑定后转为中文提示。未识别键原样回退。

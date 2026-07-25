@@ -473,13 +473,11 @@
                             <Border Background="{DynamicResource SurfaceBrush}"
                                     CornerRadius="{DynamicResource RadiusCard}" Padding="14" Margin="0,0,0,10">
                                 <StackPanel>
-                                    <!-- 一级：账号行（logo + 账号名 + 展开箭头 + 添加图表按钮） -->
+                                    <!-- 一级：账号行（logo + 账号名 + 展开箭头） -->
                                     <Grid>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="Auto" />
                                             <ColumnDefinition Width="*" />
-                                            <ColumnDefinition Width="Auto" />
-                                            <ColumnDefinition Width="Auto" />
                                         </Grid.ColumnDefinitions>
 
                                         <!-- Provider logo -->
@@ -500,13 +498,6 @@
                                                            Foreground="{DynamicResource TextPrimaryBrush}" />
                                             </StackPanel>
                                         </Button>
-
-                                        <!-- 添加图表按钮 -->
-                                        <Button Grid.Column="3" Content="+" Padding="9,4"
-                                                VerticalAlignment="Center"
-                                                Style="{StaticResource AccentSoftButtonStyle}"
-                                                ToolTip="添加图表"
-                                                Click="OnAddChartClick" />
                                     </Grid>
 
                                     <!-- 二级：图表列表（展开时显示） -->
@@ -526,16 +517,28 @@
                                                                 PreviewMouseLeftButtonDown="OnChartDragStart"
                                                                 PreviewMouseLeftButtonUp="OnChartDragEnd"
                                                                 MouseMove="OnChartDragMove">
-                                                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                                                <TextBlock Text="☰" FontSize="13" VerticalAlignment="Center"
+                                                            <!-- 与图表行同构的三列 Grid：拖拽手柄 + 隐藏复选框占位 + 文本，
+                                                                 使分界线文字与图表名称左对齐 -->
+                                                            <Grid>
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="Auto" />
+                                                                    <ColumnDefinition Width="Auto" />
+                                                                    <ColumnDefinition Width="*" />
+                                                                </Grid.ColumnDefinitions>
+                                                                <TextBlock Grid.Column="0" Text="☰" FontSize="13" VerticalAlignment="Center"
                                                                            Foreground="{DynamicResource TextTertiaryBrush}" Margin="0,0,8,0" />
-                                                                <TextBlock Text="折叠分界线" FontSize="13" FontWeight="SemiBold"
-                                                                           VerticalAlignment="Center"
-                                                                           Foreground="{DynamicResource TextPrimaryBrush}" />
-                                                                <TextBlock Text="（以下图表在卡片折叠时隐藏）" FontSize="11"
-                                                                           VerticalAlignment="Center" Margin="8,0,0,0"
-                                                                           Foreground="{DynamicResource TextTertiaryBrush}" />
-                                                            </StackPanel>
+                                                                <!-- 隐藏复选框占位：宽度与图表行复选框一致，保证文字对齐 -->
+                                                                <CheckBox Grid.Column="1" Margin="0,0,10,0" Visibility="Hidden"
+                                                                          IsHitTestVisible="False" Focusable="False" />
+                                                                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                                                    <TextBlock Text="折叠分界线" FontSize="13" FontWeight="SemiBold"
+                                                                               VerticalAlignment="Center"
+                                                                               Foreground="{DynamicResource TextPrimaryBrush}" />
+                                                                    <TextBlock Text="（以下图表在卡片折叠时隐藏）" FontSize="11"
+                                                                               VerticalAlignment="Center" Margin="8,0,0,0"
+                                                                               Foreground="{DynamicResource TextTertiaryBrush}" />
+                                                                </StackPanel>
+                                                            </Grid>
                                                         </Border>
                                                     </DataTemplate>
 
@@ -675,6 +678,13 @@
                                                     Visibility="{Binding HasNoCharts, Converter={StaticResource BoolToVisibility}}"
                                                     Style="{StaticResource GhostButtonStyle}" Padding="14,6"
                                                     HorizontalAlignment="Left" Margin="0,4,0,0" />
+
+                                            <!-- 添加图表按钮：置于白色折叠框内（图表列表之后） -->
+                                            <Button Content="+ 添加图表" Padding="9,4" Margin="0,6,0,0"
+                                                    HorizontalAlignment="Left"
+                                                    Style="{StaticResource AccentSoftButtonStyle}"
+                                                    ToolTip="添加图表"
+                                                    Click="OnAddChartClick" />
                                         </StackPanel>
                                     </Border>
                                 </StackPanel>

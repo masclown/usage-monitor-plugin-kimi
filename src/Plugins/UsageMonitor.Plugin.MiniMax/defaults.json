@@ -185,7 +185,7 @@
         "kind": "Bar",
         "defaultOrder": 1,
         "slicer": { "mode": "DataGroup", "interaction": "Scroll", "default": "mm.bar.5h" },
-        "tooltip": { "fields": ["five_hour_used_percent"] },
+        "tooltip": { "fields": ["__field_name__", "five_hour_used_percent", "weekly_used_percent", "video_quota"] },
         "colorTiers": { "ref": "global:usage-tier-default" },
         "dataGroups": [
           {

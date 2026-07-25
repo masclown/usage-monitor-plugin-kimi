@@ -691,19 +691,63 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         }
     }
 
-    /// <summary>req-105：更新折线图 tooltip 扩展行（勾选的非原生字段 → “标签 当前值”行，原生字段 daily_token_value/daily_cache_hit_value 由控件自处理）。</summary>
+    /// <summary>req-105：热力图的有效 Tooltip 显示字段（定位声明中的 HeatMap 图表并读取其配置）。</summary>
+    public IReadOnlyList<string> EffectiveHeatMapTooltipFields
+    {
+        get
+        {
+            var heatMap = Provider?.Card?.Charts.FirstOrDefault(c => c.Kind == DeclarativeChartKind.HeatMap);
+            if (heatMap == null) return Array.Empty<string>();
+            return GetEffectiveTooltipFieldsForChart(heatMap.ChartId);
+        }
+    }
+
+    /// <summary>req-105：热力图主值字段名（声明中首个 Value 角色字段，供控件 TooltipFields 白名单匹配）。</summary>
+    public string? HeatMapTooltipValueField
+    {
+        get
+        {
+            var heatMap = Provider?.Card?.Charts.FirstOrDefault(c => c.Kind == DeclarativeChartKind.HeatMap);
+            return heatMap?.DataGroups.SelectMany(g => g.Fields).FirstOrDefault(f => f.Role == FieldRole.Value)?.FieldName;
+        }
+    }
+
+    /// <summary>req-105：热力图主值字段中文显示名（「字段名称」虚拟字段勾选时作为标签行）。</summary>
+    public string? HeatMapTooltipFieldLabel
+        => HeatMapTooltipValueField != null ? TooltipFieldCatalog.GetDisplay(HeatMapTooltipValueField) : null;
+
+    /// <summary>req-105：更新折线图 tooltip 扩展行（勾选的非原生字段 → “标签 当前值”行，原生字段 daily_token_value/daily_cache_hit_value 由控件自处理）。
+    /// <para>同时通知 <see cref="EffectiveLineTooltipFields"/> 变更，保证设置页勾选变更后控件的 TooltipFields 绑定即时刷新（修复“关闭字段 tooltip 不变”问题）。</para>
+    /// </summary>
     private void RefreshLineTooltip()
     {
         ExtraTooltipLines = BuildExtraTooltipLines(EffectiveLineTooltipFields);
+        OnPropertyChanged(nameof(EffectiveLineTooltipFields));
+        // req-105：热力图 tooltip 字段同步刷新（设置页勾选变更后即时生效）。
+        OnPropertyChanged(nameof(EffectiveHeatMapTooltipFields));
+        OnPropertyChanged(nameof(HeatMapTooltipValueField));
+        OnPropertyChanged(nameof(HeatMapTooltipFieldLabel));
     }
 
-    /// <summary>req-105：将勾选的 tooltip 字段（排除折线图原生字段）转为扩展文本行。</summary>
+    /// <summary>req-105：将勾选的 tooltip 字段（排除折线图原生字段）转为扩展文本行。
+    /// <para>「字段名称」虚拟字段 → 折线主值字段的显示名（静态行）；日期由控件标题逐点自处理；
+    /// 原生值字段 daily_token_value/daily_cache_hit_value 由控件逐点渲染，不在此生成静态行。</para>
+    /// </summary>
     private IReadOnlyList<string>? BuildExtraTooltipLines(IReadOnlyList<string> fields)
     {
         if (fields == null || fields.Count == 0) return null;
         var lines = new List<string>();
+        // 字段名称虚拟字段：折线主值字段的中文显示名（静态行）。
+        if (fields.Contains(TooltipFieldCatalog.FieldNameVirtual))
+        {
+            var lineChart = Provider?.Card?.Charts.FirstOrDefault(c => c.Kind == DeclarativeChartKind.Line);
+            var valueField = lineChart?.DataGroups.SelectMany(g => g.Fields).FirstOrDefault(f => f.Role == FieldRole.Value)?.FieldName;
+            if (valueField != null) lines.Add(TooltipFieldCatalog.GetDisplay(valueField));
+        }
+        // 其余非原生字段 → 静态“标签 值”行。
         foreach (var f in fields)
         {
+            if (f == TooltipFieldCatalog.FieldNameVirtual || f == TooltipFieldCatalog.DateVirtual) continue;
             if (f == UsageMonitor.Core.Models.UsageFields.DailyTokenValue ||
                 f == UsageMonitor.Core.Models.UsageFields.DailyCacheHitValue) continue;
             var line = BuildTooltipFieldLine(f);
@@ -968,38 +1012,70 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         }
     }
 
-    /// <summary>按指定 Bar 图表实例的可见数据组构建进度条数据（并注入 req-105 tooltip 文本）。</summary>
+    /// <summary>按指定 Bar 图表实例的可见数据组构建进度条数据（并按数据组注入 req-105 tooltip 文本）。</summary>
     private MetricBarData? BuildInstanceBars(string chartId, string instanceId, CardDeclaration card, AccountCustomization eff)
     {
         var groups = ResolveInstanceDataGroups(chartId, instanceId, eff);
         IReadOnlyDictionary<string, IReadOnlyCollection<string>>? dgFilter = null;
         if (groups != null)
             dgFilter = new Dictionary<string, IReadOnlyCollection<string>> { [chartId] = groups };
+        // req-105：tooltip 按数据组构建——每个进度条只包含属于自己数据组的字段，
+        // 避免全部进度条共享同一 tooltip 导致跨数据组字段串扰（如本周限额进度条显示 5h 已用百分比）。
         var barData = UsageMonitor.App.Services.Display.DeclarativeChartBuilder.BuildMetricBars(
             card, ResolveFieldValue, labelResolver: DeclarativeFieldLabel,
-            visibleChartIds: new[] { chartId }, visibleDataGroupIds: dgFilter);
-        if (barData == null) return null;
-
-        // req-105：注入 tooltip 文本（图表有效 tooltip 字段 → 多行“标签 值”；无配置则不显示 ToolTip）。
-        var tooltipText = BuildBarTooltipText(chartId);
-        if (tooltipText == null) return barData;
-        var bars = barData.Bars.Select(b => b with { TooltipText = tooltipText }).ToList();
-        return new MetricBarData(bars);
+            visibleChartIds: new[] { chartId }, visibleDataGroupIds: dgFilter,
+            tooltipBuilder: group => BuildBarTooltipForGroup(chartId, group));
+        return barData;
     }
 
-    /// <summary>req-105：构建进度条悬停提示文本（有效 tooltip 字段 → 多行“标签 值”；无勾选字段返回 null）。</summary>
-    private string? BuildBarTooltipText(string chartId)
+    /// <summary>req-105：构建单个进度条（数据组）的悬停提示文本。
+    /// <para>仅包含该数据组自己的 Value 字段（被勾选时）与虚拟字段（字段名称/日期），
+    /// 不混入其他数据组的字段。字段名称与值分行展示。</para>
+    /// </summary>
+    private string? BuildBarTooltipForGroup(string chartId, DataGroup group)
     {
         var fields = GetEffectiveTooltipFieldsForChart(chartId);
         if (fields == null || fields.Count == 0) return null;
-        var lines = new List<string>();
-        foreach (var f in fields)
-        {
-            var line = BuildTooltipFieldLine(f);
-            if (line != null) lines.Add(line);
-        }
+        var valueField = group.Fields.FirstOrDefault(f => f.Role == FieldRole.Value)?.FieldName;
+        var lines = BuildTooltipLines(fields, valueField, dateText: null);
         return lines.Count > 0 ? string.Join("\n", lines) : null;
     }
+
+    /// <summary>req-105：构建 tooltip 行列表（字段名称行·虚拟 + 日期行·虚拟 + 当前上下文字段的值行）。
+    /// <para>「字段名称」勾选时显示当前字段的中文显示名（独立行）；「日期」勾选时显示日期行；
+    /// 上下文字段被勾选时显示其值行。三者分行排列，实现“字段名称 + 值”分行展示效果。</para>
+    /// </summary>
+    /// <param name="checkedFields">用户勾选的 tooltip 字段（含虚拟字段）。</param>
+    /// <param name="contextValueField">当前上下文的 Value 字段名（进度条 = 所属数据组 Value 字段；折线/热力图 = 图表 Value 字段）。</param>
+    /// <param name="dateText">日期文本（可空；折线/热力图逐点日期由控件自处理，此处传 null）。</param>
+    private List<string> BuildTooltipLines(IReadOnlyList<string> checkedFields, string? contextValueField, string? dateText)
+    {
+        var lines = new List<string>();
+        // 字段名称虚拟字段：显示当前上下文字段的中文显示名（独立行）。
+        if (contextValueField != null && checkedFields.Contains(TooltipFieldCatalog.FieldNameVirtual))
+            lines.Add(TooltipFieldCatalog.GetDisplay(contextValueField));
+        // 日期虚拟字段：显示日期行。
+        if (checkedFields.Contains(TooltipFieldCatalog.DateVirtual) && !string.IsNullOrEmpty(dateText))
+            lines.Add(dateText!);
+        // 值行：仅当上下文字段被勾选时显示。
+        if (contextValueField != null && checkedFields.Contains(contextValueField))
+        {
+            var value = BuildTooltipFieldValue(contextValueField);
+            if (value != null) lines.Add(value);
+        }
+        return lines;
+    }
+
+    /// <summary>req-105：字段 tooltip 值格式化（仅值本身，不含标签；标签由「字段名称」虚拟字段提供）。取不到返回 null。</summary>
+    private string? BuildTooltipFieldValue(string fieldName) => fieldName switch
+    {
+        UsageMonitor.Core.Models.UsageFields.FiveHourUsedPercent => $"{PrimaryBarPercent:0}%",
+        UsageMonitor.Core.Models.UsageFields.WeeklyUsedPercent => $"{WeeklyBarPercent:0}%",
+        UsageMonitor.Core.Models.UsageFields.RemainingCredits => _remainingCredits >= 0 ? $"{_remainingCredits:0}" : null,
+        UsageMonitor.Core.Models.UsageFields.VideoQuota => $"{VideoIntervalPercent:0}%",
+        UsageMonitor.Core.Models.UsageFields.VideoUsedCount => VideoIntervalPercent > 0 ? $"{VideoIntervalPercent:0}%" : null,
+        _ => ResolveFieldValue(fieldName)?.ToString("0")
+    };
 
     /// <summary>按指定 Number 图表实例的数据组构建数字网格数据。</summary>
     private MetricGridData? BuildInstanceNumber(string chartId, string instanceId, CardDeclaration card, AccountCustomization eff)

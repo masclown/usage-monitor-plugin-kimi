@@ -512,6 +512,9 @@
                 Cells="{Binding Owner.EffectiveHeatMapCells}"
                 EmptyCellBrush="{DynamicResource TrackBrush}"
                 TextBrush="{DynamicResource TextSecondaryBrush}"
+                TooltipFields="{Binding Owner.EffectiveHeatMapTooltipFields}"
+                TooltipValueField="{Binding Owner.HeatMapTooltipValueField}"
+                TooltipFieldLabel="{Binding Owner.HeatMapTooltipFieldLabel}"
                 ProviderId="{Binding Owner.ProviderId}" />
         </DataTemplate>
 
@@ -533,8 +536,9 @@
                                 <TextBlock Text="{Binding Label}" FontSize="11"
                                            Foreground="{DynamicResource TextSecondaryBrush}"
                                            HorizontalAlignment="Center" TextTrimming="CharacterEllipsis" />
-                                <TextBlock Text="{Binding Value}" FontSize="18" FontWeight="SemiBold"
-                                           Foreground="{DynamicResource TextPrimaryBrush}"
+                                <!-- 数值样式与余额快照（数据概览）保持一致：展示字号 + 加粗 + 强调色 -->
+                                <TextBlock Text="{Binding Value}" FontSize="{DynamicResource FontSizeDisplay}" FontWeight="Bold"
+                                           Foreground="{DynamicResource AccentBrush}"
                                            HorizontalAlignment="Center" Margin="0,2,0,0"
                                            TextTrimming="CharacterEllipsis" />
                                 <TextBlock Text="{Binding Detail}" FontSize="10"
@@ -878,14 +882,16 @@
                                         </ContentPresenter.Visibility>
                                     </ContentPresenter>
 
-                                    <!-- 余额快照：折叠态下仅当 CollapseVisibleParts 包含 "balanceSnapshot" 时仍可见 -->
+                                    <!-- 余额快照：声明式插件时内容已并入 Number 图表槽位（数据概览），本区段隐藏；
+                                         非声明式插件折叠态下仅当 CollapseVisibleParts 包含 "balanceSnapshot" 时仍可见 -->
                                     <ContentPresenter Content="{Binding}"
                                                       ContentTemplateSelector="{StaticResource BalanceTemplateSelector}">
                                         <ContentPresenter.Visibility>
-                                            <MultiBinding Converter="{StaticResource CollapseVisibility}">
+                                            <MultiBinding Converter="{StaticResource BalanceSnapshotSectionVisibility}">
                                                 <Binding Path="DataContext.IsDetailExpanded" RelativeSource="{RelativeSource AncestorType=Border}" />
                                                 <Binding Path="DataContext.CollapseVisibleParts" RelativeSource="{RelativeSource AncestorType=Border}" />
                                                 <Binding Source="balanceSnapshot" />
+                                                <Binding Path="DataContext.HasDeclarativeCardCharts" RelativeSource="{RelativeSource AncestorType=Border}" />
                                             </MultiBinding>
                                         </ContentPresenter.Visibility>
                                     </ContentPresenter>

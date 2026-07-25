@@ -467,6 +467,7 @@ public partial class MainViewModel : INotifyPropertyChanged
 
         // ===== 显示 =====
         Helpers.SettingsNavigationItem.CreateGroupHeader("显示"),
+        Helpers.SettingsNavigationItem.CreateItem(Helpers.SettingsSection.TaskbarMiniChart, "任务栏迷你图表", "显示"),
         Helpers.SettingsNavigationItem.CreateItem(Helpers.SettingsSection.Tray, "悬浮窗", "显示"),
         Helpers.SettingsNavigationItem.CreateItem(Helpers.SettingsSection.ColorTier, "色阶", "显示"),
 
@@ -474,10 +475,6 @@ public partial class MainViewModel : INotifyPropertyChanged
         Helpers.SettingsNavigationItem.CreateGroupHeader("高级"),
         Helpers.SettingsNavigationItem.CreateItem(Helpers.SettingsSection.Security, "安全", "高级"),
         Helpers.SettingsNavigationItem.CreateItem(Helpers.SettingsSection.Diagnostics, "诊断日志", "高级"),
-
-        // ===== 个性化 =====
-        Helpers.SettingsNavigationItem.CreateGroupHeader("个性化"),
-        Helpers.SettingsNavigationItem.CreateItem(Helpers.SettingsSection.TaskbarMiniChart, "任务栏迷你图表", "个性化"),
     };
 
     /// <summary>

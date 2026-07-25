@@ -31,6 +31,7 @@
             <helpers:SlotCollapseVisibilityConverter x:Key="SlotCollapseVisibility" />
             <helpers:ChartSectionVisibilityConverter x:Key="ChartSectionVisibility" />
             <helpers:LimitBarsSectionVisibilityConverter x:Key="LimitBarsSectionVisibility" />
+            <helpers:BalanceSnapshotSectionVisibilityConverter x:Key="BalanceSnapshotSectionVisibility" />
             <!-- REQ-003：环形图中心 metric 键转中文提示（在设置窗口 ListBox 中绑定显示） -->
             <helpers:RingMetricKeyToDisplayConverter x:Key="RingMetricKeyToDisplay" />
 

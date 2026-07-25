@@ -25,6 +25,17 @@ public sealed class TaskbarMiniChartRegistry : ITaskbarMiniChartRegistry
 {
     private readonly ConcurrentDictionary<string, MiniChartDescriptor> _descriptors = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// 构建注册键：ProviderId + ChartId 复合键。
+    /// <para>修复：旧实现仅以 ProviderId 为键，同一 Provider 声明多个 mini 图表（如 MiniMax 的 ring + text）时，
+    /// 后注册者会覆盖先注册者，导致任务栏只能显示最后一个图表（选中 ring 不显示）。改为复合键后多图共存。</para>
+    /// <para>ChartId 为空时回退仅用 ProviderId（兼容旧单描述符注册路径）。</para>
+    /// </summary>
+    private static string MakeKey(MiniChartDescriptor descriptor)
+        => string.IsNullOrWhiteSpace(descriptor.ChartId)
+            ? descriptor.ProviderId
+            : $"{descriptor.ProviderId}|{descriptor.ChartId}";
+
     /// <inheritdoc />
     public bool Register(MiniChartDescriptor descriptor)
     {
@@ -32,28 +43,21 @@ public sealed class TaskbarMiniChartRegistry : ITaskbarMiniChartRegistry
         if (string.IsNullOrWhiteSpace(descriptor.ProviderId))
             throw new ArgumentException("MiniChartDescriptor.ProviderId 不能为空", nameof(descriptor));
 
-        // req-fix-RegistryIsNewRegistration 修复：原写法 `var old = AddOrUpdate(...)` 是错的——
-        // ConcurrentDictionary.AddOrUpdate 返回的是操作完成后字典中的"最终值"（新值），
-        // 不是被替换的旧值。所以 `old` 永远等于 `descriptor`，`old == null` 永远为 false，
-        // 每次 Register 都被错判为"覆盖"。同时 `ContainsKey` 后置检查有竞态窗口。
-        //
-        // 正确做法：先 TryAdd（返回 true 即新增成功），否则用索引器 setter 覆盖（内部走 TryUpdate 线程安全）。
-
-        // 1. 快路径：TryAdd 成功即新增
-        if (_descriptors.TryAdd(descriptor.ProviderId, descriptor))
+        // 以 ProviderId+ChartId 复合键注册，同一 Provider 的多个 mini 图表互不覆盖。
+        var key = MakeKey(descriptor);
+        if (_descriptors.TryAdd(key, descriptor))
         {
             FileLogger.Info(
                 "TaskbarMiniChartRegistry",
-                $"Register {descriptor.ProviderId} Kind={descriptor.Kind}");
+                $"Register {descriptor.ProviderId} ChartId={descriptor.ChartId ?? "-"} Kind={descriptor.Kind}");
             return true;
         }
 
-        // 2. 慢路径：已存在 → 覆盖（Latest Wins 语义）
-        // 索引器 setter 内部用 TryUpdate 实现，线程安全且自动重试
-        _descriptors[descriptor.ProviderId] = descriptor;
+        // 已存在 → 覆盖（Latest Wins 语义，仅针对同一复合键）
+        _descriptors[key] = descriptor;
         FileLogger.Info(
             "TaskbarMiniChartRegistry",
-            $"Update {descriptor.ProviderId} Kind={descriptor.Kind}");
+            $"Update {descriptor.ProviderId} ChartId={descriptor.ChartId ?? "-"} Kind={descriptor.Kind}");
         return false;
     }
 
@@ -61,7 +65,13 @@ public sealed class TaskbarMiniChartRegistry : ITaskbarMiniChartRegistry
     public bool Unregister(string providerId)
     {
         if (string.IsNullOrWhiteSpace(providerId)) return false;
-        var removed = _descriptors.TryRemove(providerId, out _);
+        // 移除该 Provider 名下的全部描述符（含带 ChartId 的多个 mini 图表）。
+        var removed = false;
+        foreach (var kv in _descriptors)
+        {
+            if (string.Equals(kv.Value.ProviderId, providerId, StringComparison.OrdinalIgnoreCase))
+                removed |= _descriptors.TryRemove(kv.Key, out _);
+        }
         if (removed)
         {
             UsageMonitor.Core.Services.FileLogger.Info(
@@ -74,14 +84,18 @@ public sealed class TaskbarMiniChartRegistry : ITaskbarMiniChartRegistry
     public MiniChartDescriptor? Get(string providerId)
     {
         if (string.IsNullOrWhiteSpace(providerId)) return null;
-        return _descriptors.TryGetValue(providerId, out var d) ? d : null;
+        // 向后兼容：返回该 Provider 名下的首个描述符（多图场景建议用 GetAll 按 ChartId 精确过滤）。
+        return _descriptors.Values.FirstOrDefault(d =>
+            string.Equals(d.ProviderId, providerId, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <inheritdoc />
     public IEnumerable<MiniChartDescriptor> GetAll()
     {
-        // 按 ProviderId 升序，保证渲染顺序稳定（多次刷新顺序一致）
-        return _descriptors.Values.OrderBy(d => d.ProviderId, StringComparer.OrdinalIgnoreCase);
+        // 按 ProviderId 、再按 ChartId 升序，保证渲染顺序稳定（多次刷新顺序一致）
+        return _descriptors.Values
+            .OrderBy(d => d.ProviderId, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(d => d.ChartId ?? string.Empty, StringComparer.OrdinalIgnoreCase);
     }
 
     /// <inheritdoc />
