@@ -1055,6 +1055,7 @@ public class ConfigService : IConfigService
                 effective.VisibleMiniCharts = acct.VisibleMiniCharts != null ? new List<string>(acct.VisibleMiniCharts) : null;
                 effective.VisibleMiniDataGroups = CopyStringToListDict(acct.VisibleMiniDataGroups);
                 effective.MiniDataGroupOrders = CopyStringToIntDictDict(acct.MiniDataGroupOrders);
+                effective.CollapseDividerIndex = acct.CollapseDividerIndex;
             }
 
             // 旧字典兼容填充：仅在账号定制未设置时填入（避免覆盖用户主动的选择）
@@ -1121,6 +1122,8 @@ public class ConfigService : IConfigService
             acct.DataGroupOrders = CopyStringToIntDictDict(config.DataGroupOrders);
             // req-105：每张图表的 Tooltip 字段随卡片配置一起持久化
             acct.VisibleTooltipFields = CopyStringToListDict(config.VisibleTooltipFields);
+            // 折叠分界线位置随卡片配置一起持久化
+            acct.CollapseDividerIndex = config.CollapseDividerIndex;
         }
         Save();
     }
@@ -1390,6 +1393,11 @@ public class ConfigService : IConfigService
         if (string.IsNullOrWhiteSpace(stableIdHash) ||
             string.Equals(stableIdHash, "default", StringComparison.Ordinal))
             return true; // 无身份信息，视为无冲突
+
+        // 锁内只改内存，Save 必须移出锁外——Save 末尾触发 ConfigChanged，若本方法（后台刷新线程）
+        // 持锁期间触发，而订阅者用 Dispatcher 同步回 UI 线程、UI 线程又正在等 _ioLock（如展开账号列表
+        // 的 RefreshStatus → GetEffectiveAccountConfig），会构成 lock + Dispatcher.Invoke 交叉死锁。
+        bool bound = false;
         lock (_ioLock)
         {
             var account = GetAccount(providerId, accountId);
@@ -1397,12 +1405,19 @@ public class ConfigService : IConfigService
             if (string.IsNullOrWhiteSpace(account.BoundStableId))
             {
                 account.BoundStableId = stableIdHash;
-                Save();
-                FileLogger.Info("ConfigService", $"req-110：账号 {providerId}:{accountId} 首次绑定网页身份哈希 {stableIdHash}");
-                return true;
+                bound = true;
             }
-            return string.Equals(account.BoundStableId, stableIdHash, StringComparison.Ordinal);
+            else if (!string.Equals(account.BoundStableId, stableIdHash, StringComparison.Ordinal))
+            {
+                return false;
+            }
         }
+        if (bound)
+        {
+            Save();
+            FileLogger.Info("ConfigService", $"req-110：账号 {providerId}:{accountId} 首次绑定网页身份哈希 {stableIdHash}");
+        }
+        return true;
     }
 
     /// <summary>

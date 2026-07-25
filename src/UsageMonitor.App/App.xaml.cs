@@ -286,10 +286,12 @@ public partial class App : Application
         _viewModel.OpenTriggerOverlayAction = ShowTriggerOverlayWindow;
 
         // 订阅配置变更：让"启用任务栏显示/启用托盘悬浮窗"两个开关在运行时即时生效（关闭时销毁、开启时重建）
-        _configService.ConfigChanged += (_, _) => Dispatcher.Invoke(SyncOverlayWindowsFromSettings);
+        // 死锁防护：ConfigChanged 可能由后台刷新线程触发，必须用 BeginInvoke 异步投递——
+        // 同步 Invoke 会在"发布线程持有 ConfigService 锁 + UI 线程正在等同一把锁"时交叉死锁（UI 卡死）。
+        _configService.ConfigChanged += (_, _) => Dispatcher.BeginInvoke(new Action(SyncOverlayWindowsFromSettings));
         // 订阅配置变更：用量色阶在设置页保存后即时同步到全局色阶（让所有进度条 / 热力图重新取色）。
-        _configService.ConfigChanged += (_, _) => Dispatcher.Invoke(() =>
-            UsageMonitor.App.Helpers.UsageTierScale.ApplyConfig(_configService.GetEffectiveUsageTierConfig()));
+        _configService.ConfigChanged += (_, _) => Dispatcher.BeginInvoke(new Action(() =>
+            UsageMonitor.App.Helpers.UsageTierScale.ApplyConfig(_configService.GetEffectiveUsageTierConfig())));
 
         // 初始化系统托盘
         InitializeTrayIcon();

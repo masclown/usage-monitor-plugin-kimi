@@ -31,6 +31,46 @@ public class Req110LifecycleMigrationTests : IDisposable
         return svc;
     }
 
+    // ===== 死锁回归：ConfigChanged 触发时发布线程不得持有 _ioLock =====
+
+    [Fact]
+    public void TryBindAccountStableId_FiresConfigChanged_WithoutHoldingIoLock()
+    {
+        // 回归背景：TryBindAccountStableId 曾在 lock(_ioLock) 内调 Save()，ConfigChanged 在持锁状态下触发——
+        // 后台刷新线程持锁 + 订阅者 Dispatcher.Invoke 同步回 UI 线程 + UI 线程正在等 _ioLock（展开账号列表
+        // RefreshStatus → GetEffectiveAccountConfig）构成交叉死锁，主窗口永久卡死。
+        // 本用例在回调里用另一线程尝试拿 _ioLock：若发布线程仍持锁则必然超时失败。
+        var svc = CreateConfigService();
+        svc.AddAccount("MiniMax", null);
+
+        var ioLock = ReflectionHelpers.GetField<object>(svc, "_ioLock")!;
+        bool? lockFreeDuringEvent = null;
+        svc.ConfigChanged += (_, _) =>
+        {
+            // 另开线程拿锁：Monitor 可重入，同线程 TryEnter 无法检测"自己持锁"，必须跨线程探测。
+            var probe = new Thread(() =>
+            {
+                if (Monitor.TryEnter(ioLock, TimeSpan.FromSeconds(2)))
+                {
+                    lockFreeDuringEvent = true;
+                    Monitor.Exit(ioLock);
+                }
+                else
+                {
+                    lockFreeDuringEvent = false;
+                }
+            });
+            probe.Start();
+            probe.Join(TimeSpan.FromSeconds(5));
+        };
+
+        svc.TryBindAccountStableId("MiniMax", "default", "abcdef0123456789").Should().BeTrue();
+
+        lockFreeDuringEvent.Should().BeTrue(
+            "ConfigChanged 触发时发布线程必须已释放 _ioLock，否则与 UI 线程的 Dispatcher 同步回调会交叉死锁");
+        svc.GetAccount("MiniMax", "default")!.BoundStableId.Should().Be("abcdef0123456789");
+    }
+
     // ===== M1：零卡片账号补建 default-card =====
 
     [Fact]

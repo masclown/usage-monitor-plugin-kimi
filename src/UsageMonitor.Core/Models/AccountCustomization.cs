@@ -74,6 +74,12 @@ public sealed class AccountCustomization
     /// <summary>req-109：各 Mini 图表的数据组排序（miniChartId → dataGroupId → 序号；序号越小越靠前）。</summary>
     public Dictionary<string, Dictionary<string, int>> MiniDataGroupOrders { get; set; } = new();
 
+    /// <summary>用量卡片折叠分界线位置：折叠时保持可见的图表数量（即分界线位于有序图表列表第 N 项之后）。
+    /// <para>null = 未设置，宿主按插件声明的 <c>card.collapseDividerIndex</c> 兜底，仍无则默认分界线位于图表列表末尾（折叠时全部图表可见）。
+    /// 0 = 折叠时隐藏全部图表。用户可在【卡片管理】页拖拽分界线调整。</para>
+    /// </summary>
+    public int? CollapseDividerIndex { get; set; }
+
     /// <summary>
     /// 生成账号定制的复合键：<c>ProviderId:AccountId:CardId</c>（3 段）。
     /// </summary>
@@ -101,6 +107,7 @@ public sealed class AccountCustomization
             VisibleProgressFields = VisibleProgressFields == null ? null : new List<string>(VisibleProgressFields),
             VisibleMetricFields = VisibleMetricFields == null ? null : new List<string>(VisibleMetricFields),
             VisibleMiniCharts = VisibleMiniCharts == null ? null : new List<string>(VisibleMiniCharts),
+            CollapseDividerIndex = CollapseDividerIndex,
         };
 
         // VisibleDataGroups：Dictionary<string, List<string>?>

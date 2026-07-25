@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:sys="clr-namespace:System;assembly=mscorlib"
         xmlns:helpers="clr-namespace:UsageMonitor.App.Helpers"
+        xmlns:vm="clr-namespace:UsageMonitor.App.ViewModels"
         Title="UsageMonitor - 设置"
         Height="640" Width="760"
         MinHeight="480" MinWidth="640"
@@ -514,19 +515,43 @@
                                             CornerRadius="{DynamicResource RadiusButton}"
                                             Visibility="{Binding IsExpanded, Converter={StaticResource BoolToVisibility}}">
                                         <StackPanel>
-                                            <ItemsControl ItemsSource="{Binding Charts}">
-                                                <ItemsControl.ItemTemplate>
-                                                    <DataTemplate>
+                                            <ItemsControl ItemsSource="{Binding ChartItems}">
+                                                <ItemsControl.Resources>
+                                                    <!-- 折叠分界线节点（可拖拽，其上图表折叠时保留可见；样式与图表行一致，不含复选框） -->
+                                                    <DataTemplate DataType="{x:Type vm:DividerNode}">
+                                                        <Border Padding="6,8" Margin="0,0,0,6"
+                                                                Background="{DynamicResource SurfaceBrush}"
+                                                                CornerRadius="{DynamicResource RadiusButton}"
+                                                                Tag="{Binding}" Cursor="SizeNS"
+                                                                PreviewMouseLeftButtonDown="OnChartDragStart"
+                                                                PreviewMouseLeftButtonUp="OnChartDragEnd"
+                                                                MouseMove="OnChartDragMove">
+                                                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                                                <TextBlock Text="☰" FontSize="13" VerticalAlignment="Center"
+                                                                           Foreground="{DynamicResource TextTertiaryBrush}" Margin="0,0,8,0" />
+                                                                <TextBlock Text="折叠分界线" FontSize="13" FontWeight="SemiBold"
+                                                                           VerticalAlignment="Center"
+                                                                           Foreground="{DynamicResource TextPrimaryBrush}" />
+                                                                <TextBlock Text="（以下图表在卡片折叠时隐藏）" FontSize="11"
+                                                                           VerticalAlignment="Center" Margin="8,0,0,0"
+                                                                           Foreground="{DynamicResource TextTertiaryBrush}" />
+                                                            </StackPanel>
+                                                        </Border>
+                                                    </DataTemplate>
+
+                                                    <!-- 图表实例节点 -->
+                                                    <DataTemplate DataType="{x:Type vm:ChartNode}">
                                                         <Border Padding="6,8" Margin="0,0,0,6"
                                                                 Background="{DynamicResource SurfaceBrush}"
                                                                 CornerRadius="{DynamicResource RadiusButton}">
                                                             <StackPanel>
-                                                                <!-- 图表行：拖拽手柄 + 启用 + 图表名 + 展开 -->
+                                                                <!-- 图表行：拖拽手柄 + 启用 + 图表名 + 展开 + 删除 -->
                                                                 <Grid>
                                                                     <Grid.ColumnDefinitions>
                                                                         <ColumnDefinition Width="Auto" />
                                                                         <ColumnDefinition Width="Auto" />
                                                                         <ColumnDefinition Width="*" />
+                                                                        <ColumnDefinition Width="Auto" />
                                                                         <ColumnDefinition Width="Auto" />
                                                                     </Grid.ColumnDefinitions>
 
@@ -537,6 +562,7 @@
                                                                                Cursor="SizeAll"
                                                                                Tag="{Binding}"
                                                                                PreviewMouseLeftButtonDown="OnChartDragStart"
+                                                                               PreviewMouseLeftButtonUp="OnChartDragEnd"
                                                                                MouseMove="OnChartDragMove" />
 
                                                                     <!-- 启用 CheckBox -->
@@ -556,6 +582,13 @@
                                                                     <Button Grid.Column="3" Content="{Binding ExpandArrow}"
                                                                             Style="{StaticResource GhostButtonStyle}" Padding="7,3"
                                                                             Click="OnChartNodeToggleClick" />
+
+                                                                    <!-- 删除按钮（×）：移除该图表实例 -->
+                                                                    <Button Grid.Column="4" Content="×" Padding="8,3" Margin="4,0,0,0"
+                                                                            Style="{StaticResource GhostButtonStyle}"
+                                                                            Foreground="{DynamicResource TextTertiaryBrush}"
+                                                                            ToolTip="删除该图表"
+                                                                            Command="{Binding RemoveSelfCommand}" />
                                                                 </Grid>
 
                                                                 <!-- 三级：数据组 + tooltip 字段（展开时显示） -->
@@ -633,7 +666,7 @@
                                                             </StackPanel>
                                                         </Border>
                                                     </DataTemplate>
-                                                </ItemsControl.ItemTemplate>
+                                                </ItemsControl.Resources>
                                             </ItemsControl>
 
                                             <!-- 无图表：显示“配置图表”按钮 -->

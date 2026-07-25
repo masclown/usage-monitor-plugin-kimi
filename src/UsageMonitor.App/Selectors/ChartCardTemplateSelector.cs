@@ -36,7 +36,9 @@ public sealed class ChartCardTemplateSelector : DataTemplateSelector
             var hasV2 = Kind switch
             {
                 SelectorKind.LimitBars => GetMetricBarData(item) != null,
-                SelectorKind.Balance => (GetDeclarativeNumber(item) ?? GetMetricGridData(item)) is not null,
+                // 声明式插件的 Number 图表已作为槽位并入图表区有序列表，余额快照区回退默认余额模板避免重复渲染。
+                SelectorKind.Balance => !GetHasDeclarativeCardCharts(item)
+                                        && (GetDeclarativeNumber(item) ?? GetMetricGridData(item)) is not null,
                 _ => false
             };
 
@@ -77,5 +79,13 @@ public sealed class ChartCardTemplateSelector : DataTemplateSelector
         if (vm == null) return null;
         var prop = vm.GetType().GetProperty("DeclarativeNumber");
         return prop?.GetValue(vm) as MetricGridData;
+    }
+
+    /// <summary>反射读取 VM 的 <c>HasDeclarativeCardCharts</c> 属性（声明式插件判定，Number 图表已并入槽位）。</summary>
+    private static bool GetHasDeclarativeCardCharts(object? vm)
+    {
+        if (vm == null) return false;
+        var prop = vm.GetType().GetProperty("HasDeclarativeCardCharts");
+        return prop?.GetValue(vm) is bool b && b;
     }
 }

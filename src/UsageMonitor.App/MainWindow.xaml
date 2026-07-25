@@ -422,10 +422,189 @@
         </DataTemplate>
 
         <!-- 子模板 5：卡片图表区 -->
+        <!-- 声明式图表槽位模板：进度条组（Bar）。按本实例可见数据组构建的 BarData.Bars 渲染，
+             布局与 MetricBarTemplate 一致（数据驱动由实例级配置接管）。 -->
+        <DataTemplate x:Key="SlotBarGroupTemplate">
+            <Grid>
+            <ItemsControl ItemsSource="{Binding BarData.Bars}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <StackPanel Margin="0,0,0,10" ToolTip="{Binding TooltipText}">
+                            <DockPanel>
+                                <TextBlock Text="{Binding Label}" FontSize="12"
+                                           Foreground="{DynamicResource TextSecondaryBrush}"
+                                           VerticalAlignment="Center" />
+                                <TextBlock DockPanel.Dock="Right" HorizontalAlignment="Right"
+                                           FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
+                                           Text="{Binding RightText}"
+                                           Visibility="{Binding RightText, Converter={StaticResource StringToVisibility}}" />
+                            </DockPanel>
+                            <Grid Margin="0,5,0,0" Height="{DynamicResource ProgressBarHeight}">
+                                <Border CornerRadius="{DynamicResource ProgressBarRadius}" Background="{DynamicResource TrackBrush}" />
+                                <Border CornerRadius="{DynamicResource ProgressBarRadius}"
+                                        Background="{Binding Percent, Converter={StaticResource PercentToBrush}}"
+                                        HorizontalAlignment="Left">
+                                    <helpers:ProgressWidthAnimator.TargetWidth>
+                                        <MultiBinding Converter="{StaticResource PercentageWidthConverter}">
+                                            <Binding Path="Percent" />
+                                            <Binding RelativeSource="{RelativeSource FindAncestor, AncestorType={x:Type Grid}}" Path="ActualWidth" />
+                                        </MultiBinding>
+                                    </helpers:ProgressWidthAnimator.TargetWidth>
+                                </Border>
+                            </Grid>
+                            <DockPanel Margin="0,3,0,0">
+                                <TextBlock Text="{Binding FooterText}" FontSize="11"
+                                           Foreground="{DynamicResource TextTertiaryBrush}"
+                                           Visibility="{Binding FooterText, Converter={StaticResource StringToVisibility}}" />
+                                <TextBlock DockPanel.Dock="Right" HorizontalAlignment="Right"
+                                           FontSize="11" FontWeight="SemiBold"
+                                           Foreground="{DynamicResource TextPrimaryBrush}"
+                                           Text="{Binding Percent, StringFormat=已用 {0:0}%}" />
+                            </DockPanel>
+                        </StackPanel>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <!-- 空数据提示：所有数据组未勾选时显示 -->
+            <TextBlock Text="{Binding EmptyHint}" FontSize="12"
+                       Foreground="{DynamicResource TextTertiaryBrush}"
+                       VerticalAlignment="Center" HorizontalAlignment="Center" Margin="0,6"
+                       Visibility="{Binding EmptyHint, Converter={StaticResource StringToVisibility}}" />
+            </Grid>
+        </DataTemplate>
+
+        <!-- 声明式图表槽位模板：折线图（绑定经 Owner 委托到卡片级数据） -->
+        <DataTemplate x:Key="SlotLineTemplate">
+            <controls:MiniLineChartControl Height="132" Margin="0,0,0,8"
+                Values="{Binding Owner.EffectiveCardLineValues}" MaxValue="{Binding Owner.EffectiveCardLineMax}" StrokeThickness="2.4"
+                ProviderName="{Binding Owner.DisplayName}"
+                ValueUnit="%"
+                LowBrush="{DynamicResource UsageLowBrush}"
+                MidBrush="{DynamicResource UsageMidBrush}"
+                HighBrush="{DynamicResource UsageHighBrush}"
+                Dates="{Binding Owner.EffectiveCardLineDates}"
+                ExtraTooltipLines="{Binding Owner.ExtraTooltipLines}"
+                CacheHitPercent="{Binding Owner.CacheHitPercent}"
+                DailyCacheHitPercents="{Binding Owner.DailyCacheHitPercents}"
+                SupportsPeriodSwitch="{Binding Owner.SupportsPeriodSwitch}"
+                CurrentPeriod="{Binding Owner.CurrentPeriod}"
+                IsLoading="{Binding Owner.IsLoading}"
+                TooltipFields="{Binding Owner.EffectiveLineTooltipFields}"
+                PeriodChanged="OnLineChartPeriodChanged" />
+        </DataTemplate>
+
+        <!-- 声明式图表槽位模板：圆环图 -->
+        <DataTemplate x:Key="SlotRingTemplate">
+            <controls:RingChartControl Height="132" Margin="0,0,0,8"
+                Percent="{Binding Owner.UsagePercentage}" Size="112" StrokeThickness="11"
+                ProviderName="{Binding Owner.DisplayName}"
+                ResetTimeText="{Binding Owner.PrimaryResetText}"
+                HorizontalAlignment="Center"
+                TrackBrush="{DynamicResource TrackBrush}"
+                ProgressBrush="{DynamicResource AccentBrush}"
+                WarningBrush="{DynamicResource WarningBrush}"
+                DangerBrush="{DynamicResource DangerBrush}" />
+        </DataTemplate>
+
+        <!-- 声明式图表槽位模板：热力图 -->
+        <DataTemplate x:Key="SlotHeatMapTemplate">
+            <controls:YearHeatMapControl Height="170" Margin="0,0,0,8"
+                Cells="{Binding Owner.EffectiveHeatMapCells}"
+                EmptyCellBrush="{DynamicResource TrackBrush}"
+                TextBrush="{DynamicResource TextSecondaryBrush}"
+                ProviderId="{Binding Owner.ProviderId}" />
+        </DataTemplate>
+
+        <!-- 声明式图表槽位模板：数字（Number） -->
+        <DataTemplate x:Key="SlotNumberTemplate">
+            <Border Background="{DynamicResource SurfaceAltBrush}"
+                    CornerRadius="{DynamicResource RadiusSmall}" Padding="12,8"
+                    Margin="0,0,0,8">
+                <Grid>
+                <ItemsControl ItemsSource="{Binding NumberData.Items}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <UniformGrid Rows="1" />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel Margin="4,0">
+                                <TextBlock Text="{Binding Label}" FontSize="11"
+                                           Foreground="{DynamicResource TextSecondaryBrush}"
+                                           HorizontalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="{Binding Value}" FontSize="18" FontWeight="SemiBold"
+                                           Foreground="{DynamicResource TextPrimaryBrush}"
+                                           HorizontalAlignment="Center" Margin="0,2,0,0"
+                                           TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="{Binding Detail}" FontSize="10"
+                                           Foreground="{DynamicResource TextTertiaryBrush}"
+                                           HorizontalAlignment="Center"
+                                           Visibility="{Binding Detail, Converter={StaticResource StringToVisibility}}" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <!-- 空数据提示：所有数据组未勾选时显示 -->
+                <TextBlock Text="{Binding EmptyHint}" FontSize="12"
+                           Foreground="{DynamicResource TextTertiaryBrush}"
+                           VerticalAlignment="Center" HorizontalAlignment="Center"
+                           Visibility="{Binding EmptyHint, Converter={StaticResource StringToVisibility}}" />
+                </Grid>
+            </Border>
+        </DataTemplate>
+
+        <!-- 声明式图表槽位选择器模板：按 SlotKind 路由到具体图表子模板，
+             并按「卡片展开态 / 折叠分界线」决定槽位可见性。 -->
+        <DataTemplate x:Key="CardChartSlotTemplate">
+            <ContentControl Content="{Binding}">
+                <ContentControl.Visibility>
+                    <MultiBinding Converter="{StaticResource SlotCollapseVisibility}">
+                        <Binding Path="Owner.IsDetailExpanded" />
+                        <Binding Path="IsAboveDivider" />
+                    </MultiBinding>
+                </ContentControl.Visibility>
+                <ContentControl.Style>
+                    <Style TargetType="ContentControl">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding SlotKind}" Value="BarGroup">
+                                <Setter Property="ContentTemplate" Value="{StaticResource SlotBarGroupTemplate}" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding SlotKind}" Value="Line">
+                                <Setter Property="ContentTemplate" Value="{StaticResource SlotLineTemplate}" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding SlotKind}" Value="Ring">
+                                <Setter Property="ContentTemplate" Value="{StaticResource SlotRingTemplate}" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding SlotKind}" Value="HeatMap">
+                                <Setter Property="ContentTemplate" Value="{StaticResource SlotHeatMapTemplate}" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding SlotKind}" Value="Number">
+                                <Setter Property="ContentTemplate" Value="{StaticResource SlotNumberTemplate}" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </ContentControl.Style>
+            </ContentControl>
+        </DataTemplate>
+
+        <!-- 子模板 5：卡片图表区 -->
         <DataTemplate x:Key="CardChartTemplate">
-            <!-- 卡片图表区（用户在插件配置窗口勾选的图表类型，多选叠加显示） -->
-            <StackPanel Margin="0,12,0,0"
-                        Visibility="{Binding HasCardChart, Converter={StaticResource BoolToVisibility}}">
+            <!-- 卡片图表区：声明式插件走有序槽位列表（AccountCustomization 驱动），非声明式插件回退旧固定图表栈 -->
+            <StackPanel Margin="0,12,0,0">
+                <!-- 声明式图表槽位列表（可见性/顺序/数据组/折叠分界线均由卡片管理配置驱动） -->
+                <ItemsControl ItemsSource="{Binding CardChartSlots}"
+                              ItemTemplate="{StaticResource CardChartSlotTemplate}"
+                              Visibility="{Binding HasChartSlots, Converter={StaticResource BoolToVisibility}}" />
+
+                <!-- 旧固定图表栈（非声明式插件回退；有槽位时隐藏避免重复渲染） -->
+                <StackPanel>
+                    <StackPanel.Visibility>
+                        <MultiBinding Converter="{StaticResource MultiVisibilityAnd}">
+                            <Binding Path="HasChartSlots" Converter="{StaticResource BoolToVisibility}" ConverterParameter="Invert" />
+                            <Binding Path="HasCardChart" Converter="{StaticResource BoolToVisibility}" />
+                        </MultiBinding>
+                    </StackPanel.Visibility>
                 <!-- 折线图：MiniMax 为每日 Token 趋势（Y 轴自适应），其它插件为历史用量%。
                      req-007 完整化后新增 Dates / ExtraTooltipLines / SupportsPeriodSwitch /
                      CurrentPeriod / IsLoading 五个绑定，X 轴 + 周期切换按钮仅在
@@ -480,6 +659,7 @@
                     AccentBrush="{DynamicResource AccentBrush}"
                     TextBrush="{DynamicResource TextSecondaryBrush}"
                     Visibility="{Binding CardChartKinds, Converter={StaticResource CardChartKindsContains}, ConverterParameter=DayNightArc}" />
+                </StackPanel>
             </StackPanel>
         </DataTemplate>
 
@@ -685,14 +865,15 @@
                                      折叠时进一步根据 CollapseVisibleParts 决定哪些子区段仍可见。
                                      折叠按钮已移至 logo 右侧（见 CardHeaderTemplate），不再使用 Expander。 -->
                                 <StackPanel Margin="0,8,0,0">
-                                    <!-- 限额进度条：折叠态下仅当 CollapseVisibleParts 包含 "limitBars" 时仍可见 -->
+                                    <!-- 限额进度条：声明式插件时进度条已并入图表槽位列表，本区段隐藏；
+                                         非声明式插件折叠态下仅当 CollapseVisibleParts 包含 "limitBars" 时仍可见 -->
                                     <ContentPresenter Content="{Binding}"
                                                       ContentTemplateSelector="{StaticResource LimitBarsTemplateSelector}">
                                         <ContentPresenter.Visibility>
-                                            <MultiBinding Converter="{StaticResource CollapseVisibility}">
+                                            <MultiBinding Converter="{StaticResource LimitBarsSectionVisibility}">
                                                 <Binding Path="DataContext.IsDetailExpanded" RelativeSource="{RelativeSource AncestorType=Border}" />
                                                 <Binding Path="DataContext.CollapseVisibleParts" RelativeSource="{RelativeSource AncestorType=Border}" />
-                                                <Binding Source="limitBars" />
+                                                <Binding Path="DataContext.HasDeclarativeCardCharts" RelativeSource="{RelativeSource AncestorType=Border}" />
                                             </MultiBinding>
                                         </ContentPresenter.Visibility>
                                     </ContentPresenter>
@@ -709,14 +890,15 @@
                                         </ContentPresenter.Visibility>
                                     </ContentPresenter>
 
-                                    <!-- 卡片图表区：折叠态下仅当 CollapseVisibleParts 包含 "charts" 时仍可见 -->
+                                    <!-- 卡片图表区：声明式插件时始终可见（折叠粒度下放给每个槽位的分界线逻辑）；
+                                         非声明式插件折叠态下仅当 CollapseVisibleParts 包含 "charts" 时仍可见 -->
                                     <ContentPresenter Content="{Binding}"
                                                       ContentTemplate="{StaticResource CardChartTemplate}">
                                         <ContentPresenter.Visibility>
-                                            <MultiBinding Converter="{StaticResource CollapseVisibility}">
+                                            <MultiBinding Converter="{StaticResource ChartSectionVisibility}">
                                                 <Binding Path="DataContext.IsDetailExpanded" RelativeSource="{RelativeSource AncestorType=Border}" />
                                                 <Binding Path="DataContext.CollapseVisibleParts" RelativeSource="{RelativeSource AncestorType=Border}" />
-                                                <Binding Source="charts" />
+                                                <Binding Path="DataContext.HasChartSlots" RelativeSource="{RelativeSource AncestorType=Border}" />
                                             </MultiBinding>
                                         </ContentPresenter.Visibility>
                                     </ContentPresenter>

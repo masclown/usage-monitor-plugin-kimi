@@ -67,6 +67,9 @@ public sealed class DataGroup
     /// <summary>数据组稳定 ID（如 "mm.bar.5h"，切片器 default 引用它）。</summary>
     public required string Id { get; init; }
 
+    /// <summary>数据组中文显示名（可空；缺省时宿主回退到从 <see cref="Id"/> 提取的短名）。供设置界面展示。</summary>
+    public string? Display { get; init; }
+
     /// <summary>计划类型维度（Api / TokenPlan；缺省表示通用）。</summary>
     public string? PlanType { get; init; }
 

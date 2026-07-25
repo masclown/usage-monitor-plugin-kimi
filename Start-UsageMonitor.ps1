@@ -80,11 +80,15 @@ function Test-DotNetSdk {
 <#
 .SYNOPSIS
     结束已存在的 UsageMonitor 进程，避免构建时出现 "exe is locked" 错误。
+.DESCRIPTION
+    实际进程名是 UsageMonitor.App（exe 为 UsageMonitor.App.exe），早期版本用精确名
+    "UsageMonitor" 匹配不到实际进程，导致误报"无进程"后构建被 DLL 锁定失败；
+    现改用通配符 UsageMonitor*，同时覆盖 UsageMonitor.App 与 UsageMonitor.LoginHelper。
 .PARAMETER ProcessName
-    要结束的进程名，默认 UsageMonitor。
+    要结束的进程名（支持通配符），默认 UsageMonitor*。
 #>
 function Stop-UsageMonitorProcess {
-    param([string]$ProcessName = "UsageMonitor")
+    param([string]$ProcessName = "UsageMonitor*")
 
     $running = Get-Process -Name $ProcessName -ErrorAction SilentlyContinue
     if ($null -eq $running -or $running.Count -eq 0) {
@@ -92,11 +96,11 @@ function Stop-UsageMonitorProcess {
         return
     }
 
-    Write-Step "检测到 $($running.Count) 个 $ProcessName 进程，正在结束..." -Color Yellow
+    Write-Step "检测到 $($running.Count) 个匹配 $ProcessName 的进程，正在结束..." -Color Yellow
     foreach ($proc in $running) {
         try {
             Stop-Process -Id $proc.Id -Force -ErrorAction Stop
-            Write-Host "    - 已结束 PID=$($proc.Id)" -ForegroundColor DarkYellow
+            Write-Host "    - 已结束 $($proc.ProcessName) PID=$($proc.Id)" -ForegroundColor DarkYellow
         }
         catch {
             Write-Warning "结束进程 PID=$($proc.Id) 失败：$($_.Exception.Message)"
@@ -105,6 +109,14 @@ function Stop-UsageMonitorProcess {
 
     # 等待操作系统释放文件句柄
     Start-Sleep -Milliseconds 500
+
+    # 清理后复查：若进程仍存活（典型原因：旧实例以管理员权限运行而本脚本未提权，
+    # Stop-Process 拒绝访问），立即报错给出指引，避免继续构建刷出大量 DLL 锁定重试日志。
+    $survivors = Get-Process -Name $ProcessName -ErrorAction SilentlyContinue
+    if ($null -ne $survivors -and $survivors.Count -gt 0) {
+        $pids = ($survivors | ForEach-Object { "$($_.ProcessName)(PID=$($_.Id))" }) -join '、'
+        throw "无法结束以下进程：$pids。若提示'拒绝访问'，请以管理员身份重新运行本脚本，或手动退出托盘中的 UsageMonitor 后重试。"
+    }
 }
 
 <#
@@ -211,9 +223,9 @@ try {
     # 2. .NET SDK 版本检查
     Test-DotNetSdk -RequiredMajorVersion 8
 
-    # 3. 清理可能占用 exe 的旧进程
+    # 3. 清理可能占用 exe/DLL 的旧进程（通配符覆盖 App 与 LoginHelper）
     if ($ForceKill -or -not $SkipBuild) {
-        Stop-UsageMonitorProcess -ProcessName "UsageMonitor"
+        Stop-UsageMonitorProcess -ProcessName "UsageMonitor*"
     }
 
     # 4. 编译解决方案

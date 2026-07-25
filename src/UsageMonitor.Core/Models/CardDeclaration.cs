@@ -96,6 +96,9 @@ public sealed class ChartDeclaration
     /// <summary>图表稳定 ID（如 "mm.chart.usage_bar"，用户设置标题/排序按此引用）。</summary>
     public required string ChartId { get; init; }
 
+    /// <summary>图表中文显示名（可空；缺省时宿主回退到从 <see cref="ChartId"/> 提取的短名）。供设置界面/卡片展示。</summary>
+    public string? Display { get; init; }
+
     /// <summary>图表类型。</summary>
     public DeclarativeChartKind Kind { get; init; } = DeclarativeChartKind.Bar;
 
@@ -162,4 +165,11 @@ public sealed class CardDeclaration
     /// <para>启动时由宿主注册为声明级兜底；用户在设置页保存的色阶始终优先。空集合 = 使用宿主通用兜底。</para>
     /// </summary>
     public IReadOnlyList<HeatMapTierConfig> HeatMapTiers { get; init; } = System.Array.Empty<HeatMapTierConfig>();
+
+    /// <summary>
+    /// 插件声明的默认折叠分界线位置：折叠时保持可见的图表数量（分界线位于有序图表列表第 N 项之后）。
+    /// <para>null = 未声明，宿主默认分界线位于图表列表末尾（折叠时全部图表可见）。
+    /// 用户可在【卡片管理】页拖拽分界线覆盖本默认值（写入 <c>AccountCustomization.CollapseDividerIndex</c>）。</para>
+    /// </summary>
+    public int? CollapseDividerIndex { get; init; }
 }

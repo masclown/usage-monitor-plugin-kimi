@@ -52,10 +52,14 @@ public partial class MainWindow : Window
     {
         try
         {
-            if (sender is FrameworkElement fe && fe.DataContext is ProviderUsageViewModel vm)
+            // 兼容两种 DataContext：旧固定图表栈（ProviderUsageViewModel）与声明式图表槽位（CardChartSlotViewModel）。
+            ProviderUsageViewModel? vm = (sender as FrameworkElement)?.DataContext switch
             {
-                vm.HandlePeriodChanged(e.Period);
-            }
+                ProviderUsageViewModel direct => direct,
+                ViewModels.CardChartSlotViewModel slot => slot.Owner,
+                _ => null
+            };
+            vm?.HandlePeriodChanged(e.Period);
         }
         catch (Exception ex)
         {

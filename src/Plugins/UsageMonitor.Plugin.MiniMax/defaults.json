@@ -181,6 +181,7 @@
     "charts": [
       {
         "chartId": "mm.chart.usage_bar",
+        "display": "用量进度条",
         "kind": "Bar",
         "defaultOrder": 1,
         "slicer": { "mode": "DataGroup", "interaction": "Scroll", "default": "mm.bar.5h" },
@@ -189,6 +190,7 @@
         "dataGroups": [
           {
             "id": "mm.bar.5h",
+            "display": "5h 限额",
             "fields": [
               { "fieldName": "five_hour_used_percent", "role": "Value" },
               { "fieldName": "five_hour_upper_limit", "role": "Upper" },
@@ -197,6 +199,7 @@
           },
           {
             "id": "mm.bar.weekly",
+            "display": "本周限额",
             "fields": [
               { "fieldName": "weekly_used_percent", "role": "Value" },
               { "fieldName": "weekly_upper_limit", "role": "Upper" },
@@ -205,6 +208,7 @@
           },
           {
             "id": "mm.bar.video",
+            "display": "视频赠送",
             "fields": [
               { "fieldName": "video_quota", "role": "Value" },
               { "fieldName": "video_quota_limit", "role": "Upper" }
@@ -218,6 +222,7 @@
       },
       {
         "chartId": "mm.chart.daily_line",
+        "display": "每日趋势",
         "kind": "Line",
         "defaultOrder": 3,
         "slicer": {
@@ -231,6 +236,7 @@
         "dataGroups": [
           {
             "id": "mm.line.daily_tokens",
+            "display": "每日 Token",
             "fields": [
               { "fieldName": "daily_token_date", "role": "Meta" },
               { "fieldName": "daily_token_value", "role": "Value" }
@@ -240,6 +246,7 @@
       },
       {
         "chartId": "mm.chart.cache_heatmap",
+        "display": "缓存热力图",
         "kind": "HeatMap",
         "defaultOrder": 4,
         "tooltip": { "fields": ["daily_cache_hit_value"] },
@@ -250,6 +257,7 @@
         "dataGroups": [
           {
             "id": "mm.heatmap.cache",
+            "display": "缓存命中",
             "queryRange": { "type": "LastDays", "days": 90 },
             "fields": [
               { "fieldName": "daily_cache_hit_date", "role": "Meta" },
@@ -260,28 +268,14 @@
       },
       {
         "chartId": "mm.chart.remaining_number",
+        "display": "数据概览",
         "kind": "Number",
         "defaultOrder": 2,
         "dataGroups": [
-          { "id": "mm.number.remaining", "fields": [{ "fieldName": "remaining_credits", "role": "Value" }] }
-        ]
-      },
-      {
-        "chartId": "mm.chart.tokenplan_bar",
-        "kind": "Bar",
-        "defaultOrder": 6,
-        "planType": "TokenPlan",
-        "tooltip": { "fields": ["five_hour_used_percent"] },
-        "colorTiers": { "ref": "global:usage-tier-default" },
-        "dataGroups": [
-          {
-            "id": "mm.bar.tokenplan.5h",
-            "planType": "TokenPlan",
-            "fields": [
-              { "fieldName": "five_hour_used_percent", "role": "Value" },
-              { "fieldName": "five_hour_upper_limit", "role": "Upper" }
-            ]
-          }
+          { "id": "mm.number.cumulative", "display": "累计用量", "fields": [{ "fieldName": "used_tokens", "role": "Value" }] },
+          { "id": "mm.number.peak", "display": "单日峰值", "fields": [{ "fieldName": "most_active_token", "role": "Value" }] },
+          { "id": "mm.number.active_days", "display": "活跃天数", "fields": [{ "fieldName": "active_days", "role": "Value" }] },
+          { "id": "mm.number.remaining", "display": "积分余额", "fields": [{ "fieldName": "remaining_credits", "role": "Value" }] }
         ]
       }
     ]

@@ -204,4 +204,64 @@ public class CardChartConfigTests : IDisposable
         eff.VisibleMiniDataGroups["ring"].Should().Equal("g1");
         eff.MiniDataGroupOrders["ring"]["g1"].Should().Be(0);
     }
+
+    [Fact]
+    public void AccountCustomization_CollapseDividerIndex_DefaultsToNull()
+    {
+        var c = new AccountCustomization();
+        c.CollapseDividerIndex.Should().BeNull();
+    }
+
+    [Fact]
+    public void SetCardChartConfiguration_PersistsCollapseDividerIndex()
+    {
+        var svc = CreateConfigService();
+        var config = new AccountCustomization
+        {
+            VisibleCharts = new System.Collections.Generic.List<string> { "mm.chart.usage_bar", "mm.chart.daily_line" },
+            CollapseDividerIndex = 1
+        };
+        svc.SetCardChartConfiguration("minimax", config);
+
+        var key = AccountCustomization.MakeKey("minimax", "default", "default-card");
+        svc.Settings.AccountCustomizations[key].CollapseDividerIndex.Should().Be(1);
+    }
+
+    [Fact]
+    public void Effective_CopiesCollapseDividerIndex()
+    {
+        var svc = CreateConfigService();
+        var key = AccountCustomization.MakeKey("minimax", "default", "default-card");
+        svc.Settings.AccountCustomizations[key] = new AccountCustomization
+        {
+            CollapseDividerIndex = 2
+        };
+
+        var eff = svc.GetEffectiveAccountCustomization("minimax", "default", "default-card");
+        eff.CollapseDividerIndex.Should().Be(2);
+    }
+
+    [Fact]
+    public void SetCardChartConfiguration_PersistsDuplicateChartInstances()
+    {
+        // 问题2：同一声明图表可添加多个实例（chartId#n），VisibleCharts 为有序实例 ID 列表
+        var svc = CreateConfigService();
+        var config = new AccountCustomization
+        {
+            VisibleCharts = new System.Collections.Generic.List<string>
+            {
+                "mm.chart.usage_bar", "mm.chart.usage_bar#2", "mm.chart.daily_line"
+            },
+            VisibleDataGroups = new System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<string>?>
+            {
+                ["mm.chart.usage_bar"] = new System.Collections.Generic.List<string> { "mm.bar.5h", "mm.bar.weekly" },
+                ["mm.chart.usage_bar#2"] = new System.Collections.Generic.List<string> { "mm.bar.video" }
+            }
+        };
+        svc.SetCardChartConfiguration("minimax", config);
+
+        var eff = svc.GetEffectiveAccountCustomization("minimax");
+        eff.VisibleCharts.Should().Equal("mm.chart.usage_bar", "mm.chart.usage_bar#2", "mm.chart.daily_line");
+        eff.VisibleDataGroups["mm.chart.usage_bar#2"].Should().Equal("mm.bar.video");
+    }
 }

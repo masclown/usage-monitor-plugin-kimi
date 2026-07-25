@@ -207,7 +207,11 @@ public sealed record MetricBarItem(
     string? RightText = null,
     string? FooterText = null,
     string? ColorHint = null,
-    bool IsVisible = true);
+    bool IsVisible = true)
+{
+    /// <summary>req-105：悬停提示文本（卡片管理 tooltip 字段配置驱动；null 表示不显示 ToolTip）。</summary>
+    public string? TooltipText { get; init; }
+}
 
 /// <summary>
 /// 度量数字网格输入数据（REQ-082 SDK v2），动态 N 个并排独立数字。

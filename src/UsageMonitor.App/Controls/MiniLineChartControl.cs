@@ -98,6 +98,11 @@ public class MiniLineChartControl : FrameworkElement, IHoverTooltipProvider
         nameof(IsLoading), typeof(bool), typeof(MiniLineChartControl),
         new FrameworkPropertyMetadata(false, FrameworkPropertyMetadataOptions.AffectsRender));
 
+    /// <summary>req-105：Tooltip 显示字段白名单（SDK 字段名集合，卡片管理页驱动）；非空时仅展示列表内字段对应的主值/缓存命中行。</summary>
+    public static readonly DependencyProperty TooltipFieldsProperty = DependencyProperty.Register(
+        nameof(TooltipFields), typeof(IReadOnlyList<string>), typeof(MiniLineChartControl),
+        new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
+
     /// <summary>
     /// 周期切换路由事件（req-007）：用户点击右上角"近 7 天 / 近 30 天"按钮时由控件 RaiseEvent，
     /// VM 收到后调用 <c>IUsageProvider.SetPeriodAsync</c> 并切换 <see cref="IsLoading"/>。
@@ -174,6 +179,13 @@ public class MiniLineChartControl : FrameworkElement, IHoverTooltipProvider
     {
         get => (bool)GetValue(IsLoadingProperty);
         set => SetValue(IsLoadingProperty, value);
+    }
+
+    /// <summary>req-105：Tooltip 显示字段白名单（null/空 = 展示全部，向后兼容）。</summary>
+    public IReadOnlyList<string>? TooltipFields
+    {
+        get => (IReadOnlyList<string>?)GetValue(TooltipFieldsProperty);
+        set => SetValue(TooltipFieldsProperty, value);
     }
 
     /// <summary>当前 hover 数据点索引</summary>
@@ -933,6 +945,13 @@ public class MiniLineChartControl : FrameworkElement, IHoverTooltipProvider
         // req-034 修复：格式化数值（如 250.71M），不拼接单位
         var valueText = FormatTokenValue(value);
 
+        // req-105：Tooltip 字段白名单过滤（null/空 = 展示全部，向后兼容）。
+        // daily_token_value 控制主值显示；daily_cache_hit_value 控制缓存命中行；其余勾选字段由 VM 经 ExtraTooltipLines 注入。
+        var fields = TooltipFields;
+        bool hasFilter = fields != null && fields.Count > 0;
+        bool showValue = !hasFilter || fields!.Contains(UsageMonitor.Core.Models.UsageFields.DailyTokenValue);
+        bool showCacheHit = !hasFilter || fields!.Contains(UsageMonitor.Core.Models.UsageFields.DailyCacheHitValue);
+
         // Detail：合并 ExtraTooltipLines + 每独立的缓存命中率
         string? detail = null;
         if (ExtraTooltipLines != null && ExtraTooltipLines.Count > 0)
@@ -941,7 +960,7 @@ public class MiniLineChartControl : FrameworkElement, IHoverTooltipProvider
         }
         // req-034 修复：使用每独立的缓存命中率
         double dayCacheHit = -1;
-        if (DailyCacheHitPercents != null && index < DailyCacheHitPercents.Count)
+        if (showCacheHit && DailyCacheHitPercents != null && index < DailyCacheHitPercents.Count)
             dayCacheHit = DailyCacheHitPercents[index];
         if (dayCacheHit >= 0)
         {
@@ -949,7 +968,7 @@ public class MiniLineChartControl : FrameworkElement, IHoverTooltipProvider
             detail += $"缓存命中 {dayCacheHit:0.00}%";
         }
 
-        data = new HoverTooltipData(title, valueText, detail);
+        data = new HoverTooltipData(title, showValue ? valueText : string.Empty, detail);
         return true;
     }
 

@@ -542,49 +542,70 @@ public partial class SettingsWindow : Window
         menu.IsOpen = true;
     }
 
-    // --- S2：图表拖拽排序 ---
-    private ViewModels.ChartNode? _chartDragSource;
+    // --- S2：图表/分界线拖拽排序（混合列表 ChartItems：图表实例节点 + 分界线节点） ---
+    private ViewModels.CardChartListItem? _chartDragSource;
     private System.Windows.Point _chartDragStartPos;
 
-    /// <summary>S2：图表拖拽开始（记录拖拽源）。</summary>
+    /// <summary>S2：图表/分界线拖拽开始（记录拖拽源并捕获鼠标，保证移动事件持续路由到源元素，避免移出源后丢失事件）。</summary>
     private void OnChartDragStart(object sender, MouseButtonEventArgs e)
     {
-        if ((sender as FrameworkElement)?.Tag is ViewModels.ChartNode node)
+        if ((sender as FrameworkElement)?.Tag is ViewModels.CardChartListItem item)
         {
-            _chartDragSource = node;
+            _chartDragSource = item;
             _chartDragStartPos = e.GetPosition(null);
+            if (sender is IInputElement input) input.CaptureMouse();
         }
     }
 
-    /// <summary>S2：图表拖拽移动（达到阈值后执行拖放）。</summary>
+    /// <summary>S2：图表/分界线拖拽结束（释放鼠标捕获并清空拖拽源）。</summary>
+    private void OnChartDragEnd(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is IInputElement input && input.IsMouseCaptured) input.ReleaseMouseCapture();
+        _chartDragSource = null;
+    }
+
+    /// <summary>S2：图表/分界线拖拽移动（按鼠标位置命中目标行，在同一混合列表内执行拖放并保存）。</summary>
     private void OnChartDragMove(object sender, System.Windows.Input.MouseEventArgs e)
     {
-        if (_chartDragSource == null || e.LeftButton != MouseButtonState.Pressed) return;
+        if (_chartDragSource == null) return;
+        if (e.LeftButton != MouseButtonState.Pressed)
+        {
+            // 鼠标已释放（捕获状态下仍可能收到移动事件）：结束拖拽
+            if (sender is IInputElement input && input.IsMouseCaptured) input.ReleaseMouseCapture();
+            _chartDragSource = null;
+            return;
+        }
+
         var pos = e.GetPosition(null);
         if (Math.Abs(pos.X - _chartDragStartPos.X) < SystemParameters.MinimumHorizontalDragDistance &&
             Math.Abs(pos.Y - _chartDragStartPos.Y) < SystemParameters.MinimumVerticalDragDistance) return;
 
-        // 查找拖拽目标（同一 ItemsControl 内的另一个 ChartNode）
-        var target = FindAncestorDataContext<ViewModels.ChartNode>(e.OriginalSource as DependencyObject);
-        if (target != null && !ReferenceEquals(target, _chartDragSource))
+        var sourceElement = sender as FrameworkElement;
+        var itemsControl = FindVisualParent<ItemsControl>(sourceElement);
+        if (itemsControl?.ItemsSource is System.Collections.ObjectModel.ObservableCollection<ViewModels.CardChartListItem> items)
         {
-            // 找到父账号节点并执行移动
-            var sourceElement = sender as FrameworkElement;
-            var itemsControl = FindVisualParent<ItemsControl>(sourceElement);
-            if (itemsControl?.ItemsSource is System.Collections.ObjectModel.ObservableCollection<ViewModels.ChartNode> charts)
+            // 通过鼠标位置命中目标行（不要求鼠标恰好悬停在目标手柄上，大幅提升拖拽容差）
+            var target = HitTestChartItem(itemsControl, e.GetPosition(itemsControl));
+            if (target != null && !ReferenceEquals(target, _chartDragSource))
             {
-                var fromIdx = charts.IndexOf(_chartDragSource);
-                var toIdx = charts.IndexOf(target);
-                if (fromIdx >= 0 && toIdx >= 0)
+                var fromIdx = items.IndexOf(_chartDragSource);
+                var toIdx = items.IndexOf(target);
+                if (fromIdx >= 0 && toIdx >= 0 && fromIdx != toIdx)
                 {
-                    charts.Move(fromIdx, toIdx);
-                    // 拖拽后保存顺序
+                    items.Move(fromIdx, toIdx);
+                    // 拖拽后保存顺序与分界线位置
                     var accountNode = FindAncestorDataContext<ViewModels.AccountNode>(sourceElement);
                     accountNode?.Save();
                 }
             }
         }
-        _chartDragSource = null;
+    }
+
+    /// <summary>S2：按相对 ItemsControl 的坐标命中该行对应的图表列表项（图表实例或分界线）。</summary>
+    private static ViewModels.CardChartListItem? HitTestChartItem(ItemsControl itemsControl, System.Windows.Point pos)
+    {
+        var hit = VisualTreeHelper.HitTest(itemsControl, pos);
+        return hit?.VisualHit == null ? null : FindAncestorDataContext<ViewModels.CardChartListItem>(hit.VisualHit);
     }
 
     // --- S2：数据组拖拽排序 ---

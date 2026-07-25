@@ -394,6 +394,87 @@ public class CardChartKindsContainsConverter : IValueConverter
 }
 
 /// <summary>
+/// 卡片图表槽位折叠可见性转换器：values[0]=卡片是否展开（IsDetailExpanded），values[1]=槽位是否位于折叠分界线之上（IsAboveDivider）。
+/// <para>展开态始终可见；折叠态仅分界线之上的槽位可见。用法（MultiBinding）：</para>
+/// <code>
+/// &lt;MultiBinding Converter="{StaticResource SlotCollapseVisibility}"&gt;
+///     &lt;Binding Path="Owner.IsDetailExpanded" /&gt;
+///     &lt;Binding Path="IsAboveDivider" /&gt;
+/// &lt;/MultiBinding&gt;
+/// </code>
+/// </summary>
+public class SlotCollapseVisibilityConverter : IMultiValueConverter
+{
+    /// <summary>展开或位于分界线之上时可见，否则折叠。</summary>
+    public object Convert(object[] values, Type targetType, object parameter, CultureInfo culture)
+    {
+        bool isExpanded = values.Length > 0 && values[0] is bool e && e;
+        bool isAboveDivider = values.Length > 1 && values[1] is bool a && a;
+        return (isExpanded || isAboveDivider) ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// <summary>不支持反向转换。</summary>
+    public object[] ConvertBack(object value, Type[] targetTypes, object parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
+/// <summary>
+/// 卡片图表区（整个 section）可见性转换器：values[0]=IsDetailExpanded，values[1]=CollapseVisibleParts，values[2]=HasChartSlots。
+/// <para>声明式槽位列表存在（HasChartSlots=true）时本区段始终可见（折叠粒度下放给每个槽位的分界线逻辑）；
+/// 否则回退旧逻辑：展开或 CollapseVisibleParts 含 "charts" 时可见。</para>
+/// </summary>
+public class ChartSectionVisibilityConverter : IMultiValueConverter
+{
+    /// <summary>按声明式槽位/旧逻辑决定图表区可见性。</summary>
+    public object Convert(object[] values, Type targetType, object parameter, CultureInfo culture)
+    {
+        bool isExpanded = values.Length > 0 && values[0] is bool e && e;
+        bool hasSlots = values.Length > 2 && values[2] is bool h && h;
+        if (hasSlots) return Visibility.Visible;
+        if (isExpanded) return Visibility.Visible;
+        if (values.Length > 1 && values[1] is IEnumerable<string> parts)
+        {
+            foreach (var p in parts)
+                if (string.Equals(p, "charts", StringComparison.OrdinalIgnoreCase))
+                    return Visibility.Visible;
+        }
+        return Visibility.Collapsed;
+    }
+
+    /// <summary>不支持反向转换。</summary>
+    public object[] ConvertBack(object value, Type[] targetTypes, object parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
+/// <summary>
+/// 限额进度条区（LimitBars section）可见性转换器：values[0]=IsDetailExpanded，values[1]=CollapseVisibleParts，values[2]=HasDeclarativeCardCharts。
+/// <para>声明式插件（HasDeclarativeCardCharts=true）时进度条已作为 Bar 图表槽位并入图表区有序列表，
+/// 本区段恒隐藏避免重复渲染；非声明式插件回退旧逻辑：展开或 CollapseVisibleParts 含 "limitBars" 时可见。</para>
+/// </summary>
+public class LimitBarsSectionVisibilityConverter : IMultiValueConverter
+{
+    /// <summary>按声明式进度条并入槽位/旧逻辑决定限额进度条区可见性。</summary>
+    public object Convert(object[] values, Type targetType, object parameter, CultureInfo culture)
+    {
+        bool isDeclarative = values.Length > 2 && values[2] is bool d && d;
+        if (isDeclarative) return Visibility.Collapsed;
+        bool isExpanded = values.Length > 0 && values[0] is bool e && e;
+        if (isExpanded) return Visibility.Visible;
+        if (values.Length > 1 && values[1] is IEnumerable<string> parts)
+        {
+            foreach (var p in parts)
+                if (string.Equals(p, "limitBars", StringComparison.OrdinalIgnoreCase))
+                    return Visibility.Visible;
+        }
+        return Visibility.Collapsed;
+    }
+
+    /// <summary>不支持反向转换。</summary>
+    public object[] ConvertBack(object value, Type[] targetTypes, object parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
+/// <summary>
 /// REQ-003：环形图中心数字 metric 键（字符串）转人类可读提示。
 /// 用于设置窗口中 ListBox 显示：内部存储 "Percent" / "Credits" / "WeeklyLimit" /
 /// "RemainingQuota" / "ApiTokenUsed" 等机器键，绑定后转为中文提示。未识别键原样回退。

@@ -27,6 +27,10 @@
             <helpers:RemainingPrefixConverter x:Key="RemainingPrefix" />
             <helpers:EnumToVisibilityConverter x:Key="EnumToVisibility" />
             <helpers:CardChartKindsContainsConverter x:Key="CardChartKindsContains" />
+            <!-- 卡片图表槽位折叠可见性 + 图表区可见性（声明式槽位列表驱动） -->
+            <helpers:SlotCollapseVisibilityConverter x:Key="SlotCollapseVisibility" />
+            <helpers:ChartSectionVisibilityConverter x:Key="ChartSectionVisibility" />
+            <helpers:LimitBarsSectionVisibilityConverter x:Key="LimitBarsSectionVisibility" />
             <!-- REQ-003：环形图中心 metric 键转中文提示（在设置窗口 ListBox 中绑定显示） -->
             <helpers:RingMetricKeyToDisplayConverter x:Key="RingMetricKeyToDisplay" />
 

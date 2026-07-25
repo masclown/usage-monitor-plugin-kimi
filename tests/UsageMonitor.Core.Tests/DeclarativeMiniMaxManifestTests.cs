@@ -132,4 +132,37 @@ public class DeclarativeMiniMaxManifestTests
         // 峰值日字符串：旧 C# 拼接 "日期 (值)" → template 算子等价产出
         e["most_active_day"].Should().Be("2026-07-01 (552.49M)");
     }
+
+    /// <summary>
+    /// 卡片图表管理优化：验证 defaults.json 的 card.charts 声明——
+    /// remaining_number 扩展为 4 个数据组（累计/峰值/活跃天数/积分余额）、tokenplan_bar 已移除（与 usage_bar 去重）、
+    /// 各图表与数据组均声明了中文 display。
+    /// </summary>
+    [Fact]
+    public void RealCardDeclaration_RemainingNumberGroups_TokenplanRemoved_ChineseDisplay()
+    {
+        var path = FindRealDefaultsJson();
+        path.Should().NotBeNull();
+        var manifest = PluginManifest.Load(File.ReadAllText(path!));
+        var charts = manifest!.Card!.Charts;
+
+        // tokenplan_bar 已移除（与 usage_bar 消费同字段，planType 未在渲染层实现，属重复设定）
+        charts.Should().NotContain(c => c.ChartId == "mm.chart.tokenplan_bar", "tokenplan_bar 与 usage_bar 重复，应已移除");
+
+        // remaining_number 扩展为 4 个数据组
+        var number = charts.FirstOrDefault(c => c.ChartId == "mm.chart.remaining_number");
+        number.Should().NotBeNull("remaining_number 应声明（用量卡片数据概览）");
+        number!.DataGroups.Select(g => g.Id).Should().BeEquivalentTo(new[]
+        {
+            "mm.number.cumulative", "mm.number.peak", "mm.number.active_days", "mm.number.remaining"
+        }, "数据概览应含累计/峰值/活跃天数/积分余额四个数据组");
+
+        // 每个图表与数据组均声明中文 display
+        foreach (var chart in charts)
+        {
+            chart.Display.Should().NotBeNullOrWhiteSpace($"图表 {chart.ChartId} 应声明中文 display");
+            foreach (var group in chart.DataGroups)
+                group.Display.Should().NotBeNullOrWhiteSpace($"数据组 {group.Id} 应声明中文 display");
+        }
+    }
 }

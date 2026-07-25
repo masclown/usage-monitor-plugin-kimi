@@ -94,7 +94,8 @@ public partial class TriggerAreaOverlayWindow : Window
     // =====================================================
 
     /// <summary>外部（TextBox 改动、其它入口）改 TriggerRect 时同步矩形尺寸 / 位置。</summary>
-    private void OnConfigChanged(object? sender, EventArgs e) => Dispatcher.Invoke(ApplyRectFromConfig);
+    // 死锁防护：ConfigChanged 可能由后台刷新线程在持有 ConfigService 锁时触发，用 BeginInvoke 异步投递避免交叉死锁。
+    private void OnConfigChanged(object? sender, EventArgs e) => Dispatcher.BeginInvoke(new Action(ApplyRectFromConfig));
 
     /// <summary>把当前 <see cref="AppSettings.TrayTooltipTriggerRect"/> 换算为虚拟屏 Canvas 局部坐标并刷新标签；不修改设置中的原始值，避免“打开蒙版即迁移”。</summary>
     private void ApplyRectFromConfig()

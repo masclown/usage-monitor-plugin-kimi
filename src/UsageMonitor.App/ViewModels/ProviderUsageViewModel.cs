@@ -61,6 +61,11 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
     private string _videoQuotaText = "--";
     private string _videoWeeklyText = "--";
     private double _remainingCredits;
+    // Number 图表（数据概览）原始值缓存：供 ResolveFieldDisplay 格式化输出各数据组。
+    private string _numberCumulativeText = string.Empty;   // used_tokens_text（如 "5.85B"）
+    private double _numberPeakToken = -1;                  // most_active_token（原始数值）
+    private long _numberActiveDays;                        // active_days
+    private long _numberTotalDays;                         // total_days
     private double _videoIntervalPercent;
     private double _videoWeeklyPercent;
     private IReadOnlyList<string> _renderKinds = Array.Empty<string>();
@@ -160,6 +165,7 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         {
             configService.ConfigChanged += OnConfigChanged;
             ReloadBarToggles();
+            RebuildChartSlots();
         }
     }
 
@@ -174,6 +180,8 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         // req-104：配置变更时重新过滤多进度条/数字网格字段
         OnPropertyChanged(nameof(CardMetricBarData));
         OnPropertyChanged(nameof(CardMetricGridData));
+        // 卡片管理页保存（可见性/顺序/数据组/分界线）后即时重建图表槽位
+        RebuildChartSlots();
         // B2：昵称变更后实时刷新卡片标题
         ReloadDisplayNameFromAccount();
     }
@@ -672,6 +680,48 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         return chart?.Tooltip?.Fields ?? (IReadOnlyList<string>)Array.Empty<string>();
     }
 
+    /// <summary>req-105：折线图的有效 Tooltip 显示字段（定位声明中的 Line 图表并读取其配置）。</summary>
+    public IReadOnlyList<string> EffectiveLineTooltipFields
+    {
+        get
+        {
+            var lineChart = Provider?.Card?.Charts.FirstOrDefault(c => c.Kind == DeclarativeChartKind.Line);
+            if (lineChart == null) return Array.Empty<string>();
+            return GetEffectiveTooltipFieldsForChart(lineChart.ChartId);
+        }
+    }
+
+    /// <summary>req-105：更新折线图 tooltip 扩展行（勾选的非原生字段 → “标签 当前值”行，原生字段 daily_token_value/daily_cache_hit_value 由控件自处理）。</summary>
+    private void RefreshLineTooltip()
+    {
+        ExtraTooltipLines = BuildExtraTooltipLines(EffectiveLineTooltipFields);
+    }
+
+    /// <summary>req-105：将勾选的 tooltip 字段（排除折线图原生字段）转为扩展文本行。</summary>
+    private IReadOnlyList<string>? BuildExtraTooltipLines(IReadOnlyList<string> fields)
+    {
+        if (fields == null || fields.Count == 0) return null;
+        var lines = new List<string>();
+        foreach (var f in fields)
+        {
+            if (f == UsageMonitor.Core.Models.UsageFields.DailyTokenValue ||
+                f == UsageMonitor.Core.Models.UsageFields.DailyCacheHitValue) continue;
+            var line = BuildTooltipFieldLine(f);
+            if (line != null) lines.Add(line);
+        }
+        return lines.Count > 0 ? lines : null;
+    }
+
+    /// <summary>req-105：单个 tooltip 字段行（“标签 当前值”）；字段无值或不支持时返回 null。</summary>
+    private string? BuildTooltipFieldLine(string fieldName) => fieldName switch
+    {
+        UsageMonitor.Core.Models.UsageFields.FiveHourUsedPercent => $"5h 已用 {PrimaryBarPercent:0}%",
+        UsageMonitor.Core.Models.UsageFields.WeeklyUsedPercent => $"本周已用 {WeeklyBarPercent:0}%",
+        UsageMonitor.Core.Models.UsageFields.RemainingCredits => _remainingCredits >= 0 ? $"剩余积分 {_remainingCredits:0}" : null,
+        UsageMonitor.Core.Models.UsageFields.VideoUsedCount => VideoIntervalPercent > 0 ? $"视频赠送 {VideoIntervalPercent:0}%" : null,
+        _ => null
+    };
+
     // ============== REQ-083 SDK v2 新增可选属性（委托给 Provider） ==============
 
     /// <summary>
@@ -793,6 +843,199 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         return (eff.VisibleCharts, dict.Count > 0 ? dict : null);
     }
 
+    // =====================================================================
+    // 卡片图表槽位列表（统一由 AccountCustomization 驱动的有序图表实例）
+    // =====================================================================
+
+    /// <summary>卡片图表区的有序图表槽位集合（声明式插件）。
+    /// <para>每个槽位对应 <c>Card.Charts</c> 声明的一个图表实例，可见性/顺序/数据组/折叠分界线
+    /// 均由 <c>AccountCustomization</c>（卡片管理页）驱动。非声明式插件时为空（回退旧固定图表栈）。</para>
+    /// </summary>
+    public ObservableCollection<CardChartSlotViewModel> CardChartSlots { get; } = new();
+
+    /// <summary>是否存在图表槽位（声明式插件且至少一个可见图表时为 true，驱动卡片图表区 ItemsControl 显隐）。</summary>
+    public bool HasChartSlots => CardChartSlots.Count > 0;
+
+    /// <summary>上一次槽位结构签名（实例序列+分界线位置），未变时仅原位刷新数据避免控件重建。</summary>
+    private string _lastSlotStructureKey = string.Empty;
+
+    /// <summary>
+    /// 重建/刷新卡片图表槽位列表（<see cref="CardChartSlots"/>）。
+    /// <para>结构（可见实例序列 + 折叠分界线位置）未变时仅原位刷新 Bar/Number 数据，
+    /// 避免折线/热力图等控件重建引起闪烁；结构变化时整体重建。</para>
+    /// <para>调用时机：配置变更（卡片管理保存）、数据刷新（UpdateFromUsage）、首次装配。</para>
+    /// </summary>
+    public void RebuildChartSlots()
+    {
+        // ObservableCollection 绑定 UI，非 UI 线程时调度回 UI 线程。
+        var dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher != null && !dispatcher.CheckAccess())
+        {
+            dispatcher.BeginInvoke(new Action(RebuildChartSlots));
+            return;
+        }
+
+        var card = Provider?.Card;
+        if (card == null || card.Charts.Count == 0)
+        {
+            if (CardChartSlots.Count > 0) CardChartSlots.Clear();
+            _lastSlotStructureKey = string.Empty;
+            OnPropertyChanged(nameof(HasChartSlots));
+            return;
+        }
+
+        var eff = (ConfigService != null && !string.IsNullOrEmpty(_providerId))
+            ? ConfigService.GetEffectiveAccountCustomization(_providerId, AccountIdSafe, CardIdSafe)
+            : new AccountCustomization();
+
+        // req-105：同步折线图 tooltip 扩展行（配置/数值变更后即时生效）。
+        RefreshLineTooltip();
+
+        var orderedInstances = ResolveOrderedInstances(card, eff);
+        var dividerIndex = eff.CollapseDividerIndex ?? card.CollapseDividerIndex ?? orderedInstances.Count;
+        if (dividerIndex < 0) dividerIndex = 0;
+        if (dividerIndex > orderedInstances.Count) dividerIndex = orderedInstances.Count;
+
+        var structureKey = string.Join("|", orderedInstances) + "@" + dividerIndex;
+        if (structureKey == _lastSlotStructureKey && CardChartSlots.Count == orderedInstances.Count)
+        {
+            // 结构未变：仅原位刷新 Bar/Number 数据（折线/热力图经 Owner 级 INPC 自更新）。
+            for (var i = 0; i < CardChartSlots.Count; i++)
+                RefreshSlotData(CardChartSlots[i], card, eff);
+            return;
+        }
+
+        _lastSlotStructureKey = structureKey;
+        CardChartSlots.Clear();
+        var declaredById = card.Charts.ToDictionary(c => c.ChartId, c => c);
+        for (var i = 0; i < orderedInstances.Count; i++)
+        {
+            var instanceId = orderedInstances[i];
+            var baseId = StripInstanceSuffix(instanceId);
+            if (!declaredById.TryGetValue(baseId, out var decl)) continue;
+            var slot = new CardChartSlotViewModel(this, instanceId, baseId, decl.Kind, i, i < dividerIndex);
+            RefreshSlotData(slot, card, eff);
+            CardChartSlots.Add(slot);
+        }
+        OnPropertyChanged(nameof(HasChartSlots));
+    }
+
+    /// <summary>解析有序图表实例 ID 列表（用户配置优先，回退声明默认顺序）。
+    /// <para>用户配置 <c>VisibleCharts</c> 为可见实例的有序列表（不在其中的图表视为隐藏）；
+    /// 旧兼容层可能填入 CardChartKind 名（如 "Line"），与声明 chartId 不匹配时回退声明顺序。</para>
+    /// </summary>
+    private static List<string> ResolveOrderedInstances(CardDeclaration card, AccountCustomization eff)
+    {
+        var declaredIds = new HashSet<string>(card.Charts.Select(c => c.ChartId), StringComparer.Ordinal);
+        var result = new List<string>();
+        if (eff.VisibleCharts != null && eff.VisibleCharts.Count > 0)
+        {
+            foreach (var inst in eff.VisibleCharts)
+            {
+                if (string.IsNullOrEmpty(inst)) continue;
+                if (declaredIds.Contains(StripInstanceSuffix(inst)) && !result.Contains(inst))
+                    result.Add(inst);
+            }
+        }
+        // 用户未配置（或旧兼容层填入的类型名全部不匹配 chartId）时，回退声明默认顺序。
+        if (result.Count == 0)
+        {
+            foreach (var c in card.Charts.OrderBy(c => c.DefaultOrder))
+                result.Add(c.ChartId);
+        }
+        return result;
+    }
+
+    /// <summary>去除图表实例 ID 的 <c>#n</c> 后缀，返回基础 chartId。</summary>
+    private static string StripInstanceSuffix(string instanceId)
+    {
+        var idx = instanceId.LastIndexOf('#');
+        return idx > 0 ? instanceId.Substring(0, idx) : instanceId;
+    }
+
+    /// <summary>原位刷新指定槽位的 Bar/Number 数据（结构不变时调用，避免控件重建）；所有数据组未勾选时置空数据并给出提示。</summary>
+    private void RefreshSlotData(CardChartSlotViewModel slot, CardDeclaration card, AccountCustomization eff)
+    {
+        if (slot.Kind == DeclarativeChartKind.Bar)
+        {
+            slot.BarData = BuildInstanceBars(slot.ChartId, slot.InstanceId, card, eff);
+            slot.EmptyHint = slot.BarData == null ? "未配置数据组，请在卡片管理中勾选" : null;
+        }
+        else if (slot.Kind == DeclarativeChartKind.Number)
+        {
+            slot.NumberData = BuildInstanceNumber(slot.ChartId, slot.InstanceId, card, eff);
+            slot.EmptyHint = slot.NumberData == null ? "未配置数据组，请在卡片管理中勾选" : null;
+        }
+    }
+
+    /// <summary>按指定 Bar 图表实例的可见数据组构建进度条数据（并注入 req-105 tooltip 文本）。</summary>
+    private MetricBarData? BuildInstanceBars(string chartId, string instanceId, CardDeclaration card, AccountCustomization eff)
+    {
+        var groups = ResolveInstanceDataGroups(chartId, instanceId, eff);
+        IReadOnlyDictionary<string, IReadOnlyCollection<string>>? dgFilter = null;
+        if (groups != null)
+            dgFilter = new Dictionary<string, IReadOnlyCollection<string>> { [chartId] = groups };
+        var barData = UsageMonitor.App.Services.Display.DeclarativeChartBuilder.BuildMetricBars(
+            card, ResolveFieldValue, labelResolver: DeclarativeFieldLabel,
+            visibleChartIds: new[] { chartId }, visibleDataGroupIds: dgFilter);
+        if (barData == null) return null;
+
+        // req-105：注入 tooltip 文本（图表有效 tooltip 字段 → 多行“标签 值”；无配置则不显示 ToolTip）。
+        var tooltipText = BuildBarTooltipText(chartId);
+        if (tooltipText == null) return barData;
+        var bars = barData.Bars.Select(b => b with { TooltipText = tooltipText }).ToList();
+        return new MetricBarData(bars);
+    }
+
+    /// <summary>req-105：构建进度条悬停提示文本（有效 tooltip 字段 → 多行“标签 值”；无勾选字段返回 null）。</summary>
+    private string? BuildBarTooltipText(string chartId)
+    {
+        var fields = GetEffectiveTooltipFieldsForChart(chartId);
+        if (fields == null || fields.Count == 0) return null;
+        var lines = new List<string>();
+        foreach (var f in fields)
+        {
+            var line = BuildTooltipFieldLine(f);
+            if (line != null) lines.Add(line);
+        }
+        return lines.Count > 0 ? string.Join("\n", lines) : null;
+    }
+
+    /// <summary>按指定 Number 图表实例的数据组构建数字网格数据。</summary>
+    private MetricGridData? BuildInstanceNumber(string chartId, string instanceId, CardDeclaration card, AccountCustomization eff)
+    {
+        var decl = card.Charts.FirstOrDefault(c => c.ChartId == chartId && c.Kind == DeclarativeChartKind.Number);
+        if (decl == null) return null;
+        var groups = ResolveInstanceDataGroups(chartId, instanceId, eff);
+        var orderedGroups = decl.DataGroups.AsEnumerable();
+        if (groups != null) orderedGroups = orderedGroups.Where(g => groups.Contains(g.Id));
+        var items = new List<MetricGridItem>();
+        foreach (var g in orderedGroups)
+        {
+            var valueField = g.Fields.FirstOrDefault(f => f.Role == FieldRole.Value)?.FieldName;
+            if (valueField == null) continue;
+            var display = ResolveFieldDisplay(valueField);
+            if (display == null) continue;
+            var label = !string.IsNullOrWhiteSpace(g.Display) ? g.Display! : DeclarativeFieldLabel(valueField);
+            items.Add(new MetricGridItem(label, display));
+        }
+        return items.Count > 0 ? new MetricGridData(items) : null;
+    }
+
+    /// <summary>解析图表实例的可见数据组 ID 列表（实例级配置优先，回退图表级，再回退 null=全部可见）。</summary>
+    private static List<string>? ResolveInstanceDataGroups(string chartId, string instanceId, AccountCustomization eff)
+    {
+        if (eff.VisibleDataGroups != null)
+        {
+            if (!string.Equals(instanceId, chartId, StringComparison.Ordinal) &&
+                eff.VisibleDataGroups.TryGetValue(instanceId, out var instGroups))
+                return instGroups;
+            if (eff.VisibleDataGroups.TryGetValue(chartId, out var chartGroups))
+                return chartGroups;
+        }
+        return null;
+    }
+
     /// <summary>req-107 B8：字段取值器——标准字段名 → 当前值（过渡期映射到已刷新的 VM 属性，后续可改从标准字段字典泛化解析）。</summary>
     private double? ResolveFieldValue(string fieldName) => fieldName switch
     {
@@ -812,6 +1055,25 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         UsageMonitor.Core.Models.UsageFields.RemainingCredits => "剩余积分",
         _ => fieldName
     };
+
+    /// <summary>Number 图表字段显示值解析器：标准字段名 → 格式化显示文本（数据概览多数据组，取不到返回 null 跳过）。</summary>
+    private string? ResolveFieldDisplay(string fieldName) => fieldName switch
+    {
+        UsageMonitor.Core.Models.UsageFields.UsedTokens => string.IsNullOrWhiteSpace(_numberCumulativeText) ? null : _numberCumulativeText,
+        UsageMonitor.Core.Models.UsageFields.MostActiveToken => _numberPeakToken >= 0 ? FormatTokenNumber(_numberPeakToken) : null,
+        UsageMonitor.Core.Models.UsageFields.ActiveDays => _numberTotalDays > 0 ? $"{_numberActiveDays}/{_numberTotalDays}" : (_numberActiveDays > 0 ? _numberActiveDays.ToString() : null),
+        UsageMonitor.Core.Models.UsageFields.RemainingCredits => _remainingCredits >= 0 ? _remainingCredits.ToString("0") : null,
+        _ => ResolveFieldValue(fieldName)?.ToString("0")
+    };
+
+    /// <summary>将 Token 数值格式化为人类可读形式（如 552.49M / 5.85B）。</summary>
+    private static string FormatTokenNumber(double value)
+    {
+        if (value >= 1_000_000_000) return $"{value / 1_000_000_000:0.00}B";
+        if (value >= 1_000_000) return $"{value / 1_000_000:0.00}M";
+        if (value >= 1_000) return $"{value / 1_000:0.00}K";
+        return $"{value:0}";
+    }
 
     /// <summary>
     /// Provider 注入的"V2 度量进度条组"数据（REQ-083）。
@@ -1239,6 +1501,9 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         // 6b. req-107 B8 渲染消费方：从 Card 显示声明（defaults.json）构建声明式进度条，驱动 V2 MetricBarTemplate。
         RebuildDeclarativeBars();
 
+        // 6c. 数据到位后重建/刷新卡片图表槽位（Bar/Number 数据原位刷新，结构未变不重建控件）。
+        RebuildChartSlots();
+
         // 7. 卡片顶一行的 “已使用 / 总额度 / 剩余额度” 仍保留供未适配卡片主题的插件使用；
         //    本插件额外叠加为信息性文本，不会被三列 UI 误读。
         UsedText = PrimaryBarPercent > 0 ? $"{PrimaryBarPercent:0}%" : "--";
@@ -1254,6 +1519,11 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         var activeDays = L("active_days");
         var totalDays = L("total_days");
         var mostActive = S("most_active_day"); // 格式 "2026-07-01 (552.49M)"
+        // Number 图表（数据概览）原始值缓存：供 ResolveFieldDisplay 格式化各数据组。
+        _numberCumulativeText = totalTokens;
+        _numberPeakToken = D("most_active_token");
+        _numberActiveDays = activeDays;
+        _numberTotalDays = totalDays;
         // req-047：提取排名百分比（usage_ranking_percent），用于显示"前X%"
         double? rankingPercent = null;
         if (extra.TryGetValue("usage_ranking_percent", out var rp) && rp is double rpVal && rpVal > 0)
