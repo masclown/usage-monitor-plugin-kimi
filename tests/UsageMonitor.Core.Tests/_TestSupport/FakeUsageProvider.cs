@@ -8,7 +8,7 @@ namespace UsageMonitor.Core.Tests._TestSupport;
 /// req-059-001: 测试用 <see cref="IUsageProvider"/> 桩实现。
 /// <para>
 /// 用于在 RefreshService / PluginManager / ConfigService 等场景下注入可控行为，
-/// 避免依赖真实插件（Deepseek / MiMo / MiniMax 等）的 HTTP 调用与浏览器自动化。
+/// 避免依赖真实插件（Deepseek / MiniMax / Kimi 等）的 HTTP 调用与浏览器自动化。
 /// </para>
 /// </summary>
 public sealed class FakeUsageProvider : IUsageProvider

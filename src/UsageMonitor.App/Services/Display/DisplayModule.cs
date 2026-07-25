@@ -84,18 +84,6 @@ public sealed class DisplayModule : IDisplayModule
             if (savedCardCharts.Count == 0)
                 savedCardCharts = ChartKindExtractor.ExtractDeclaredChartKinds(plugin.Provider).ToList();
 
-            // req-fix-DualModeProvider：装配时把当前 config 注入双模式 provider，让 ConfigFields getter 按 mode 返回字段。
-            var currentConfig = _configService.GetProviderConfig(plugin.Provider.ProviderId, plugin.Provider);
-            switch (plugin.Provider)
-            {
-                case UsageMonitor.Plugin.Kimi.KimiDualModeProvider kimiProvider:
-                    kimiProvider.SetCurrentConfigSnapshot(currentConfig);
-                    break;
-                case UsageMonitor.Plugin.Deepseek.DeepseekDualModeProvider deepseekProvider:
-                    deepseekProvider.SetCurrentConfigSnapshot(currentConfig);
-                    break;
-            }
-
             var item = new PluginItemViewModel(plugin.Provider, _configService, _authManager)
             {
                 ProviderId = plugin.Provider.ProviderId,
@@ -377,5 +365,15 @@ public sealed class DisplayModule : IDisplayModule
             return validOrder;
         }
         return supportedCharts;
+    }
+
+    /// <summary>
+    /// 分发准备：重新解析所有卡片的 Provider 图标（供启动时 favicon 预取完成后回填）。
+    /// <para>由 App 在预取任务完成后于 UI 线程调用；仅刷新图标，不重建卡片。</para>
+    /// </summary>
+    public void RefreshIcons()
+    {
+        foreach (var vm in Usages)
+            vm.RefreshIcon();
     }
 }

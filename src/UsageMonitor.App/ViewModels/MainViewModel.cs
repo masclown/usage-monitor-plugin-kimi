@@ -63,6 +63,12 @@ public partial class MainViewModel : INotifyPropertyChanged
     public ObservableCollection<PluginItemViewModel> PluginItems => _displayModule.PluginItems;
 
     /// <summary>
+    /// 分发准备：刷新所有卡片的 Provider 图标（委托 DisplayModule）。
+    /// <para>供 App 在启动 favicon 预取完成后回调，使运行时抓取的图标即时显示。</para>
+    /// </summary>
+    public void RefreshProviderIcons() => _displayModule.RefreshIcons();
+
+    /// <summary>
     /// req-016：当前主题对应的项目 Logo（用于 MainWindow.Icon 绑定）。
     /// <para>
     /// 订阅 <see cref="UsageMonitor.App.Helpers.ThemeManager.ThemeChanged"/> 事件实现实时刷新。

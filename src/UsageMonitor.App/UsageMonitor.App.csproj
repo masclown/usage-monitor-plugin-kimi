@@ -9,13 +9,13 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
 
-    <!-- 项目版本号（0.27.0-beta）：声明式抓取架构(FetchDeclaration/DeclarativeCaptureExecutor/BrowserCaptureService) / SkeletonPlaceholder骨架屏 / ProgressWidthAnimator进度条动画 / ThemeTransitionOverlay主题过渡 / PluginConfigViewModel MVVM抽取 / UsageDetailRepository用量详情仓储 / AccountIdHasher / MiniMax插件迁移声明式 / 大量测试新增；用于程序集元数据 + 文件属性。 -->
+    <!-- 项目版本号（0.27.1-beta）：移除Deepseek/Kimi/MiMo/Qoder 4个插件 / 新增ProviderIconService图标动态抓取服务 / 添加许可证文件与解耦规范；用于程序集元数据 + 文件属性。 -->
     <!-- 显式设置 5 个属性，避免被 SDK 衍生规则变动影响。 -->
-    <Version>0.27.0-beta</Version>
-    <AssemblyVersion>0.27.0.0</AssemblyVersion>
-    <FileVersion>0.27.0.0</FileVersion>
-    <InformationalVersion>0.27.0-beta</InformationalVersion>
-    <ProductVersion>0.27.0-beta</ProductVersion>
+    <Version>0.27.1-beta</Version>
+    <AssemblyVersion>0.27.1.0</AssemblyVersion>
+    <FileVersion>0.27.1.0</FileVersion>
+    <InformationalVersion>0.27.1-beta</InformationalVersion>
+    <ProductVersion>0.27.1-beta</ProductVersion>
     <AssemblyTitle>UsageMonitor</AssemblyTitle>
     <Product>UsageMonitor</Product>
     <Company>UsageMonitor</Company>
@@ -29,11 +29,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\UsageMonitor.Core\UsageMonitor.Core.csproj" />
-    <ProjectReference Include="..\Plugins\UsageMonitor.Plugin.Deepseek\UsageMonitor.Plugin.Deepseek.csproj" />
-    <ProjectReference Include="..\Plugins\UsageMonitor.Plugin.MiMo\UsageMonitor.Plugin.MiMo.csproj" />
     <ProjectReference Include="..\Plugins\UsageMonitor.Plugin.MiniMax\UsageMonitor.Plugin.MiniMax.csproj" />
-    <ProjectReference Include="..\Plugins\UsageMonitor.Plugin.Kimi\UsageMonitor.Plugin.Kimi.csproj" />
-    <ProjectReference Include="..\Plugins\UsageMonitor.Plugin.Qoder\UsageMonitor.Plugin.Qoder.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -41,46 +37,13 @@
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
   </ItemGroup>
 
-  <!-- Provider 图标资源：复制到输出目录，运行时从文件加载 -->
+  <!--
+    图标资源（分发准备）：
+    - 第三方服务商品牌 Logo 不再随包分发（规避商标再分发风险），改由 ProviderIconService
+      在首次运行时按服务商域名抓取 favicon，缓存到 %AppData%/UsageMonitor/icons。
+    - 仅保留本项目自有 Logo；用户如需离线自备第三方图标，可手动放入输出目录 Assets/Providers/{providerId}.png。
+  -->
   <ItemGroup>
-    <Content Include="Assets\Providers\anthropic.ico">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <Content Include="Assets\Providers\deepseek.png">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <Content Include="Assets\Providers\kimi.ico">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <Content Include="Assets\Providers\mimo.jpg">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <Content Include="Assets\Providers\minimax.ico">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <Content Include="Assets\Providers\ollama.png">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <Content Include="Assets\Providers\openai.png">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <Content Include="Assets\Providers\openrouter.ico">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <Content Include="Assets\Providers\siliconflow.png">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <Content Include="Assets\Providers\step.svg">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <Content Include="Assets\Providers\volcengine.png">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <Content Include="Assets\Providers\zhipu.png">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <!-- req-016：项目 Logo 双主题版本（深色钟表/罗盘风格） -->
-    <!-- req-032：单 logo 统一替换，不再按主题分 light/dark -->
     <Content Include="Assets\Providers\usage-monitor-logo.png">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>

@@ -301,6 +301,14 @@ public partial class App : Application
         // req-091-005：注入 App 引用，供卡片 ReLoginCommand 回调触发重新登录
         _viewModel.HostApp = this;
 
+        // 分发准备：第三方品牌 Logo 不再随包分发（规避商标再分发风险），改为首次运行时按服务商域名
+        // 抓取 favicon 缓存到 %AppData%/UsageMonitor/icons。预取为尽力而为的后台任务，不阻塞 UI 启动；
+        // 完成后回 UI 线程刷新卡片图标，使首次启动也能尽快显示（后续启动直接命中缓存）。
+        var iconPrefetchProviders = _pluginManager.Plugins.Select(p => p.Provider).ToList();
+        _ = UsageMonitor.App.Services.ProviderIconService.PrefetchAllAsync(iconPrefetchProviders)
+            .ContinueWith(_ => Dispatcher.BeginInvoke(new Action(() => _viewModel?.RefreshProviderIcons())),
+                TaskScheduler.Default);
+
         // REQ-004：把"在屏幕上调整"蒙版打开动作与 MainViewModel.OpenTriggerOverlayAction 绑定。
         // 使用 System.Action 无参委托，避免 RelayCommand 无法接 1 参数（未使用）。
         _viewModel.OpenTriggerOverlayAction = ShowTriggerOverlayWindow;
@@ -399,18 +407,11 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// 注册内置插件（Deepseek、MiMo、MiniMax、Kimi、Qoder）
-    /// req-084：Deepseek 使用双模式插件（API + 网页）
-    /// req-085：Kimi 使用双模式插件（API + 网页）
-    /// req-087：Qoder 使用纯网页模式插件
+    /// 注册内置插件（当前仅 MiniMax；Deepseek/Kimi/Qoder/MiMo 已移除）。
     /// </summary>
     private void RegisterBuiltinPlugins()
     {
-        _pluginManager.RegisterPlugin(new Plugin.Deepseek.DeepseekDualModeProvider());
-        _pluginManager.RegisterPlugin(new Plugin.MiMo.MiMoProvider());
         _pluginManager.RegisterPlugin(new Plugin.MiniMax.MiniMaxProvider());
-        _pluginManager.RegisterPlugin(new Plugin.Kimi.KimiDualModeProvider());
-        _pluginManager.RegisterPlugin(new Plugin.Qoder.QoderProvider());
     }
 
     /// <summary>

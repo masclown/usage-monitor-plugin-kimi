@@ -5,7 +5,7 @@ namespace UsageMonitor.Core.Models;
 /// <summary>
 /// req-013：通用 <see cref="ConfigField"/> 字段工厂。
 /// <para>
-/// 把 Deepseek / MiMo / OpenAI 三个 API 插件重复声明的 <c>ApiKey / BaseUrl / Organization</c>
+/// 把 Deepseek / OpenAI 等 API 插件重复声明的 <c>ApiKey / BaseUrl / Organization</c>
 /// 字段集中到一处工厂方法，三个插件的 <see cref="IUsageProvider.ConfigFields"/> 实现
 /// 改为单行调用，减少约 30 行模板代码 + i18n key 拼接。
 /// </para>
@@ -46,7 +46,7 @@ public static class StandardConfigFields
     /// i18n key = <c>plugin.{providerId}.field.BaseUrl.{name,placeholder}</c>。
     /// </summary>
     /// <param name="providerId">插件 ID（用于拼接 i18n key）。</param>
-    /// <param name="defaultUrl">BaseUrl 的默认值（不同插件指向不同官方 API 地址，例如 Deepseek / MiMo / OpenAI）。</param>
+    /// <param name="defaultUrl">BaseUrl 的默认值（不同插件指向不同官方 API 地址，例如 Deepseek / OpenAI）。</param>
     public static ConfigField BaseUrl(string providerId, string defaultUrl)
     {
         return new ConfigField(

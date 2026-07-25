@@ -70,18 +70,6 @@ public static class I18n
             ["plugin.OpenAI.field.Organization.name"] = "组织 ID（Organization）",
             ["plugin.OpenAI.field.Organization.placeholder"] = "org-xxxxxxxx（可选）",
 
-            // ---- Deepseek ----
-            ["plugin.Deepseek.field.ApiKey.name"] = "API 密钥",
-            ["plugin.Deepseek.field.ApiKey.placeholder"] = "sk-xxxxxxxxxxxxxxxx",
-            ["plugin.Deepseek.field.BaseUrl.name"] = "API 地址",
-            ["plugin.Deepseek.field.BaseUrl.placeholder"] = "https://api.deepseek.com",
-
-            // ---- MiMo ----
-            ["plugin.MiMo.field.ApiKey.name"] = "API 密钥",
-            ["plugin.MiMo.field.ApiKey.placeholder"] = "请输入您的 MiMo API 密钥",
-            ["plugin.MiMo.field.BaseUrl.name"] = "API 地址",
-            ["plugin.MiMo.field.BaseUrl.placeholder"] = "https://api.mimo.ai",
-
             // ---- req-070 F-28：历史窗口下拉框文案 ----
             ["history.range.last7days"] = "最近 7 天",
             ["history.range.last30days"] = "最近 30 天",

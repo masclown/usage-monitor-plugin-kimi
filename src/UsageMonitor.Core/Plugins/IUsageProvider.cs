@@ -10,7 +10,7 @@ namespace UsageMonitor.Core.Plugins;
 /// </summary>
 public interface IUsageProvider : IBrowserLoginProvider, IChartSupportProvider, IRefreshPolicyProvider, IBalanceItemProvider, IDefaultRenderKindsProvider
 {
-    /// <summary>服务商唯一标识（如 "deepseek"、"mimo"）</summary>
+    /// <summary>服务商唯一标识（如 "deepseek"、"minimax"）</summary>
     string ProviderId { get; }
 
     /// <summary>服务商显示名称（如 "Deepseek"）</summary>

@@ -263,19 +263,28 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
     /// <para>优点：新增 Provider 只需在 Assets/Providers/ 放下对应图标文件，无需改本方法。
     /// SVG 暂不原生支持（需 XAML 转 BitmapImage）。</para>
     /// </summary>
+    /// <summary>
+    /// 根据 ProviderId 解析对应的图标文件路径（同步、无网络）。
+    /// <para>
+    /// req-069 F-14：约定优于配置——按 ProviderId 探测图标文件，无需硬编码 switch。
+    /// 分发准备：第三方品牌 Logo 不再随包分发（规避商标再分发风险），改由
+    /// <see cref="UsageMonitor.App.Services.ProviderIconService"/> 在运行时抓取 favicon 缓存；
+    /// 本方法保留静态签名并委托该服务做同步本地解析（用户缓存目录 → 随包资源）。
+    /// </para>
+    /// </summary>
     public static string? ResolveIconPath(string providerId)
+        => UsageMonitor.App.Services.ProviderIconService.ResolveIconPath(providerId);
+
+    /// <summary>
+    /// 分发准备：重新解析并刷新本卡片图标（供启动预取 favicon 完成后回填显示）。
+    /// <para>在 UI 线程调用；<see cref="IconPath"/> 为 INotifyPropertyChanged 属性，赋值后界面自动重绑。
+    /// 仅在解析到新图标且与当前值不同时才赋值，避免无谓的属性通知。</para>
+    /// </summary>
+    public void RefreshIcon()
     {
-        if (string.IsNullOrWhiteSpace(providerId)) return null;
-        var basePath = AppDomain.CurrentDomain.BaseDirectory;
-        var dir = Path.Combine(basePath, "Assets", "Providers");
-        var normalizedId = providerId.ToLowerInvariant();
-        // 按优先级扫描常见扩展名（png > ico > jpg > svg）
-        foreach (var ext in new[] { ".png", ".ico", ".jpg", ".svg" })
-        {
-            var candidate = Path.Combine(dir, normalizedId + ext);
-            if (File.Exists(candidate)) return candidate;
-        }
-        return null;
+        var resolved = ResolveIconPath(ProviderId);
+        if (!string.IsNullOrEmpty(resolved) && resolved != IconPath)
+            IconPath = resolved;
     }
     public string StatusText { get => _statusText; set { _statusText = value; OnPropertyChanged(); } }
     public double UsagePercentage { get => _usagePercentage; set { _usagePercentage = value; OnPropertyChanged(); } }
