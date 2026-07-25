@@ -59,6 +59,15 @@ public interface IDataModule
     void RecordRefreshAggregate(string providerId, string triggerKind);
 
     /// <summary>
+    /// req-110 P1-3：把历史表中按旧 account_id（网页身份哈希）落库的行迁移到新 account_id（配置账号 ID）。
+    /// <para>账号首次绑定网页身份哈希时由 RefreshService 调用；幂等，失败仅日志；纯内存模式下无操作。</para>
+    /// </summary>
+    /// <param name="providerId">Provider 唯一标识。</param>
+    /// <param name="fromAccountId">旧 account_id（网页身份哈希）。</param>
+    /// <param name="toAccountId">新 account_id（配置账号 ID）。</param>
+    Task MigrateAccountIdAsync(string providerId, string fromAccountId, string toAccountId);
+
+    /// <summary>
     /// 暴露底层历史存储（供仅需只读订阅/查询的既有消费方过渡使用）。
     /// 新代码应优先使用本接口的方法而非直接访问底层存储。
     /// </summary>

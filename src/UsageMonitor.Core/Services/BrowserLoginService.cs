@@ -561,11 +561,28 @@ public class BrowserLoginService
     }
 
     /// <summary>Load saved cookie by ProviderId. Supports legacy Base64 format auto-migration to HMAC-signed format.</summary>
-    public static BrowserCookieData? LoadCookieData(string providerId)
+    /// <param name="providerId">Provider ID。</param>
+    /// <param name="accountId">req-110 P2-2：账号 ID（可空）。非空时优先读账号级文件
+    /// <c>cookies/{Provider}.{Account}.json</c>，缺失时回退 Provider 级旧文件（存量单账号兼容）。</param>
+    public static BrowserCookieData? LoadCookieData(string providerId, string? accountId = null)
     {
+        // req-110 P2-2：账号级文件优先，回退 Provider 级旧文件
+        if (!string.IsNullOrWhiteSpace(accountId) &&
+            !string.Equals(accountId, "default", StringComparison.Ordinal) &&
+            File.Exists(GetCookieFilePath(providerId, accountId)))
+        {
+            return LoadCookieDataFromPath(GetCookieFilePath(providerId, accountId), providerId);
+        }
         var path = GetCookieFilePath(providerId);
         if (!File.Exists(path)) return null;
+        return LoadCookieDataFromPath(path, providerId);
+    }
 
+    /// <summary>从指定路径装载 cookie 文件（req-110 P2-2：账号级/Provider 级文件共用同一解密与旧格式迁移逻辑）。</summary>
+    /// <param name="path">cookie 文件绝对路径。</param>
+    /// <param name="providerId">Provider ID（审计日志用）。</param>
+    private static BrowserCookieData? LoadCookieDataFromPath(string path, string providerId)
+    {
         try
         {
             // req-090-001：先尝试新格式（HMAC 签名二进制）
@@ -608,12 +625,16 @@ public class BrowserLoginService
     }
 
     /// <summary>Save cookie to JSON with DPAPI encryption + HMAC-SHA256 signature.</summary>
-    public static void SaveCookieData(BrowserCookieData data)
+    /// <param name="data">cookie 数据。</param>
+    /// <param name="accountId">req-110 P2-2：账号 ID（可空）。非空且非 "default" 时写账号级文件，否则写 Provider 级旧路径（向后兼容）。</param>
+    public static void SaveCookieData(BrowserCookieData data, string? accountId = null)
     {
         if (data == null) throw new ArgumentNullException(nameof(data));
 
         Directory.CreateDirectory(CookieDir);
-        var path = GetCookieFilePath(data.ProviderId);
+        var path = (!string.IsNullOrWhiteSpace(accountId) && !string.Equals(accountId, "default", StringComparison.Ordinal))
+            ? GetCookieFilePath(data.ProviderId, accountId)
+            : GetCookieFilePath(data.ProviderId);
 
         var json = JsonSerializer.Serialize(data, s_writeOptions);
         var dpapiCipher = ProtectedData.Protect(Encoding.UTF8.GetBytes(json), null, DataProtectionScope.CurrentUser);
@@ -709,5 +730,13 @@ public class BrowserLoginService
     private static string GetCookieFilePath(string providerId)
     {
         return Path.Combine(CookieDir, $"{providerId}.json");
+    }
+
+    /// <summary>req-110 P2-2：账号级 cookie 文件路径（cookies/{Provider}.{Account}.json）。</summary>
+    /// <param name="providerId">Provider ID。</param>
+    /// <param name="accountId">账号 ID。</param>
+    private static string GetCookieFilePath(string providerId, string accountId)
+    {
+        return Path.Combine(CookieDir, $"{providerId}.{accountId}.json");
     }
 }

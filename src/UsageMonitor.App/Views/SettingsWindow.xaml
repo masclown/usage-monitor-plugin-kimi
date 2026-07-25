@@ -123,6 +123,12 @@
 
                 <CheckBox Content="{helpers:Loc settings.autostart}" IsChecked="{Binding AutoStart}" Margin="0,0,0,12" />
 
+                <!-- req-fix-关闭最小化设置：关闭主窗口行为开关（勾选=最小化到托盘，取消=完全退出） -->
+                <CheckBox Content="关闭主窗口时最小化到托盘" IsChecked="{Binding MinimizeToTray}" Margin="0,0,0,4" />
+                <TextBlock Text="取消勾选后，点击主窗口关闭按钮将直接退出程序"
+                           FontSize="{DynamicResource FontSizeCaption}"
+                           Foreground="{DynamicResource TextTertiaryBrush}" Margin="22,0,0,12" />
+
                 <Separator Margin="0,8,0,16" />
 
                 <TextBlock Text="{helpers:Loc settings.history.title}" FontSize="15" FontWeight="SemiBold"

@@ -650,12 +650,13 @@
                 <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
                     <!-- 空状态插画（使用 Emoji 作为占位符） -->
                     <TextBlock Text="📊" FontSize="64" HorizontalAlignment="Center" Margin="0,0,0,16" />
-                    <TextBlock Text="暂无用量数据" FontSize="{DynamicResource FontSizeTitle}"
+                    <TextBlock Text="暂无用量卡片" FontSize="{DynamicResource FontSizeTitle}"
                                FontWeight="SemiBold" Foreground="{DynamicResource TextPrimaryBrush}"
                                HorizontalAlignment="Center" Margin="0,0,0,8" />
-                    <TextBlock Text="请先在设置中启用至少一个插件" FontSize="{DynamicResource FontSizeBody}"
-                               Foreground="{DynamicResource TextSecondaryBrush}"
-                               HorizontalAlignment="Center" Margin="0,0,0,24" />
+                    <!-- req-110 P1-5：空态分层引导（无插件/插件未启用/无账号/账号未启用，由 VM 逐层定位） -->
+                    <TextBlock Text="{Binding EmptyStateHint}" FontSize="{DynamicResource FontSizeBody}"
+                               Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap" MaxWidth="420"
+                               HorizontalAlignment="Center" TextAlignment="Center" Margin="0,0,0,24" />
                     <Button Content="打开设置" Click="OnSettingsClick"
                             Style="{StaticResource PrimaryButtonStyle}"
                             HorizontalAlignment="Center" Padding="16,8" />

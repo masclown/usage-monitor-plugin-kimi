@@ -29,17 +29,16 @@ public class CookieAuthProvider : IAuthProvider
     public Task<string?> GetAuthDataAsync(string providerId, string accountId = "default", CancellationToken ct = default)
     {
         // Cookie 存储在两个位置：
-        // 1. ProviderConfig.Values["Cookie"]（主配置，DPAPI 加密）
-        // 2. cookies/{providerId}.json（BrowserLoginService 保存的完整 Cookie 数据）
-        // 优先从主配置读取（与 RefreshService 保持一致）
-        var config = _configService.GetProviderConfig(providerId);
+        // 1. 账号生效配置（req-110 P2-1：账号级覆盖 + Provider 级回退，DPAPI 加密）
+        // 2. cookies/{Provider}[.{Account}].json（BrowserLoginService 保存的完整 Cookie 数据）
+        var config = _configService.GetEffectiveAccountConfig(providerId, accountId);
         var cookie = config.GetValue("Cookie");
-        
+
         if (!string.IsNullOrWhiteSpace(cookie))
             return Task.FromResult<string?>(cookie);
 
-        // 回退到 BrowserLoginService 的 Cookie 文件
-        cookie = BrowserLoginService.GetCookieString(providerId);
+        // 回退到 BrowserLoginService 的 Cookie 文件（req-110 P2-2：账号级文件优先）
+        cookie = BrowserLoginService.LoadCookieData(providerId, accountId)?.Cookie;
         return Task.FromResult(cookie);
     }
 
@@ -104,10 +103,8 @@ public class CookieAuthProvider : IAuthProvider
     /// <inheritdoc/>
     public Task SaveAuthDataAsync(string providerId, string accountId, string authData, CancellationToken ct = default)
     {
-        // 保存 Cookie 到 ProviderConfig
-        var config = _configService.GetProviderConfig(providerId);
-        config.SetValue("Cookie", authData);
-        _configService.UpdateProviderConfig(providerId, config);
+        // req-110 P2-1：Cookie 写账号级凭据（同 Provider 其他账号不受影响）
+        _configService.SetAccountCredential(providerId, accountId, "Cookie", authData);
         return Task.CompletedTask;
     }
 

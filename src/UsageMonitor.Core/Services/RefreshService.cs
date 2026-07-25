@@ -36,6 +36,9 @@ public class RefreshService : IRefreshService
     /// <summary>每个 provider 的刷新互斥锁：同一 provider 的全量刷新与单卡片刷新互斥，不同 provider 仍可并行。</summary>
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _providerLocks = new();
 
+    /// <summary>req-110 P2-3：每个 Provider 最近一轮按账号刷新的 usage 列表（供 UsageRefreshed 事件按账号分发）。</summary>
+    private readonly ConcurrentDictionary<string, List<UsageInfo>> _lastAccountUsages = new();
+
 /// <summary>req-058：每个 Provider 的连续失败计数（用于熔断器）。</summary>
 private readonly ConcurrentDictionary<string, int> _consecutiveFailures = new();
 
@@ -135,23 +138,12 @@ private readonly ConcurrentDictionary<string, int> _consecutiveFailures = new();
             await Task.WhenAll(tasks);
 
             // 触发数据更新事件
-            // req-109：每个 Provider 的 LastUsage 克隆到 (Provider, Account, Card) 三元组 × N 份，让 DisplayModule 按 3 段路由。
+            // req-110 P2-3：按 _lastAccountUsages 组装——每账号 usage 本体 + 该账号其余卡片克隆，
+            // DisplayModule 按 (Provider, Account, Card) 三段路由到每张卡片。
             var allUsages = new List<UsageInfo>();
-            foreach (var p in enabledPlugins.Where(p => p.LastUsage != null))
+            foreach (var p in enabledPlugins)
             {
-                var source = p.LastUsage!;
-                allUsages.Add(source);
-                var accounts = _configService.GetAccounts(p.Provider.ProviderId);
-                if (accounts.Count == 0) continue;
-                foreach (var account in accounts)
-                {
-                    var cards = _configService.GetCards(p.Provider.ProviderId, account.AccountId);
-                    foreach (var card in cards)
-                    {
-                        if (account.AccountId == "default" && card.CardId == "default-card") continue;
-                        allUsages.Add(CloneUsageForCard(source, account.AccountId, card.CardId));
-                    }
-                }
+                allUsages.AddRange(BuildAccountUsageList(p.Provider.ProviderId));
             }
 
             UsageRefreshed?.Invoke(this, new UsageRefreshedEventArgs(allUsages));
@@ -262,7 +254,13 @@ private readonly ConcurrentDictionary<string, int> _consecutiveFailures = new();
     }
 
     /// <summary>
-    /// 刷新指定服务商的用量
+    /// 刷新指定服务商的用量（req-110 P2-3：按账号循环）。
+    /// <para>req-110 Q1 刷新门控：刷新单元 = 已启用插件 × 已启用且配置完成的账号——
+    /// 插件未启用 / 无启用账号 / 账号未配置凭据均跳过（Info 日志记录原因），不空跑浏览器/API。</para>
+    /// <para>req-110 P2-3：每个启用账号独立取数（账号生效配置 = Provider 级基底 + 账号级凭据覆盖）、
+    /// 独立熔断计数（key = Provider:Account）——单账号失效/熔断不影响同 Provider 其他账号。</para>
+    /// <para>req-110 P1-3：每账号刷新成功后把插件返回的网页身份哈希绑定到该账号（BoundStableId），
+    /// 并把 usage.AccountId/CardId 重写为配置账号 ID，使落库与卡片路由都以用户创建的账号为准。</para>
     /// </summary>
     /// <param name="plugin">插件包装</param>
     /// <param name="triggerKind">触发类型（"manual" / "auto"），传给 req-013 刷新聚合</param>
@@ -270,84 +268,157 @@ private readonly ConcurrentDictionary<string, int> _consecutiveFailures = new();
     public async Task RefreshPluginAsync(LoadedPlugin plugin, string triggerKind = "manual", CancellationToken ct = default)
     {
         var providerId = plugin.Provider.ProviderId;
+
+        // req-110 Q1 门控①：插件未启用不刷新（RefreshAllAsync 已过滤，单卡刷新入口在此统一把关）。
+        if (!plugin.IsEnabled || !_configService.Settings.PluginEnabled.GetValueOrDefault(providerId, true))
+        {
+            FileLogger.Info("RefreshService", $"req-110 门控：插件 {providerId} 未启用，跳过刷新");
+            return;
+        }
+
+        // req-110 Q1 门控②③：无账号 / 无启用账号不刷新。
+        var enabledAccounts = _configService.GetAccounts(providerId).Where(a => a.Enabled).ToList();
+        if (enabledAccounts.Count == 0)
+        {
+            FileLogger.Info("RefreshService", $"req-110 门控：{providerId} 无已启用账号，跳过刷新");
+            return;
+        }
+
         // per-provider 锁：同一 provider 的全量刷新与单卡片刷新互斥，不同 provider 仍可并行。
         var gate = _providerLocks.GetOrAdd(providerId, _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync(ct);
         try
         {
-            try
+            var accountUsages = new List<UsageInfo>();
+            foreach (var account in enabledAccounts)
             {
-                var config = _configService.GetProviderConfig(providerId, plugin.Provider);
-                var usage = await plugin.Provider.GetUsageAsync(config, ct);
-
-                plugin.LastUsage = usage;
-                plugin.LastQueryTime = DateTime.Now;
-                plugin.LastQuerySuccess = usage.IsSuccess;
-
-                // 成功记有效历史点；失败记一个 IsError 点（避免折线无痕断裂）。
-                // req-015：传完整 usage，Store 内部走 InsertUsagePointIfChangedAsync（业务指纹比对去重）。
-                if (usage.IsSuccess)
+                // req-110 Q1 门控④：账号未配置凭据不刷新（账号生效配置 + 账号级 cookie 文件，判定与待命卡共用 CredentialProbe）。
+                var config = _configService.GetEffectiveAccountConfig(providerId, account.AccountId, plugin.Provider);
+                if (!CredentialProbe.HasConfiguredCredential(providerId, config, account.AccountId))
                 {
-                    // req-088 Phase1：首次成功抓到网页账号身份（usage.AccountId 由插件哈希得出）时自动建/匹配账号，
-                    // 使数据按账号隔离、删除重加可找回历史；账号昵称默认 {ProviderId}_{序号}，用户可改名。
-                    if (!string.IsNullOrWhiteSpace(usage.AccountId))
-                        _configService.EnsureAccount(providerId, usage.AccountId!);
-                    // req-092：传 null 走 DataModule 内部 ExtractStandardFields 自动提取（req-107 B8 后插件声明式 metadata 直接可用）。
-                    _dataModule.SaveUsage(usage);
-                    // req-096 接线：首次成功刷新时记录登录态获取时间（幂等，不覆盖已有 AcquiredAt），
-                    // 使 AuthManager 的“登录态计时”真正生效；轻量记录，不触发浏览器登录。
-                    _authManager?.EnsureLoginStateRecorded(providerId);
+                    FileLogger.Info("RefreshService", $"req-110 门控：{providerId} 账号 {account.AccountId} 未配置凭据，跳过刷新");
+                    continue;
                 }
-                else
+
+                // req-110 P2-3：账号级熔断——单账号连续失败不影响同 Provider 其他账号。
+                var unitKey = $"{providerId}:{account.AccountId}";
+                if (_circuitOpenUntil.TryGetValue(unitKey, out var openUntil))
                 {
+                    if (DateTime.UtcNow < openUntil)
+                    {
+                        FileLogger.Info("RefreshService",
+                            $"Circuit breaker OPEN for {unitKey}, skipping until {openUntil:HH:mm:ss} UTC");
+                        continue;
+                    }
+                    _circuitOpenUntil.TryRemove(unitKey, out _); // 熔断到期，半开允许一次尝试
+                }
+
+                try
+                {
+                    var usage = await plugin.Provider.GetUsageAsync(config, ct);
+
+                    // req-110 P1-3：账号身份绑定替代自动注册——插件返回的网页身份哈希写入本账号的
+                    // BoundStableId（首次绑定时同步迁移哈希键历史数据）；不再调用 EnsureAccount 反向建号。
+                    var stableHash = usage.AccountId;
+                    if (usage.IsSuccess)
+                    {
+                        var firstBind = string.IsNullOrWhiteSpace(
+                            _configService.GetAccount(providerId, account.AccountId)?.BoundStableId);
+                        if (!_configService.TryBindAccountStableId(providerId, account.AccountId, stableHash))
+                        {
+                            FileLogger.Warn("RefreshService",
+                                $"req-110：{providerId} 网页身份哈希 {stableHash} 与账号 {account.AccountId} 已绑定值不一致（网页侧可能更换了账号）");
+                        }
+                        else if (firstBind && !string.IsNullOrWhiteSpace(stableHash) &&
+                                 !string.Equals(stableHash, "default", StringComparison.Ordinal) &&
+                                 !string.Equals(stableHash, account.AccountId, StringComparison.Ordinal))
+                        {
+                            // 首次绑定且哈希 ≠ 账号 ID：把历史表哈希键旧行归属到配置账号（fire-and-forget）。
+                            _ = _dataModule.MigrateAccountIdAsync(providerId, stableHash!, account.AccountId);
+                        }
+                    }
+                    // 路由/落库键统一重写为配置账号：成功与失败态都重写，使错误文案也能精确路由到该账号卡片。
+                    usage.AccountId = account.AccountId;
+                    usage.CardId = _configService.GetCards(providerId, account.AccountId)
+                        .FirstOrDefault()?.CardId ?? "default-card";
+
+                    // 成功记有效历史点；失败记一个 IsError 点（避免折线无痕断裂）。
+                    // req-015：传完整 usage，Store 内部走 InsertUsagePointIfChangedAsync（业务指纹比对去重）。
+                    if (usage.IsSuccess)
+                    {
+                        // req-092：传 null 走 DataModule 内部 ExtractStandardFields 自动提取；
+                        // req-110：usage.AccountId 已重写为配置账号 ID，落库按用户账号隔离。
+                        _dataModule.SaveUsage(usage);
+                        // req-096 接线：首次成功刷新时记录登录态获取时间（幂等，不覆盖已有 AcquiredAt）。
+                        _authManager?.EnsureLoginStateRecorded(providerId);
+                        // req-013：成功刷新后异步写入"刷新聚合"记录，供历史窗口展示每次刷新。
+                        _dataModule.RecordRefreshAggregate(providerId, triggerKind);
+                        _consecutiveFailures[unitKey] = 0;
+                    }
+                    else
+                    {
+                        _dataModule.AddErrorPoint(providerId);
+
+                        // req-091-002：usage.IsSuccess=false 但无异常的场景，按 ErrorMessage 关键字兜底判定。
+#pragma warning disable CS0618 // ErrorMessage 已过时，req-091 兜底分类向后兼容保留
+                        var fallbackKind = ClassifyByErrorMessage(usage.ErrorMessage);
+                        FileLogger.Warn("RefreshService",
+                            $"[req-091] Provider {providerId} 账号 {account.AccountId} returned IsSuccess=false, kind={fallbackKind}: {usage.ErrorMessage}");
+                        RefreshFailed?.Invoke(this, new RefreshFailedEventArgs(
+                            providerId,
+                            plugin.Provider.DisplayName,
+                            fallbackKind,
+                            null,
+                            usage.ErrorMessage ?? "未知错误"));
+#pragma warning restore CS0618
+                        RecordFailure(unitKey);
+                    }
+
+                    accountUsages.Add(usage);
+                }
+                // 用户取消/整体超时：中断全部账号循环并上抛（由 RefreshPluginWithTimeoutAsync 处理）。
+                catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    // req-110 P2-3：单账号异常就地消化，不中断同 Provider 其他账号刷新。
+                    var errorUsage = UsageInfo.CreateError(providerId, plugin.Provider.DisplayName, ex.Message);
+                    errorUsage.AccountId = account.AccountId;
+                    errorUsage.CardId = _configService.GetCards(providerId, account.AccountId)
+                        .FirstOrDefault()?.CardId ?? "default-card";
+                    accountUsages.Add(errorUsage);
                     _dataModule.AddErrorPoint(providerId);
 
-                    // req-091-002：usage.IsSuccess=false 但无异常的场景
-                    // （Web 插件 DOM 提取失败 / API 鉴权失效等）
-                    // 按 ErrorMessage 关键字兜底判定（避免漏掉 LoginExpired）
-#pragma warning disable CS0618 // ErrorMessage 已过时，req-091 兵底分类向后兼容保留
-                    var fallbackKind = ClassifyByErrorMessage(usage.ErrorMessage);
+                    // req-091-002：使用 CookieHealthDetector 判定失败原因，触发 RefreshFailed 事件
+                    var failureKind = _cookieHealthDetector.Classify(ex);
                     FileLogger.Warn("RefreshService",
-                        $"[req-091] Provider {providerId} returned IsSuccess=false, kind={fallbackKind}: {usage.ErrorMessage}");
+                        $"[req-091] Provider {providerId} 账号 {account.AccountId} refresh failed, kind={failureKind}: {ex.Message}");
                     RefreshFailed?.Invoke(this, new RefreshFailedEventArgs(
                         providerId,
                         plugin.Provider.DisplayName,
-                        fallbackKind,
-                        null,
-                        usage.ErrorMessage ?? "未知错误"));
-#pragma warning restore CS0618
+                        failureKind,
+                        ex,
+                        ex.Message));
+
+                    // req-058 / req-110：熔断计费收敛到账号级（单账号连续失败触发该账号熔断）。
+                    RecordFailure(unitKey);
                 }
-
-                // req-013：成功刷新后异步写入“刷新聚合”记录，供历史窗口展示每次刷新。
-                if (usage.IsSuccess)
-                    _dataModule.RecordRefreshAggregate(providerId, triggerKind);
             }
-            catch (Exception ex)
+
+            if (accountUsages.Count == 0)
             {
-                plugin.LastUsage = UsageInfo.CreateError(
-                    providerId,
-                    plugin.Provider.DisplayName,
-                    ex.Message);
-                plugin.LastQueryTime = DateTime.Now;
-                plugin.LastQuerySuccess = false;
-                // 异常同样记失败点。
-                _dataModule.AddErrorPoint(providerId);
-
-                // req-091-002：使用 CookieHealthDetector 判定失败原因，触发 RefreshFailed 事件
-                var failureKind = _cookieHealthDetector.Classify(ex);
-                FileLogger.Warn("RefreshService",
-                    $"[req-091] Provider {providerId} refresh failed, kind={failureKind}: {ex.Message}");
-                RefreshFailed?.Invoke(this, new RefreshFailedEventArgs(
-                    providerId,
-                    plugin.Provider.DisplayName,
-                    failureKind,
-                    ex,
-                    ex.Message));
-
-                // req-058-004：重新抛出以让 RefreshPluginWithTimeoutAsync 调用 RecordFailure（CircuitBreaker 计费）。
-                // 不重新抛出会导致熔断器永远不触发（5 次连续失败也不会进入熔断）。
-                throw;
+                FileLogger.Info("RefreshService", $"req-110：{providerId} 全部启用账号被门控/熔断跳过，本轮未取数");
+                return;
             }
+
+            // 托盘/迷你图等 Provider 粒度消费方兼容：LastUsage = 首个成功账号的 usage（全失败时取首个）。
+            plugin.LastUsage = accountUsages.FirstOrDefault(u => u.IsSuccess) ?? accountUsages[0];
+            plugin.LastQueryTime = DateTime.Now;
+            plugin.LastQuerySuccess = plugin.LastUsage.IsSuccess;
+            // req-110 P2-3：保存本轮全部账号的 usage，供 UsageRefreshed 事件按账号精确分发。
+            _lastAccountUsages[providerId] = accountUsages;
         }
         finally
         {
@@ -367,30 +438,37 @@ private readonly ConcurrentDictionary<string, int> _consecutiveFailures = new();
         var plugin = _pluginManager.GetPlugin(providerId);
         if (plugin == null) return;
 
-        // 复用单插件刷新逻辑（内部会写 LastUsage 并在成功时记录历史点）。
+        // 复用单插件刷新逻辑（内部按账号循环并写 _lastAccountUsages）。
         await RefreshPluginAsync(plugin, "manual", ct);
 
-        // req-109：克隆单数据源 usage 到 (Provider, Account, Card) 三元组 × N 份，让 DisplayModule 按 3 段路由到每张卡片。
-        // 注：当前插件不区分账号/卡片（GetUsageAsync 仅按 Provider 粒度），所以 N 张卡片显示同一份数据。
-        //     Phase 4 完整版后，插件可按 (accountId, cardId) 区分数据源。
-        if (plugin.LastUsage == null) return;
-        var sourceUsage = plugin.LastUsage;
-        var usageList = new List<UsageInfo> { sourceUsage };
-        var accounts = _configService.GetAccounts(providerId);
-        if (accounts.Count > 0)
-        {
-            foreach (var account in accounts)
-            {
-                var cards = _configService.GetCards(providerId, account.AccountId);
-                foreach (var card in cards)
-                {
-                    if (account.AccountId == "default" && card.CardId == "default-card") continue;
-                    usageList.Add(CloneUsageForCard(sourceUsage, account.AccountId, card.CardId));
-                }
-            }
-        }
+        // req-110 P2-3：每账号 usage 直接分发 + 该账号多卡片克隆（不再跨账号共享同一份数据）。
+        var usageList = BuildAccountUsageList(providerId);
+        if (usageList.Count == 0) return;
 
         UsageRefreshed?.Invoke(this, new UsageRefreshedEventArgs(usageList));
+    }
+
+    /// <summary>
+    /// req-110 P2-3：按 _lastAccountUsages 组装指定 Provider 的事件分发列表——
+    /// 每账号 usage 本体 + 该账号其余卡片的克隆（同账号多卡共享同一份数据）。
+    /// </summary>
+    /// <param name="providerId">Provider ID。</param>
+    private List<UsageInfo> BuildAccountUsageList(string providerId)
+    {
+        var result = new List<UsageInfo>();
+        if (!_lastAccountUsages.TryGetValue(providerId, out var accountUsages)) return result;
+        foreach (var usage in accountUsages)
+        {
+            result.Add(usage);
+            if (usage.AccountId == null) continue;
+            var cards = _configService.GetCards(providerId, usage.AccountId);
+            foreach (var card in cards)
+            {
+                if (string.Equals(card.CardId, usage.CardId, StringComparison.Ordinal)) continue;
+                result.Add(CloneUsageForCard(usage, usage.AccountId, card.CardId));
+            }
+        }
+        return result;
     }
 
     /// <summary>

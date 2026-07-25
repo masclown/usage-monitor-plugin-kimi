@@ -197,6 +197,16 @@ public sealed class DataModule : IDataModule
     }
 
     /// <summary>
+    /// req-110 P1-3：把历史表中按旧 account_id（网页身份哈希）落库的行迁移到新 account_id（配置账号 ID）。
+    /// <para>直接透传仓库 <c>MigrateAccountIdAsync</c>；纯内存模式（无仓库）无操作。</para>
+    /// </summary>
+    /// <param name="providerId">Provider 唯一标识。</param>
+    /// <param name="fromAccountId">旧 account_id（网页身份哈希）。</param>
+    /// <param name="toAccountId">新 account_id（配置账号 ID）。</param>
+    public Task MigrateAccountIdAsync(string providerId, string fromAccountId, string toAccountId)
+        => _repository?.MigrateAccountIdAsync(providerId, fromAccountId, toAccountId) ?? Task.CompletedTask;
+
+    /// <summary>
     /// req-092 B3：异步执行字段级差异检测 + 增量保存（fire-and-forget，不阻塞刷新）。
     /// <para>从 <c>usage_field_versions</c> 读取上次各字段最新值作为旧值，与新值逐字段对比，
     /// 仅对有变化的字段调 <c>SaveIncrementalAsync</c>。相同数据重复刷新时无新记录（验收 req-092#3）。</para>

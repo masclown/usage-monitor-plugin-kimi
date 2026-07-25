@@ -30,11 +30,13 @@ public partial class MainViewModel : INotifyPropertyChanged
         // S1：注入 AuthManager 供账号行 Sub 状态灯读取登录态。
         _displayModule = new UsageMonitor.App.Services.Display.DisplayModule(
             pluginManager, configService, refreshService, TriggerManualReLogin, authManager);
-        // 已启用卡片集合变化时刷新空状态派生属性（IsEmpty）与绑定。
+        // 已启用卡片集合变化时刷新空状态派生属性（IsEmpty / EmptyStateHint）与绑定。
         _displayModule.EnabledCardsChanged += (_, _) =>
         {
             OnPropertyChanged(nameof(EnabledUsages));
             OnPropertyChanged(nameof(IsEmpty));
+            // req-110 P1-5：空态分层引导文案随卡片集合同步刷新
+            OnPropertyChanged(nameof(EmptyStateHint));
         };
 
         // S1：账号增删改 → ConfigService.Save() → ConfigChanged → 增量重建卡片集合（复用既有事件链路，不新增事件）。

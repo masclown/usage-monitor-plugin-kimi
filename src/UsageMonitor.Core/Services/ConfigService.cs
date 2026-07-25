@@ -458,6 +458,95 @@ public class ConfigService : IConfigService
 
         // req-095：托盘悬浮窗关闭延迟钳制到 100-5000ms，非法值（旧配置或手改 JSON）自动修正。
         _settings.TrayTooltipHideDelayMs = Math.Clamp(_settings.TrayTooltipHideDelayMs, 100, 5000);
+
+        // req-110 P1-2：账号/卡片结构存量迁移（M1/M2/M3，幂等）——维护"有账号必有卡片"不变量。
+        MigrateAccountCardStructure();
+    }
+
+    /// <summary>
+    /// req-110 P1-2：账号为中心模型的存量数据迁移（在锁内调用，调用方保证已持有 _ioLock）。
+    /// <para>M2：旧 <c>Provider:default[:*]</c> 定制 rekey 到该 Provider 的默认账号（仅当无 "default" 账号且目标 key 不存在时，不覆盖）；</para>
+    /// <para>M3：已启用且已配凭据（Cookie/ApiKey）但零账号的 Provider 兜底建账号，避免老用户升级后主窗口无故变空；</para>
+    /// <para>M1：为所有零卡片账号补建 <c>default-card</c>（最后执行，覆盖 M3 新建账号）。</para>
+    /// <para>本方法不调 Save：与 NormalizeAfterLoad 其余归一化一致，变更随下次 Save 落盘（内存态立即生效）。</para>
+    /// </summary>
+    private void MigrateAccountCardStructure()
+    {
+        try
+        {
+            // ---------- M2：旧 default 定制 rekey 到默认账号 ----------
+            var providerIdsWithCustomization = _settings.AccountCustomizations.Keys
+                .Select(k => k.Split(':')[0])
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            foreach (var pid in providerIdsWithCustomization)
+            {
+                var hasDefaultAccount = _settings.Accounts.Any(a =>
+                    string.Equals(a.ProviderId, pid, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(a.AccountId, "default", StringComparison.Ordinal));
+                if (hasDefaultAccount) continue;
+                var targetAccount = _settings.Accounts.FirstOrDefault(a =>
+                    string.Equals(a.ProviderId, pid, StringComparison.OrdinalIgnoreCase) && a.IsDefault)
+                    ?? _settings.Accounts.FirstOrDefault(a =>
+                        string.Equals(a.ProviderId, pid, StringComparison.OrdinalIgnoreCase));
+                if (targetAccount == null) continue;
+
+                var oldPrefix = $"{pid}:default";
+                var oldKeys = _settings.AccountCustomizations.Keys
+                    .Where(k => string.Equals(k, oldPrefix, StringComparison.OrdinalIgnoreCase) ||
+                                k.StartsWith(oldPrefix + ":", StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                foreach (var oldKey in oldKeys)
+                {
+                    // 拼目标 key：把第二段 default 替换为默认账号 ID（保留可能存在的第三段 CardId）
+                    var parts = oldKey.Split(':');
+                    parts[1] = targetAccount.AccountId;
+                    var newKey = string.Join(':', parts);
+                    if (_settings.AccountCustomizations.ContainsKey(newKey)) continue; // 不覆盖已有定制
+                    _settings.AccountCustomizations[newKey] = _settings.AccountCustomizations[oldKey];
+                    _settings.AccountCustomizations.Remove(oldKey);
+                    FileLogger.Info("ConfigService", $"req-110 M2：定制 rekey {oldKey} -> {newKey}");
+                }
+            }
+
+            // ---------- M3：有凭据无账号的已启用 Provider 兜底建账号 ----------
+            foreach (var (pid, cfg) in _settings.ProviderConfigs)
+            {
+                // req-110 P2-1：跳过账号级凭据复合 key（"Provider#Account"），仅扫 Provider 级条目
+                if (pid.Contains('#')) continue;
+                if (!_settings.PluginEnabled.GetValueOrDefault(pid, true)) continue;
+                var hasCredential = !string.IsNullOrWhiteSpace(cfg.GetValue("Cookie")) ||
+                                    !string.IsNullOrWhiteSpace(cfg.GetValue("ApiKey"));
+                if (!hasCredential) continue;
+                var hasAccount = _settings.Accounts.Any(a =>
+                    string.Equals(a.ProviderId, pid, StringComparison.OrdinalIgnoreCase));
+                if (hasAccount) continue;
+
+                _settings.Accounts.Add(new Models.Account
+                {
+                    ProviderId = pid,
+                    AccountId = "default",
+                    Nickname = $"{pid}_1",
+                    UseNickname = true,
+                    CreatedAt = DateTime.Now,
+                    IsDefault = true
+                });
+                FileLogger.Info("ConfigService", $"req-110 M3：为已配凭据的 {pid} 兜底创建默认账号");
+            }
+
+            // ---------- M1：零卡片账号补建 default-card ----------
+            foreach (var account in _settings.Accounts)
+            {
+                if (EnsureDefaultCardLocked(account.ProviderId, account.AccountId))
+                    FileLogger.Info("ConfigService",
+                        $"req-110 M1：为零卡片账号 {account.ProviderId}:{account.AccountId} 补建 default-card");
+            }
+        }
+        catch (Exception ex)
+        {
+            // 迁移失败不阻断启动（下次 Load 会重试，幂等）
+            FileLogger.Error("ConfigService", $"req-110 账号卡片结构迁移失败：{ex.Message}", ex);
+        }
     }
 
     /// <summary>
@@ -689,7 +778,9 @@ public class ConfigService : IConfigService
                 UseNickname = acc.UseNickname,
                 CreatedAt = acc.CreatedAt,
                 IsDefault = acc.IsDefault,
-                Enabled = acc.Enabled
+                Enabled = acc.Enabled,
+                // req-110 P1-3：网页身份绑定哈希随快照持久化
+                BoundStableId = acc.BoundStableId
             });
         }
 
@@ -793,6 +884,82 @@ public class ConfigService : IConfigService
             _settings.ProviderConfigs[providerId] = config;
         }
         Save();
+    }
+
+    // =====================================================================
+    // req-110 P2-1：账号级凭据（复用 ProviderConfigs 字典，复合 key = "Provider#Account"，
+    // 加密/快照/持久化链路零改动；读取时账号级覆盖 Provider 级，缺失回退——
+    // 存量单账号用户的 Provider 级凭据无需迁移即可继续生效（P2-5））
+    // =====================================================================
+
+    /// <summary>生成账号级凭据存储 key（与 Provider 级 key 同字典共存，'#' 不会出现在 ProviderId 中）。</summary>
+    private static string MakeAccountConfigKey(string providerId, string accountId)
+        => $"{providerId}#{NormalizeAccountId(accountId)}";
+
+    /// <summary>
+    /// req-110 P2-1：写入账号级凭据（Cookie / ApiKey / _userAgent 等）并持久化。
+    /// <para>写入复合 key 条目；同 Provider 其他账号与 Provider 级配置不受影响（凭据隔离）。</para>
+    /// </summary>
+    /// <param name="providerId">Provider ID。</param>
+    /// <param name="accountId">账号 ID。</param>
+    /// <param name="key">凭据键（如 "Cookie" / "ApiKey"）。</param>
+    /// <param name="value">凭据值（敏感键落盘时自动 DPAPI 加密）。</param>
+    public void SetAccountCredential(string providerId, string accountId, string key, string value)
+    {
+        lock (_ioLock)
+        {
+            var composite = MakeAccountConfigKey(providerId, accountId);
+            if (!_settings.ProviderConfigs.TryGetValue(composite, out var overlay))
+            {
+                overlay = new ProviderConfig { ProviderId = providerId };
+                _settings.ProviderConfigs[composite] = overlay;
+            }
+            overlay.SetValue(key, value);
+        }
+        Save();
+    }
+
+    /// <summary>
+    /// req-110 P2-1：构造账号生效配置（副本）：Provider 级配置为基底（含插件默认值/Region 等共享项），
+    /// 账号级凭据覆盖同名键；并注入 <c>_accountId</c> 提示键（供 DeclarativeProvider Cookie 自愈选择账号级 cookie 文件）。
+    /// <para>返回独立副本：调用方对其 SetValue 不影响持久化配置（刷新会话级回填不落盘）。</para>
+    /// </summary>
+    /// <param name="providerId">Provider ID。</param>
+    /// <param name="accountId">账号 ID。</param>
+    /// <param name="provider">插件实例（供默认值填充，可空）。</param>
+    public ProviderConfig GetEffectiveAccountConfig(string providerId, string accountId, IUsageProvider? provider = null)
+    {
+        lock (_ioLock)
+        {
+            var baseConfig = GetProviderConfig(providerId, provider);
+            var effective = new ProviderConfig { ProviderId = providerId };
+            foreach (var kv in baseConfig.Values)
+                effective.SetValue(kv.Key, kv.Value);
+            if (_settings.ProviderConfigs.TryGetValue(MakeAccountConfigKey(providerId, accountId), out var overlay))
+            {
+                foreach (var kv in overlay.Values)
+                {
+                    if (!string.IsNullOrEmpty(kv.Value))
+                        effective.SetValue(kv.Key, kv.Value);
+                }
+            }
+            effective.SetValue("_accountId", NormalizeAccountId(accountId));
+            return effective;
+        }
+    }
+
+    /// <summary>req-110 P2-1：读取账号级凭据覆盖值（不回退 Provider 级；不存在返回 null）。</summary>
+    /// <param name="providerId">Provider ID。</param>
+    /// <param name="accountId">账号 ID。</param>
+    /// <param name="key">凭据键。</param>
+    public string? GetAccountCredential(string providerId, string accountId, string key)
+    {
+        lock (_ioLock)
+        {
+            return _settings.ProviderConfigs.TryGetValue(MakeAccountConfigKey(providerId, accountId), out var overlay)
+                ? overlay.GetValue(key)
+                : null;
+        }
     }
 
     /// <summary>
@@ -1159,6 +1326,8 @@ public class ConfigService : IConfigService
                 IsDefault = count == 0
             };
             _settings.Accounts.Add(account);
+            // req-110 P1-1："有账号必有卡片"不变量——建号同时实例化首张卡片
+            EnsureDefaultCardLocked(providerId, norm);
             Save();
             return account;
         }
@@ -1167,6 +1336,7 @@ public class ConfigService : IConfigService
     /// <summary>
     /// 添加账号。第一个账号自动设 IsDefault=true；同 (ProviderId, AccountId) 已存在则抛 <see cref="InvalidOperationException"/>。
     /// <para>认证层不受影响——不创建/修改 LoginStateInfo，登录态在 AuthManager 内部维护。</para>
+    /// <para>req-110 P1-1：创建账号同时实例化首张卡片（default-card），维护"有账号必有卡片"不变量。</para>
     /// </summary>
     public Models.Account AddAccount(string providerId, string? nickname)
     {
@@ -1182,6 +1352,8 @@ public class ConfigService : IConfigService
                 IsDefault = !_settings.Accounts.Any(a => string.Equals(a.ProviderId, providerId, StringComparison.OrdinalIgnoreCase))
             };
             _settings.Accounts.Add(account);
+            // req-110 P1-1：建号同时实例化首张卡片
+            EnsureDefaultCardLocked(providerId, newId);
             Save();
             return account;
         }
@@ -1206,8 +1378,37 @@ public class ConfigService : IConfigService
     }
 
     /// <summary>
-    /// 删除账号。同步清理该账号下的所有 LoginStateInfo 与 AccountCustomization（认证层保持不变）。
-    /// <para>若该 Provider 仅剩一个账号，则抛异常（避免误删导致无账号状态）。</para>
+    /// req-110 P1-3：把刷新返回的网页身份哈希绑定到指定账号（首次绑定写入；已绑定且一致则无操作）。
+    /// <para>已绑定但哈希不一致时**不覆盖**并返回 false（调用方记 Warn 日志——提示网页侧可能换了账号）；
+    /// 绑定成功/无变化返回 true。空哈希或 "default"（无身份兜底值）不写入。</para>
+    /// </summary>
+    /// <param name="providerId">插件 ID。</param>
+    /// <param name="accountId">配置账号 ID（用户创建的账号）。</param>
+    /// <param name="stableIdHash">插件返回的网页身份哈希（UsageInfo.AccountId 原始值）。</param>
+    public bool TryBindAccountStableId(string providerId, string accountId, string? stableIdHash)
+    {
+        if (string.IsNullOrWhiteSpace(stableIdHash) ||
+            string.Equals(stableIdHash, "default", StringComparison.Ordinal))
+            return true; // 无身份信息，视为无冲突
+        lock (_ioLock)
+        {
+            var account = GetAccount(providerId, accountId);
+            if (account == null) return true;
+            if (string.IsNullOrWhiteSpace(account.BoundStableId))
+            {
+                account.BoundStableId = stableIdHash;
+                Save();
+                FileLogger.Info("ConfigService", $"req-110：账号 {providerId}:{accountId} 首次绑定网页身份哈希 {stableIdHash}");
+                return true;
+            }
+            return string.Equals(account.BoundStableId, stableIdHash, StringComparison.Ordinal);
+        }
+    }
+
+    /// <summary>
+    /// 删除账号。同步清理该账号下的所有 LoginStateInfo 与 AccountCustomization（账号级二段 + 卡片级三段 key）。
+    /// <para>req-110 P1-4：任意账号可删（含最后一个）——卡片严格跟随账号生命周期，全删后主窗口回到空态。
+    /// 历史数据由调用方按用户选择删/保（UsageHistoryRepository.DeleteAccountDataAsync）。</para>
     /// </summary>
     public void RemoveAccount(string providerId, string accountId)
     {
@@ -1219,17 +1420,28 @@ public class ConfigService : IConfigService
                 string.Equals(a.ProviderId, providerId, StringComparison.OrdinalIgnoreCase) &&
                 string.Equals(a.AccountId, norm, StringComparison.Ordinal));
             if (toRemove == null) return;
-            // 仅在确实要删时校验“仅剩一个”。
-            var accounts = _settings.Accounts
-                .Where(a => string.Equals(a.ProviderId, providerId, StringComparison.OrdinalIgnoreCase))
-                .ToList();
-            if (accounts.Count <= 1)
-                throw new InvalidOperationException($"Provider {providerId} 仅剩一个账号，不可删除");
             _settings.Accounts.Remove(toRemove);
+            // 若删的是默认账号且仍有剩余账号，把默认标记顺延到首个剩余账号
+            if (toRemove.IsDefault)
+            {
+                var successor = _settings.Accounts.FirstOrDefault(a =>
+                    string.Equals(a.ProviderId, providerId, StringComparison.OrdinalIgnoreCase));
+                if (successor != null) successor.IsDefault = true;
+            }
             // 同步清理该账号的登录态元数据（不删加密凭据本身）
             _settings.PersistedLoginStates.RemoveAll(s =>
                 string.Equals(s.ProviderId, providerId, StringComparison.OrdinalIgnoreCase) &&
                 string.Equals(s.AccountId, norm, StringComparison.Ordinal));
+            // req-110 P1-4：级联清理账号级（Provider:Account）与卡片级（Provider:Account:Card）全部定制
+            var acctPrefix = $"{providerId}:{norm}";
+            var staleKeys = _settings.AccountCustomizations.Keys
+                .Where(k => string.Equals(k, acctPrefix, StringComparison.OrdinalIgnoreCase) ||
+                            k.StartsWith(acctPrefix + ":", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            foreach (var key in staleKeys)
+                _settings.AccountCustomizations.Remove(key);
+            // req-110 P2-1：级联清理账号级凭据覆盖条目（复合 key）
+            _settings.ProviderConfigs.Remove(MakeAccountConfigKey(providerId, norm));
             Save();
         }
     }
@@ -1368,5 +1580,25 @@ public class ConfigService : IConfigService
             _settings.AccountCustomizations[key] = acct;
         }
         return acct;
+    }
+
+    /// <summary>
+    /// req-110 P1-1：确保指定账号名下至少存在一张卡片（首张固定 "default-card"）。
+    /// <para>"有账号必有卡片"不变量的唯一维护点：AddAccount / EnsureAccount 建号时、
+    /// MigrateAccountCardStructure（M1）存量迁移时调用。在锁内调用，调用方保证已持有 _ioLock。</para>
+    /// </summary>
+    /// <param name="providerId">插件 ID。</param>
+    /// <param name="accountId">账号 ID。</param>
+    /// <returns>是否新建了卡片（true = 有变更，调用方按需 Save）。</returns>
+    private bool EnsureDefaultCardLocked(string providerId, string accountId)
+    {
+        var acct = GetOrCreateAccountCustomization(providerId, accountId);
+        if (acct.Cards.Count > 0) return false;
+        acct.Cards.Add(new Models.CardConfig
+        {
+            CardId = "default-card",
+            DisplayOrder = 0
+        });
+        return true;
     }
 }

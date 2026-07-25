@@ -14,11 +14,15 @@ namespace UsageMonitor.Core.Tests;
 public class RefreshServiceTests : IDisposable
 {
     private readonly List<PluginManager> _managersToDispose = new();
+    // req-110：刷新链路现在可能触发 ConfigService.Save（TryBindAccountStableId），
+    // 必须把配置路径重定向到临时目录，避免测试写坏用户真实 config.json。
+    private readonly TempDir _tempDir = new();
 
     public void Dispose()
     {
         foreach (var m in _managersToDispose) m.ReloadPlugins();
         _managersToDispose.Clear();
+        _tempDir.Dispose();
     }
 
     private PluginManager BuildManagerWith(FakeUsageProvider provider)
@@ -29,10 +33,32 @@ public class RefreshServiceTests : IDisposable
         return mgr;
     }
 
-    private static ConfigService BuildConfigService()
+    /// <summary>
+    /// 构建测试用 ConfigService（默认构造，测试中只改内存 .Settings 不写盘）。
+    /// <para>req-110 Q1 刷新门控后，刷新单元 = 已启用插件 × 已启用且配置完成的账号——
+    /// 因此为每个参测 Provider 直接向 Settings 注入启用账号 + ApiKey 凭据（不走 AddAccount，避免 Save 写盘）。</para>
+    /// </summary>
+    /// <param name="providerIds">需要通过刷新门控的 Provider ID 集合。</param>
+    private ConfigService BuildConfigService(params string[] providerIds)
     {
-        // 用默认构造（%AppData%/UsageMonitor/）；测试中只读 .Settings 不实际写盘。
-        return new ConfigService();
+        var cfg = new ConfigService();
+        // 重定向配置路径到临时目录（Save 不碰用户真实配置）
+        ReflectionHelpers.SetField(cfg, "_configDirectory", _tempDir.Path);
+        ReflectionHelpers.SetField(cfg, "_configFilePath", _tempDir.Combine("config.json"));
+        foreach (var pid in providerIds)
+        {
+            cfg.Settings.Accounts.Add(new Account
+            {
+                ProviderId = pid,
+                AccountId = "default",
+                Enabled = true,
+                IsDefault = true
+            });
+            var pc = new ProviderConfig { ProviderId = pid };
+            pc.SetValue("ApiKey", "test-key");
+            cfg.Settings.ProviderConfigs[pid] = pc;
+        }
+        return cfg;
     }
 
     // -----------------------------------------------------------------
@@ -61,7 +87,7 @@ public class RefreshServiceTests : IDisposable
             });
 
         var mgr = BuildManagerWith(provider);
-        var cfg = BuildConfigService();
+        var cfg = BuildConfigService("test");
         var svc = new RefreshService(mgr, cfg);
 
         // 并发触发 10 次 RefreshAllAsync
@@ -89,7 +115,7 @@ public class RefreshServiceTests : IDisposable
         mgr.RegisterPlugin(providerB);
         _managersToDispose.Add(mgr);
 
-        var cfg = BuildConfigService();
+        var cfg = BuildConfigService("a", "b");
         var svc = new RefreshService(mgr, cfg);
 
         await svc.RefreshAllAsync("manual");
@@ -114,7 +140,7 @@ public class RefreshServiceTests : IDisposable
             getUsageHandler: (_, _) => throw new InvalidOperationException("always fails"));
 
         var mgr = BuildManagerWith(provider);
-        var cfg = BuildConfigService();
+        var cfg = BuildConfigService("failing");
         var svc = new RefreshService(mgr, cfg);
 
         // 触发 6 次刷新：前 5 次实际执行，第 6 次开始被熔断跳过
@@ -155,7 +181,7 @@ public class RefreshServiceTests : IDisposable
             });
 
         var mgr = BuildManagerWith(provider);
-        var cfg = BuildConfigService();
+        var cfg = BuildConfigService("hang");
         var svc = new RefreshService(mgr, cfg);
 
         await svc.RefreshAllAsync("manual");
@@ -175,7 +201,7 @@ public class RefreshServiceTests : IDisposable
         // 触发正常刷新，验证不抛异常到调用方
         var provider = new FakeUsageProvider("ok");
         var mgr = BuildManagerWith(provider);
-        var cfg = BuildConfigService();
+        var cfg = BuildConfigService("ok");
         var svc = new RefreshService(mgr, cfg);
 
         await svc.RefreshAllAsync("manual"); // 不抛
@@ -191,7 +217,7 @@ public class RefreshServiceTests : IDisposable
     {
         var provider = new FakeUsageProvider("single");
         var mgr = BuildManagerWith(provider);
-        var cfg = BuildConfigService();
+        var cfg = BuildConfigService("single");
         var svc = new RefreshService(mgr, cfg);
 
         UsageRefreshedEventArgs? capturedArgs = null;
@@ -202,6 +228,9 @@ public class RefreshServiceTests : IDisposable
         capturedArgs.Should().NotBeNull();
         capturedArgs!.Usages.Should().HaveCount(1);
         capturedArgs.Usages[0].ProviderId.Should().Be("single");
+        // req-110 P1-3：usage 路由键重写为配置账号 ID
+        capturedArgs.Usages[0].AccountId.Should().Be("default");
+        capturedArgs.Usages[0].CardId.Should().NotBeNullOrEmpty();
     }
 
     [Fact]
@@ -209,7 +238,7 @@ public class RefreshServiceTests : IDisposable
     {
         var provider = new FakeUsageProvider("single");
         var mgr = BuildManagerWith(provider);
-        var cfg = BuildConfigService();
+        var cfg = BuildConfigService("single");
         var svc = new RefreshService(mgr, cfg);
 
         var eventFired = false;
@@ -217,5 +246,92 @@ public class RefreshServiceTests : IDisposable
 
         await svc.RefreshProviderAsync("nonexistent");
         eventFired.Should().BeFalse();
+    }
+
+    // -----------------------------------------------------------------
+    // req-110 Q1: 刷新门控——无账号 / 账号未启用 / 未配凭据 / 插件未启用 均跳过刷新
+    // -----------------------------------------------------------------
+
+    [Fact]
+    public async Task RefreshPluginAsync_No_Account_Skips_Refresh()
+    {
+        var provider = new FakeUsageProvider("noacct");
+        var mgr = BuildManagerWith(provider);
+        var cfg = BuildConfigService(); // 不注入账号
+        var svc = new RefreshService(mgr, cfg);
+
+        await svc.RefreshProviderAsync("noacct");
+
+        provider.GetUsageCallCount.Should().Be(0, "req-110 门控：无账号不刷新");
+    }
+
+    [Fact]
+    public async Task RefreshPluginAsync_Disabled_Account_Skips_Refresh()
+    {
+        var provider = new FakeUsageProvider("disacct");
+        var mgr = BuildManagerWith(provider);
+        var cfg = BuildConfigService("disacct");
+        cfg.Settings.Accounts[0].Enabled = false; // 唯一账号禁用
+        var svc = new RefreshService(mgr, cfg);
+
+        await svc.RefreshProviderAsync("disacct");
+
+        provider.GetUsageCallCount.Should().Be(0, "req-110 门控：账号未启用不刷新");
+    }
+
+    [Fact]
+    public async Task RefreshPluginAsync_No_Credential_Skips_Refresh()
+    {
+        var provider = new FakeUsageProvider("nocred");
+        var mgr = BuildManagerWith(provider);
+        var cfg = BuildConfigService();
+        // 只建账号不配凭据
+        cfg.Settings.Accounts.Add(new Account { ProviderId = "nocred", AccountId = "default", Enabled = true });
+        var svc = new RefreshService(mgr, cfg);
+
+        await svc.RefreshProviderAsync("nocred");
+
+        provider.GetUsageCallCount.Should().Be(0, "req-110 门控：账号未配置凭据不刷新");
+    }
+
+    [Fact]
+    public async Task RefreshPluginAsync_Disabled_Plugin_Skips_Refresh()
+    {
+        var provider = new FakeUsageProvider("displug");
+        var mgr = BuildManagerWith(provider);
+        var cfg = BuildConfigService("displug");
+        cfg.Settings.PluginEnabled["displug"] = false; // 插件未启用
+        var svc = new RefreshService(mgr, cfg);
+
+        await svc.RefreshProviderAsync("displug");
+
+        provider.GetUsageCallCount.Should().Be(0, "req-110 门控：插件未启用不刷新");
+    }
+
+    // -----------------------------------------------------------------
+    // req-110 P1-3: 网页身份哈希绑定到发起账号（BoundStableId）
+    // -----------------------------------------------------------------
+
+    [Fact]
+    public async Task RefreshPluginAsync_Binds_StableId_And_Rewrites_AccountId()
+    {
+        var provider = new FakeUsageProvider(
+            "bindtest",
+            getUsageHandler: (_, _) => Task.FromResult(new UsageInfo
+            {
+                ProviderId = "bindtest",
+                ProviderName = "BindTest",
+                IsSuccess = true,
+                AccountId = "abcdef0123456789" // 插件返回的网页身份哈希
+            }));
+        var mgr = BuildManagerWith(provider);
+        var cfg = BuildConfigService("bindtest");
+        var svc = new RefreshService(mgr, cfg);
+
+        await svc.RefreshProviderAsync("bindtest");
+
+        // 哈希写入账号绑定元数据；usage 路由键重写为配置账号 ID
+        cfg.GetAccount("bindtest", "default")!.BoundStableId.Should().Be("abcdef0123456789");
+        mgr.GetPlugin("bindtest")!.LastUsage!.AccountId.Should().Be("default");
     }
 }

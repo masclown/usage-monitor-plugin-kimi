@@ -171,7 +171,11 @@ public partial class TaskbarWindow : Window
     private List<MiniChartItemViewModel> BuildVisibleMiniChartList()
     {
         var result = new List<MiniChartItemViewModel>();
-        var usages = _viewModel.EnabledUsages.ToDictionary(u => u.ProviderId, StringComparer.OrdinalIgnoreCase);
+        // req-110 兼容：多账号/多卡片后同一 Provider 可能存在多个卡片 VM，ToDictionary 会因重复键崩溃；
+        // 改用 GroupBy 取首个（任务栏迷你图仍以 Provider 为粒度，取第一张启用卡片的数据源）。
+        var usages = _viewModel.EnabledUsages
+            .GroupBy(u => u.ProviderId, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
         foreach (var descriptor in _miniChartRegistry.GetAll())
         {
             // req-099 修复（Bug4）：仅显示已启用且有对应卡片 VM 的迷你图，跳过未启用/无数据的 Provider，避免任务栏空环。

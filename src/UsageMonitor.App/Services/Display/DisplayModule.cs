@@ -122,18 +122,22 @@ public sealed class DisplayModule : IDisplayModule
 
     /// <summary>
     /// S1：计算指定 Provider 的 (AccountId, CardId) 元组列表。
-    /// <para>无账号 → 回退单卡向后兼容路径 (default, default-card)；
-    /// 有账号 → 逐账号枚举卡片，并跳过 <c>Enabled=false</c> 的禁用账号（不为其生成卡片）。</para>
+    /// <para>req-110 P1-1：卡片严格跟随账号生命周期——无账号 / 无启用账号 → 返回空（主窗口空态引导），
+    /// 不再回退隐形默认卡；启用账号名下零卡片时防御性回退 (accountId, default-card)，
+    /// 在显示层也维护"有账号必有卡片"不变量（正常情况下 ConfigService 建号建卡 + M1 迁移已保证有卡）。</para>
     /// </summary>
     private List<(string AccountId, string CardId)> BuildCardTuples(string providerId)
     {
         var accounts = _configService.GetAccounts(providerId);
-        if (accounts.Count == 0)
-            return new List<(string AccountId, string CardId)> { ("default", "default-card") };
         return accounts
             .Where(a => a.Enabled)
-            .SelectMany(a => _configService.GetCards(providerId, a.AccountId)
-                .Select(c => (AccountId: a.AccountId, CardId: c.CardId)))
+            .SelectMany(a =>
+            {
+                var cards = _configService.GetCards(providerId, a.AccountId);
+                if (cards.Count == 0)
+                    return new[] { (AccountId: a.AccountId, CardId: "default-card") };
+                return cards.Select(c => (AccountId: a.AccountId, CardId: c.CardId));
+            })
             .ToList();
     }
 
@@ -187,6 +191,15 @@ public sealed class DisplayModule : IDisplayModule
                 Provider = plugin.Provider,
             };
             usageVm.AttachConfigService(_configService);
+            // req-110 P1-5（Q4 待命卡）：账号已建但未配置凭据时，卡片初始状态显示配置引导
+            //（req-110 P2：按账号生效配置探测，判定逻辑与刷新门控共用 CredentialProbe；取到数据后由 UpdateFromUsage 覆盖）。
+            try
+            {
+                var accountConfig = _configService.GetEffectiveAccountConfig(providerId, accountId, plugin.Provider);
+                if (!CredentialProbe.HasConfiguredCredential(providerId, accountConfig, accountId))
+                    usageVm.StatusText = "未配置凭据 — 点击“⚙ 设置”获取登录态或填写 API Key";
+            }
+            catch { /* 引导文案填充失败不影响卡片创建 */ }
             Usages.Add(usageVm);
         }
     }

@@ -105,7 +105,12 @@ public sealed class MainViewModelHarness : IDisposable
 
         PluginManager = new PluginManager();
         foreach (var id in providerIds)
+        {
             PluginManager.RegisterPlugin(new FakeUsageProvider(id, $"Fake-{id}"));
+            // req-110：卡片严格跟随账号生命周期——测试装配同步创建账号
+            //（AddAccount 会自动实例化 default-card，与生产环境"建号出卡"路径一致）。
+            ConfigService.AddAccount(id, null);
+        }
 
         RefreshService = new FakeRefreshService();
 

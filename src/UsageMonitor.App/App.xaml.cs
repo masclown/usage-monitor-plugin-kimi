@@ -1018,9 +1018,46 @@ public partial class App : Application
         }
     }
 
+    /// <summary>
+    /// req-fix-退出卡死兜底：启动一个后台看门狗线程，若 OnExit 正常清理完成后进程仍未终止
+    /// （典型原因：Playwright 驱动管道挂起读 / 原生库 DllMain 在进程关闭阶段挂住），
+    /// 则在超时后用 <c>Process.Kill()</c>（TerminateProcess）强制终止进程。
+    /// <para>选 TerminateProcess 而非 <see cref="Environment.Exit"/>：后者仍会走 ExitProcess 的
+    /// DLL 卸载通知（DllMain PROCESS_DETACH），而实测中退出卡死正是卡在该阶段（残留 0 线程、
+    /// 杀不掉、还锁着 DLL 的僵尸进程）；TerminateProcess 跳过卸载通知直接回收。</para>
+    /// <para>看门狗是后台线程：正常退出路径下进程结束时它会被 CLR 自动回收，不会阻碍退出；
+    /// 触发强杀前向日志文件直写一条兜底记录（此时 FileLogger 已 Stop，不能再走异步日志队列）。</para>
+    /// </summary>
+    private static void StartExitWatchdog(int timeoutMs = 5000)
+    {
+        var watchdog = new System.Threading.Thread(() =>
+        {
+            System.Threading.Thread.Sleep(timeoutMs);
+            // 走到这里说明超时后进程仍活着 → 被非正常因素挂住，强制终止
+            try
+            {
+                var marker = Path.Combine(FileLogger.LogDir,
+                    $"UsageMonitor-{DateTime.Now:yyyy-MM-dd}.log");
+                File.AppendAllText(marker,
+                    $"[{DateTime.Now:HH:mm:ss.fff}] [Warn ] [App] Exit watchdog fired: process still alive {timeoutMs}ms after OnExit, forcing TerminateProcess{Environment.NewLine}");
+            }
+            catch { /* 兜底日志失败不影响强制退出 */ }
+            // TerminateProcess 自身：不走 DllMain 卸载通知，避免再次卡在原生库关闭钩子
+            try { System.Diagnostics.Process.GetCurrentProcess().Kill(); }
+            catch { Environment.Exit(0); } // Kill 异常时退回 Environment.Exit 兜底
+        })
+        {
+            IsBackground = true,
+            Name = "UsageMonitor.ExitWatchdog"
+        };
+        watchdog.Start();
+    }
+
     protected override void OnExit(ExitEventArgs e)
     {
         FileLogger.Info("App", "=== UsageMonitor exiting ===");
+        // req-fix-退出卡死兜底：先拉起看门狗，保证即使后续清理/进程关闭阶段挂住也能在 5s 内强制终止
+        StartExitWatchdog();
         _trayHoverCheckTimer?.Stop();
         // req-028：停止 5h 倒计时 timer（避免 DispatcherTimer 持续持有 root 引用）
         _viewModel?.StopResetCountdownTimer();
@@ -1038,5 +1075,11 @@ public partial class App : Application
         // FileLogger.Stop() 自洽：内部已完成队列排空 + 兜底，无需再单独 Flush，也消除了 Stop/Flush 顺序依赖。
         FileLogger.Stop();
         base.OnExit(e);
+        // req-fix-退出卡死兜底：所有清理已完成，直接 TerminateProcess 硬终止。
+        // 实测卡死发生在 Main 返回后的 ExitProcess DLL 卸载阶段（残留 0 线程、带文件锁、
+        // 无法强杀的僵尸进程），而那时看门狗线程已被系统先行终止无法兜底；
+        // Kill（TerminateProcess）跳过 DllMain PROCESS_DETACH 通知，保证进程必死。
+        try { System.Diagnostics.Process.GetCurrentProcess().Kill(); }
+        catch { /* Kill 失败则退回正常 CLR 退出流程，由看门狗兼顾 OnExit 内部卡死场景 */ }
     }
 }

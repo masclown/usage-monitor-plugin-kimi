@@ -1002,6 +1002,116 @@ ORDER BY day ASC, provider_id ASC;
     }
 
     /// <summary>
+    /// req-110 P1-4：删除指定账号的历史数据（usage_field_versions + usage_field_history 两张带 account_id 的表）。
+    /// <para>删除账号时用户选"删除历史数据"时调用。Provider 级表（usage_points 等无账号维度）
+    /// 由调用方在"该 Provider 已无剩余账号"时另行调用 <see cref="DeleteProviderDataAsync"/> 清理。
+    /// 同时清理账号曾绑定的网页身份哈希名下的旧行（boundStableId 非空且不同于 accountId 时）。
+    /// 失败仅日志，与仓库其他写入方法保持一致。</para>
+    /// </summary>
+    /// <param name="providerId">Provider ID。</param>
+    /// <param name="accountId">配置账号 ID。</param>
+    /// <param name="boundStableId">该账号绑定的网页身份哈希（可空），非空时一并清理哈希键旧行。</param>
+    public async Task DeleteAccountDataAsync(string providerId, string accountId, string? boundStableId = null)
+    {
+        if (string.IsNullOrWhiteSpace(providerId) || string.IsNullOrWhiteSpace(accountId)) return;
+        try
+        {
+            await using var conn = OpenConnection();
+            await using var tx = conn.BeginTransaction();
+
+            var accountIds = new List<string> { accountId };
+            if (!string.IsNullOrWhiteSpace(boundStableId) &&
+                !string.Equals(boundStableId, accountId, StringComparison.Ordinal))
+                accountIds.Add(boundStableId!);
+
+            int total = 0;
+            foreach (var table in new[] { "usage_field_versions", "usage_field_history" })
+            {
+                foreach (var aid in accountIds)
+                {
+                    using var cmd = conn.CreateCommand();
+                    cmd.Transaction = tx;
+                    cmd.CommandText = $"DELETE FROM {table} WHERE provider_id = $pid AND account_id = $aid";
+                    cmd.Parameters.AddWithValue("$pid", providerId);
+                    cmd.Parameters.AddWithValue("$aid", aid);
+                    total += await cmd.ExecuteNonQueryAsync();
+                }
+            }
+
+            await tx.CommitAsync();
+            FileLogger.Info("UsageHistoryRepository",
+                $"DeleteAccountDataAsync({providerId}:{accountId}): 共删除 {total} 行字段数据");
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Error("UsageHistoryRepository",
+                $"DeleteAccountDataAsync({providerId}:{accountId}) failed", ex);
+        }
+    }
+
+    /// <summary>
+    /// req-110 P1-3：把历史表中按旧 account_id（网页身份哈希）落库的行迁移到新 account_id（配置账号 ID）。
+    /// <para>账号首次绑定网页身份哈希且哈希 ≠ 账号 ID 时调用一次，使历史数据归属到用户创建的账号。
+    /// usage_field_versions 有 (provider, account, field) 唯一键：用 UPDATE OR IGNORE 避免冲突，
+    /// 冲突剩余的旧行（新账号已有同名字段，旧值更早）直接删除；usage_field_history 无唯一键，普通 UPDATE。
+    /// 幂等：旧 account_id 无行时无操作。失败仅日志。</para>
+    /// </summary>
+    /// <param name="providerId">Provider ID。</param>
+    /// <param name="fromAccountId">旧 account_id（网页身份哈希）。</param>
+    /// <param name="toAccountId">新 account_id（配置账号 ID）。</param>
+    public async Task MigrateAccountIdAsync(string providerId, string fromAccountId, string toAccountId)
+    {
+        if (string.IsNullOrWhiteSpace(providerId) ||
+            string.IsNullOrWhiteSpace(fromAccountId) ||
+            string.IsNullOrWhiteSpace(toAccountId) ||
+            string.Equals(fromAccountId, toAccountId, StringComparison.Ordinal)) return;
+        try
+        {
+            await using var conn = OpenConnection();
+            await using var tx = conn.BeginTransaction();
+
+            int migrated, purged, history;
+            using (var cmd = conn.CreateCommand())
+            {
+                cmd.Transaction = tx;
+                cmd.CommandText = "UPDATE OR IGNORE usage_field_versions SET account_id = $to WHERE provider_id = $pid AND account_id = $from";
+                cmd.Parameters.AddWithValue("$to", toAccountId);
+                cmd.Parameters.AddWithValue("$pid", providerId);
+                cmd.Parameters.AddWithValue("$from", fromAccountId);
+                migrated = await cmd.ExecuteNonQueryAsync();
+            }
+            using (var cmd = conn.CreateCommand())
+            {
+                // 唯一键冲突未能迁移的旧行（目标账号已有同名字段，旧值更早）直接清理
+                cmd.Transaction = tx;
+                cmd.CommandText = "DELETE FROM usage_field_versions WHERE provider_id = $pid AND account_id = $from";
+                cmd.Parameters.AddWithValue("$pid", providerId);
+                cmd.Parameters.AddWithValue("$from", fromAccountId);
+                purged = await cmd.ExecuteNonQueryAsync();
+            }
+            using (var cmd = conn.CreateCommand())
+            {
+                cmd.Transaction = tx;
+                cmd.CommandText = "UPDATE usage_field_history SET account_id = $to WHERE provider_id = $pid AND account_id = $from";
+                cmd.Parameters.AddWithValue("$to", toAccountId);
+                cmd.Parameters.AddWithValue("$pid", providerId);
+                cmd.Parameters.AddWithValue("$from", fromAccountId);
+                history = await cmd.ExecuteNonQueryAsync();
+            }
+
+            await tx.CommitAsync();
+            if (migrated + purged + history > 0)
+                FileLogger.Info("UsageHistoryRepository",
+                    $"MigrateAccountIdAsync({providerId}): {fromAccountId} -> {toAccountId}，versions 迁移 {migrated} 行/清理 {purged} 行，history 迁移 {history} 行");
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Error("UsageHistoryRepository",
+                $"MigrateAccountIdAsync({providerId}: {fromAccountId} -> {toAccountId}) failed", ex);
+        }
+    }
+
+    /// <summary>
     /// 异步返回指定 provider 某个日期的日聚合。失败时返回 null。
     /// </summary>
     public async Task<DailyAggregate?> GetDailyAsync(string providerId, string day)

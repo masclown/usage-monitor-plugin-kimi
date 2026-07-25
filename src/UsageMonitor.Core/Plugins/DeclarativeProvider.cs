@@ -96,14 +96,15 @@ public sealed class DeclarativeProvider : IUsageProvider
         if (fetch == null)
             return CreateError("插件声明包缺少 fetch 节，无法取数");
 
-        // Cookie 自愈：config 缺失时回退 cookies/<ProviderId>.json 已保存登录态并回填内存配置。
+        // Cookie 自愈：config 缺失时回退已保存登录态并回填内存配置。
+        // req-110 P2-2：按 _accountId 提示键优先读账号级 cookie 文件（cookies/{Provider}.{Account}.json），缺失回退 Provider 级。
         var cookie = config.GetValue("Cookie")?.Trim();
         var userAgent = config.GetValue("_userAgent");
         if (string.IsNullOrWhiteSpace(cookie))
         {
             try
             {
-                var saved = BrowserLoginService.LoadCookieData(ProviderId);
+                var saved = BrowserLoginService.LoadCookieData(ProviderId, config.GetValue("_accountId"));
                 if (saved != null && !string.IsNullOrWhiteSpace(saved.Cookie))
                 {
                     cookie = saved.Cookie.Trim();

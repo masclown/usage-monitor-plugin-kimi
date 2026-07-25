@@ -65,14 +65,12 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>req-064 U5：首次关闭时提示用户"最小化到托盘"，避免误以为程序已退出。</summary>
-    private bool _hasShownMinimizeHint;
-
     /// <summary>
-    /// 关闭窗口时隐藏而非退出（最小化到托盘）
-    /// req-064 U5：首次关闭弹提示，选"是"最小化、选"否"真退出；第二次起不再弹。
-    /// req-fix-托盘退出文案：如果用户已经通过托盘「退出」菜单确认过退出（App._isRealShutdown=true），
-    /// 这里跳过「最小化到托盘」提示，让 Shutdown 流程顺利关闭所有窗口。
+    /// 关闭主窗口的行为由配置驱动（req-fix-关闭最小化设置）：
+    /// <para>· <c>Settings.MinimizeToTray = true</c>（默认）→ 静默最小化到托盘，不再弹「是否最小化」提示；</para>
+    /// <para>· <c>Settings.MinimizeToTray = false</c> → 直接完全退出程序（走 App.Shutdown 统一清理流程）；</para>
+    /// <para>· 托盘「退出」菜单已确认过退出（App._isRealShutdown=true）时无条件放行关闭。</para>
+    /// 复选框入口：设置 → 常规 →「关闭主窗口时最小化到托盘」。
     /// </summary>
     protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
     {
@@ -83,22 +81,18 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (!_hasShownMinimizeHint)
+        // req-fix-关闭最小化设置：按用户配置决定「最小化到托盘」还是「完全退出」，不再弹提示窗
+        if (_viewModel.ConfigService.Settings.MinimizeToTray)
         {
-            _hasShownMinimizeHint = true;
-            var result = System.Windows.MessageBox.Show(
-                "关闭窗口将最小化到托盘继续监控。\n如需完全退出，请右键托盘图标 → 退出。\n\n是否继续最小化？",
-                "UsageMonitor",
-                System.Windows.MessageBoxButton.YesNo,
-                System.Windows.MessageBoxImage.Information);
-            if (result != System.Windows.MessageBoxResult.Yes)
-            {
-                _hasShownMinimizeHint = false;
-                e.Cancel = false;  // 真退出
-                return;
-            }
+            e.Cancel = true;
+            Hide();
+            return;
         }
-        e.Cancel = true;
-        Hide();
+
+        // 配置为不最小化 → 完全退出。ShutdownMode=OnExplicitShutdown，必须显式 Shutdown
+        // 才能带走托盘图标与后台服务，否则窗口关闭后进程仍驻留托盘。
+        App._isRealShutdown = true;
+        e.Cancel = false;
+        System.Windows.Application.Current.Shutdown();
     }
 }

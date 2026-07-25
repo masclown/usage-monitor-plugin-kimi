@@ -25,8 +25,8 @@ public class ApiKeyAuthProvider : IAuthProvider
     /// <inheritdoc/>
     public Task<string?> GetAuthDataAsync(string providerId, string accountId = "default", CancellationToken ct = default)
     {
-        // API Key 存储在 ProviderConfig.Values["ApiKey"] 中
-        var config = _configService.GetProviderConfig(providerId);
+        // req-110 P2-1：账号生效配置（账号级覆盖 + Provider 级回退）读 ApiKey
+        var config = _configService.GetEffectiveAccountConfig(providerId, accountId);
         var apiKey = config.GetValue("ApiKey");
         return Task.FromResult(apiKey);
     }
@@ -49,10 +49,8 @@ public class ApiKeyAuthProvider : IAuthProvider
     /// <inheritdoc/>
     public Task SaveAuthDataAsync(string providerId, string accountId, string authData, CancellationToken ct = default)
     {
-        // 保存 API Key 到 ProviderConfig
-        var config = _configService.GetProviderConfig(providerId);
-        config.SetValue("ApiKey", authData);
-        _configService.UpdateProviderConfig(providerId, config);
+        // req-110 P2-1：API Key 写账号级凭据（同 Provider 其他账号不受影响）
+        _configService.SetAccountCredential(providerId, accountId, "ApiKey", authData);
         return Task.CompletedTask;
     }
 

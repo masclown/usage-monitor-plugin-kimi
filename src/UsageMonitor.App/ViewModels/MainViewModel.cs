@@ -183,6 +183,34 @@ public partial class MainViewModel : INotifyPropertyChanged
     /// </summary>
     public bool IsEmpty => !EnabledUsages.Any();
 
+    /// <summary>
+    /// req-110 P1-5：空态分层引导文案——按"无插件 → 插件未启用 → 无账号 → 账号未启用"逐层定位，
+    /// 引导用户完成"安装插件 → 创建账号 → 配置凭据"的账号为中心接入流程；随 IsEmpty 一起在卡片集合变化时刷新。
+    /// </summary>
+    public string EmptyStateHint
+    {
+        get
+        {
+            try
+            {
+                var plugins = _pluginManager.Plugins;
+                if (plugins.Count == 0)
+                    return "未发现任何插件，请将插件声明包放入 plugins 目录后重启程序";
+                var enabledPlugins = plugins.Where(p => p.IsEnabled).ToList();
+                if (enabledPlugins.Count == 0)
+                    return "插件已安装但未启用，请在设置 → 插件管理中启用插件";
+                var hasAccount = enabledPlugins.Any(p => _configService.GetAccounts(p.Provider.ProviderId).Count > 0);
+                if (!hasAccount)
+                    return "插件已启用但还没有账号，请在设置 → 插件管理中为插件添加账号并配置登录态 / API Key";
+                return "账号已创建但未启用，请在设置 → 插件管理中启用账号";
+            }
+            catch
+            {
+                return "请在设置 → 插件管理中完成插件与账号配置";
+            }
+        }
+    }
+
     /// <summary>是否启用任务栏显示</summary>
     public bool ShowInTaskbar
     {
@@ -202,6 +230,23 @@ public partial class MainViewModel : INotifyPropertyChanged
         set
         {
             _configService.Settings.AutoStart = value;
+            _configService.Save();
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// req-fix-关闭最小化设置：关闭主窗口时是否最小化到托盘（默认 true）。
+    /// <para>勾选 → 关闭主窗口静默隐藏到托盘；取消勾选 → 关闭主窗口直接完全退出程序。
+    /// MainWindow.OnClosing 读取此配置决定关闭行为，不再弹提示窗。</para>
+    /// </summary>
+    public bool MinimizeToTray
+    {
+        get => _configService.Settings.MinimizeToTray;
+        set
+        {
+            if (_configService.Settings.MinimizeToTray == value) return;
+            _configService.Settings.MinimizeToTray = value;
             _configService.Save();
             OnPropertyChanged();
         }

@@ -213,13 +213,19 @@ public class AccountEntityTests : IDisposable
     }
 
     [Fact]
-    public void RemoveAccount_LastAccount_Throws()
+    public void RemoveAccount_LastAccount_Succeeds_And_CascadesCleanup()
     {
+        // req-110 P1-4：任意账号可删（含最后一个），卡片严格跟随账号生命周期。
         var svc = CreateConfigService();
         svc.AddAccount("minimax", null);
 
         Action act = () => svc.RemoveAccount("minimax", "default");
-        act.Should().Throw<InvalidOperationException>().WithMessage("*仅剩一个账号*");
+        act.Should().NotThrow("req-110：最后一个账号也允许删除");
+
+        svc.GetAccounts("minimax").Should().BeEmpty();
+        // 级联清理：账号级（二段）与卡片级（三段）定制全部移除
+        svc.Settings.AccountCustomizations.Keys
+            .Should().NotContain(k => k.StartsWith("minimax:default", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
@@ -255,15 +261,38 @@ public class AccountEntityTests : IDisposable
     // ===== Card CRUD =====
 
     [Fact]
-    public void AddCard_FirstCard_UsesDefaultCardId()
+    public void AddAccount_AutoCreates_DefaultCard()
     {
+        // req-110 P1-1："有账号必有卡片"不变量——建号同时实例化首张卡片。
+        var svc = CreateConfigService();
+        svc.AddAccount("minimax", null);
+
+        var cards = svc.GetCards("minimax", "default");
+        cards.Should().ContainSingle().Which.CardId.Should().Be("default-card");
+    }
+
+    [Fact]
+    public void EnsureAccount_AutoCreates_DefaultCard()
+    {
+        // req-110 P1-1：EnsureAccount 建号同样维护"有账号必有卡片"不变量。
+        var svc = CreateConfigService();
+        svc.EnsureAccount("minimax", "927d7188aa79eab9");
+
+        svc.GetCards("minimax", "927d7188aa79eab9")
+            .Should().ContainSingle().Which.CardId.Should().Be("default-card");
+    }
+
+    [Fact]
+    public void AddCard_AfterAutoDefaultCard_GeneratesUniqueId()
+    {
+        // req-110：AddAccount 已自动建 default-card，后续 AddCard 从 card-2 起号。
         var svc = CreateConfigService();
         svc.AddAccount("minimax", null);
 
         var card = svc.AddCard("minimax", "default", "API 用量");
-        card.CardId.Should().Be("default-card");
+        card.CardId.Should().NotBe("default-card");
         card.Title.Should().Be("API 用量");
-        card.DisplayOrder.Should().Be(0);
+        card.DisplayOrder.Should().Be(1);
     }
 
     [Fact]
@@ -271,11 +300,12 @@ public class AccountEntityTests : IDisposable
     {
         var svc = CreateConfigService();
         svc.AddAccount("minimax", null);
-        svc.AddCard("minimax", "default", "API 用量");
+        var card1 = svc.AddCard("minimax", "default", "API 用量");
 
         var card2 = svc.AddCard("minimax", "default", "订阅用量");
         card2.CardId.Should().NotBe("default-card");
-        card2.DisplayOrder.Should().Be(1);
+        card2.CardId.Should().NotBe(card1.CardId);
+        card2.DisplayOrder.Should().Be(2);
     }
 
     [Fact]
@@ -287,9 +317,9 @@ public class AccountEntityTests : IDisposable
         var c2 = svc.AddCard("minimax", "default", "Second");
         var c3 = svc.AddCard("minimax", "default", "Third");
 
-        // 按 DisplayOrder 返回
+        // 按 DisplayOrder 返回（首位为自动创建的 default-card）
         var cards = svc.GetCards("minimax", "default");
-        cards.Select(c => c.CardId).Should().ContainInOrder(c1.CardId, c2.CardId, c3.CardId);
+        cards.Select(c => c.CardId).Should().ContainInOrder("default-card", c1.CardId, c2.CardId, c3.CardId);
     }
 
     [Fact]
@@ -303,7 +333,8 @@ public class AccountEntityTests : IDisposable
         card.Customization.VisibleCharts = new System.Collections.Generic.List<string> { "Line" };
         svc.UpdateCard("minimax", "default", card);
 
-        var reloaded = svc.GetCards("minimax", "default").First();
+        // req-110：账号名下还有自动创建的 default-card，按 CardId 精确查找
+        var reloaded = svc.GetCards("minimax", "default").First(c => c.CardId == card.CardId);
         reloaded.Title.Should().Be("Updated");
         reloaded.Customization.VisibleCharts.Should().BeEquivalentTo(new[] { "Line" });
     }
@@ -319,7 +350,8 @@ public class AccountEntityTests : IDisposable
 
         svc.RemoveCard("minimax", "default", card.CardId);
 
-        svc.GetCards("minimax", "default").Should().BeEmpty();
+        // req-110：自动创建的 default-card 仍在，仅新增卡被移除
+        svc.GetCards("minimax", "default").Should().ContainSingle().Which.CardId.Should().Be("default-card");
         // 卡片下的扁平字段也清理（按三段 key）
         svc.Settings.AccountCustomizations
             .Should().NotContainKey(AccountCustomization.MakeKey("minimax", "default", card.CardId));
@@ -329,18 +361,18 @@ public class AccountEntityTests : IDisposable
     public void ReorderCards_UpdatesDisplayOrder()
     {
         var svc = CreateConfigService();
-        svc.AddAccount("minimax", null);
+        svc.AddAccount("minimax", null); // 自动创建 default-card（参与排序）
+        var c0 = svc.GetCards("minimax", "default").Single(); // default-card
         var c1 = svc.AddCard("minimax", "default", "First");
         var c2 = svc.AddCard("minimax", "default", "Second");
-        var c3 = svc.AddCard("minimax", "default", "Third");
 
-        // 反向排序：Third → Second → First
-        svc.ReorderCards("minimax", "default", new[] { c3.CardId, c2.CardId, c1.CardId });
+        // 反向排序：Second → First → default-card
+        svc.ReorderCards("minimax", "default", new[] { c2.CardId, c1.CardId, c0.CardId });
 
         var cards = svc.GetCards("minimax", "default");
-        cards[0].CardId.Should().Be(c3.CardId);
-        cards[1].CardId.Should().Be(c2.CardId);
-        cards[2].CardId.Should().Be(c1.CardId);
+        cards[0].CardId.Should().Be(c2.CardId);
+        cards[1].CardId.Should().Be(c1.CardId);
+        cards[2].CardId.Should().Be(c0.CardId);
         cards[0].DisplayOrder.Should().Be(0);
         cards[1].DisplayOrder.Should().Be(1);
         cards[2].DisplayOrder.Should().Be(2);

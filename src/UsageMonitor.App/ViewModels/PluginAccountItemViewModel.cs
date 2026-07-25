@@ -126,10 +126,10 @@ public class PluginAccountItemViewModel : INotifyPropertyChanged
     /// </summary>
     public void RefreshStatus()
     {
-        // API 灯：读取 Provider 级 ApiKey（ISecretStore 体系尚未启用，API Key 实际存于 ProviderConfig）
+        // API 灯：req-110 P2-4 账号级——读账号生效配置（账号级凭据覆盖 + Provider 级回退）
         try
         {
-            var config = _configService.GetProviderConfig(_providerId);
+            var config = _configService.GetEffectiveAccountConfig(_providerId, _account.AccountId);
             HasApiKey = !string.IsNullOrWhiteSpace(config.GetValue("ApiKey"));
         }
         catch
@@ -201,21 +201,52 @@ public class PluginAccountItemViewModel : INotifyPropertyChanged
         }
     }
 
-    /// <summary>删除账号：弹确认框，成功后调用 RemoveAccount 并从父项集合移除本行。</summary>
+    /// <summary>
+    /// 删除账号（req-110 P1-4 / Q2）：弹确认框询问历史数据删/保——
+    /// [是] 删账号 + 删历史数据；[否] 删账号但保留历史（重建同一网页账号可经 BoundStableId 重新关联）；[取消] 不删。
+    /// 任意账号可删（含最后一个）；该 Provider 已无剩余账号时选删数据会连 Provider 级历史表一并清理。
+    /// </summary>
     private void DeleteAccount()
     {
         var displayName = string.IsNullOrWhiteSpace(_nickname) ? _account.AccountId : _nickname;
         var result = System.Windows.MessageBox.Show(
-            $"确定删除账号「{displayName}」吗？\n该账号的登录态元数据将一并清理。",
+            $"确定删除账号「{displayName}」吗？\n\n" +
+            "【是】删除账号，并删除其历史数据\n" +
+            "【否】删除账号，但保留历史数据（重建同一网页账号可重新关联）\n" +
+            "【取消】不删除",
             "删除账号",
-            MessageBoxButton.OKCancel,
+            MessageBoxButton.YesNoCancel,
             MessageBoxImage.Warning);
-        if (result != MessageBoxResult.OK) return;
+        if (result != MessageBoxResult.Yes && result != MessageBoxResult.No) return;
 
         try
         {
+            // 先捕获绑定哈希（RemoveAccount 后配置中已无法取到）
+            var boundStableId = _account.BoundStableId;
             _configService.RemoveAccount(_providerId, _account.AccountId);
             _parent.RemoveAccountItem(this);
+
+            // 用户选"删除历史数据"：账号级清库；若该 Provider 已无剩余账号，Provider 级历史表一并清理。
+            if (result == MessageBoxResult.Yes)
+            {
+                var providerId = _providerId;
+                var accountId = _account.AccountId;
+                var noAccountsLeft = _configService.GetAccounts(providerId).Count == 0;
+                _ = System.Threading.Tasks.Task.Run(async () =>
+                {
+                    try
+                    {
+                        using var repo = UsageHistoryRepository.CreateDefault();
+                        await repo.DeleteAccountDataAsync(providerId, accountId, boundStableId);
+                        if (noAccountsLeft)
+                            await repo.DeleteProviderDataAsync(providerId);
+                    }
+                    catch (Exception ex)
+                    {
+                        FileLogger.Error("PluginAccountItem", $"删除账号历史数据失败：{providerId}:{accountId}", ex);
+                    }
+                });
+            }
         }
         catch (Exception ex)
         {

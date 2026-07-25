@@ -33,7 +33,23 @@ public class Program
         }
 
         var providerId = args[providerIdx + 1];
-        return await LoginProviderAsync(providerId);
+
+        // req-110 P2-2：可选 --account 参数——登录态归属到指定账号（账号级凭据 + 账号级 cookie 文件）。
+        // 缺省 null = 向后兼容的 Provider 级写入（单账号场景经账号生效配置回退仍可用）。
+        string? accountId = null;
+        var accountIdx = Array.IndexOf(args, "--account");
+        if (accountIdx >= 0)
+        {
+            if (accountIdx + 1 >= args.Length)
+            {
+                Console.WriteLine("[ERROR] Action=ParseArgs Message=--account requires a value");
+                PrintUsage();
+                return 1;
+            }
+            accountId = args[accountIdx + 1];
+        }
+
+        return await LoginProviderAsync(providerId, accountId);
     }
 
     /// <summary>打印使用说明</summary>
@@ -45,11 +61,12 @@ public class Program
         Console.WriteLine("  UsageMonitor.LoginHelper.exe --list");
         Console.WriteLine("    枚举所有支持浏览器登录的 Provider");
         Console.WriteLine();
-        Console.WriteLine("  UsageMonitor.LoginHelper.exe --provider <id>");
-        Console.WriteLine("    为指定 Provider 启动浏览器登录流程");
+        Console.WriteLine("  UsageMonitor.LoginHelper.exe --provider <id> [--account <accountId>]");
+        Console.WriteLine("    为指定 Provider 启动浏览器登录流程；--account 指定登录态归属账号（req-110 多账号）");
         Console.WriteLine();
         Console.WriteLine("示例:");
         Console.WriteLine("  UsageMonitor.LoginHelper.exe --provider MiniMax");
+        Console.WriteLine("  UsageMonitor.LoginHelper.exe --provider MiniMax --account account-2");
         Console.WriteLine();
     }
 
@@ -84,8 +101,10 @@ public class Program
         return 0;
     }
 
-    /// <summary>req-090-005：为指定 Provider 执行浏览器登录</summary>
-    private static async Task<int> LoginProviderAsync(string providerId)
+    /// <summary>req-090-005：为指定 Provider 执行浏览器登录（req-110 P2-2：可选账号归属）</summary>
+    /// <param name="providerId">Provider ID。</param>
+    /// <param name="accountId">登录态归属账号 ID（null = Provider 级向后兼容写入）。</param>
+    private static async Task<int> LoginProviderAsync(string providerId, string? accountId = null)
     {
         Console.WriteLine("===========================================");
         Console.WriteLine($"UsageMonitor Login Helper - {providerId}");
@@ -161,17 +180,26 @@ public class Program
                 Console.WriteLine($"  Cookie length: {cookie.Length} chars");
 
                 // 保存到 config.json（经 ConfigService 加密）
+                // req-110 P2-1：指定 --account 时写账号级凭据（同 Provider 其他账号不受影响）；缺省写 Provider 级（兼容）。
                 var configService = new ConfigService();
                 configService.Load();
-                var providerCfg = configService.GetProviderConfig(providerId, plugin.Provider);
-                providerCfg.SetValue("Cookie", cookie);
-                providerCfg.SetValue("_userAgent", data?.UserAgent ?? "UsageMonitor");
-                configService.UpdateProviderConfig(providerId, providerCfg);
+                if (!string.IsNullOrWhiteSpace(accountId))
+                {
+                    configService.SetAccountCredential(providerId, accountId!, "Cookie", cookie);
+                    configService.SetAccountCredential(providerId, accountId!, "_userAgent", data?.UserAgent ?? "UsageMonitor");
+                }
+                else
+                {
+                    var providerCfg = configService.GetProviderConfig(providerId, plugin.Provider);
+                    providerCfg.SetValue("Cookie", cookie);
+                    providerCfg.SetValue("_userAgent", data?.UserAgent ?? "UsageMonitor");
+                    configService.UpdateProviderConfig(providerId, providerCfg);
+                }
 
-                // 同时保存到 cookies/*.json（新格式，供主程序直接读取）
+                // 同时保存到 cookies/*.json（req-110 P2-2：--account 时写账号级文件）
                 if (data != null)
                 {
-                    BrowserLoginService.SaveCookieData(data);
+                    BrowserLoginService.SaveCookieData(data, accountId);
                 }
 
                 Console.WriteLine();

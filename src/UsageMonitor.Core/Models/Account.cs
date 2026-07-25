@@ -36,6 +36,14 @@ public sealed class Account
     public bool Enabled { get; set; } = true;
 
     /// <summary>
+    /// req-110 P1-3：网页身份绑定哈希（AccountIdHasher 产出，非 PII）。
+    /// <para>账号由用户显式创建；刷新成功后插件返回的网页身份哈希写入本字段作为绑定元数据
+    /// （首次绑定；后续不一致仅告警，提示网页侧换号），不再反向自动注册账号。
+    /// 删除账号后重建同一网页账号可凭相同哈希重新关联历史数据。null = 尚未绑定。</para>
+    /// </summary>
+    public string? BoundStableId { get; set; }
+
+    /// <summary>
     /// 生成账号复合键：<c>ProviderId:AccountId</c>（与 <see cref="AccountCustomization.MakeKey"/> 二段前缀一致）。
     /// </summary>
     public static string MakeKey(string providerId, string accountId = "default")
