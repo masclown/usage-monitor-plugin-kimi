@@ -564,91 +564,13 @@ ORDER BY refresh_at DESC, provider_id ASC;";
         return list;
     }
 
-    /// <summary>
-    /// req-021：一次性清理历史错误数据（token=0 的所有采样点）。
-    /// <para>
-    /// 背景：早期版本 MiniMax DOM 抓取会偶尔产出 token=0 的点，这些点对应"无用量但被错误着色"
-    /// 的热力图格子。本清理逻辑：扫描 <c>usage_points</c> 中 <c>used_tokens=0</c> 的所有记录，删除之。
-    /// </para>
-    /// <para>
-    /// 删除而非标记的原因：<c>usage_points</c> 不存 background 字段，标记需要新增列（schema 变更）。
-    /// 而 0 token 在折线图 / 热力图 / 统计上都无意义，保留反而占空间。
-    /// </para>
-    /// </summary>
-    /// <returns>删除的记录条数</returns>
-    public async Task<int> CleanHistoricalZeroTokenDataAsync()
-    {
-        int cleaned = 0;
-        try
-        {
-            await using var conn = OpenConnection();
-            await using var cmd = conn.CreateCommand();
-            // req-021：限定 used_tokens=0（避免误删其他 Provider 的 token=0 应保留数据）
-            // 为安全起见，仅当 ProviderId 是 MiniMax 时清理（其他 Provider 0 token 可能合法）。
-            cmd.CommandText = "DELETE FROM usage_points WHERE used_tokens = 0 AND provider_id = 'MiniMax';";
-            cleaned = await cmd.ExecuteNonQueryAsync();
-            if (cleaned > 0)
-            {
-                FileLogger.Info("UsageHistoryRepository",
-                    $"CleanHistoricalZeroTokenDataAsync: deleted {cleaned} MiniMax rows with used_tokens=0");
-            }
-        }
-        catch (Exception ex)
-        {
-            FileLogger.Warn("UsageHistoryRepository",
-                "CleanHistoricalZeroTokenDataAsync failed (will not block startup)", ex);
-        }
-        return cleaned;
-    }
-
-    /// <summary>
-    /// req-021：清理后的每日聚合重算。逐 Provider × Day 重新计算 usage_daily，保证热力图色阶正确。
-    /// <para>
-    /// 适用场景：清理完 token=0 后，原 usage_daily 表里的 avg_used_percent / end_used_percent 仍
-    /// 可能受 0 token 影响。本方法对所有受影响的 (provider, day) 行触发重算。
-    /// </para>
-    /// </summary>
-    public async Task RecomputeDailyAggregatesAsync()
-    {
-        try
-        {
-            await using var conn = OpenConnection();
-            await using var cmd = conn.CreateCommand();
-            // 查找所有受影响的 day
-            cmd.CommandText = @"
-SELECT DISTINCT substr(bucket_key, 1, 8), provider_id
-FROM usage_points
-ORDER BY provider_id;";
-            await using var reader = await cmd.ExecuteReaderAsync();
-            var targets = new List<(string providerId, string day8)>();
-            while (await reader.ReadAsync())
-            {
-                targets.Add((reader.GetString(1), reader.GetString(0)));
-            }
-            await reader.CloseAsync();
-
-            // 对每对 (provider, day) 重算 usage_daily
-            foreach (var (pid, day8) in targets)
-            {
-                var day = $"{day8.Substring(0, 4)}-{day8.Substring(4, 2)}-{day8.Substring(6, 2)}";
-                await using var tx = conn.BeginTransaction();
-                UpsertDailyInternal(conn, tx, pid, day);
-                tx.Commit();
-            }
-        }
-        catch (Exception ex)
-        {
-            FileLogger.Warn("UsageHistoryRepository",
-                "RecomputeDailyAggregatesAsync failed", ex);
-        }
-    }
+    // Stage B：req-021 的 CleanHistoricalZeroTokenDataAsync / RecomputeDailyAggregatesAsync 已退役删除——
+    // 一次性历史修复使命完成，且前者 SQL 写死 provider_id='MiniMax'，违反宿主零 Provider 硬编码原则。
 
     /// <summary>
     /// req-015：按需写入采样点。与上次同 Provider 同日采样点比对，业务指纹一致则跳过（仅日志）。
     /// <para>
-    /// 指纹字段：<c>used_percent</c> + Provider 关键 extras（MiniMax：<c>mm_5hUsedPercent</c> /
-    /// <c>mm_weeklyUsedPercent</c> / <c>mm_remainingCredits</c> / <c>mm_subscriptionTitle</c> /
-    /// <c>mm_subscriptionActive</c>；其他：<c>used_tokens</c> / <c>total_tokens</c>）。
+    /// Stage B 泛化：指纹不再特判任何 Provider，统一为 used_percent + used/total tokens + 全部标量 extras（键排序）。
     /// </para>
     /// <para>
     /// 异常时（fingerprint 比较失败）落入“决策 5B”：回退为写入 + FileLogger.Warn。不丢数据。
@@ -721,40 +643,48 @@ LIMIT 1;";
     }
 
     /// <summary>
-    /// req-015：构造本次采样的“业务指纹”——同值指纹一致才跳过写入。
+    /// req-015 / Stage B：构造本次采样的“业务指纹”——同值指纹一致才跳过写入。
     /// <para>
-    /// 指纹字段：
-    /// <list type="bullet">
-    /// <item><description><c>used_percent</c>（决策 2C 顶层字段）</description></item>
-    /// <item><description>MiniMax：<c>mm_5hUsedPercent</c> / <c>mm_weeklyUsedPercent</c> / <c>mm_remainingCredits</c> / <c>mm_subscriptionTitle</c> / <c>mm_subscriptionActive</c></description></item>
-    /// <item><description>其他 Provider：<c>used_tokens</c> / <c>total_tokens</c></description></item>
-    /// </list>
+    /// Stage B 泛化：不再特判任何 Provider。指纹 = used_percent + used/total tokens +
+    /// 全部标量 extras（键按序排列）。集合型 extras（列表/字典/JSON 数组对象）不参与指纹：
+    /// 明细已由专门表持久化，且其变化必伴随标量字段变化。
+    /// 注：指纹算法切换会产生一次性差异 → 升级后首轮刷新多写一个点（可接受，无数据损失）。
     /// </para>
     /// </summary>
     public static string BuildBusinessFingerprint(UsageInfo usage)
     {
         if (usage == null) return string.Empty;
-        var fields = new List<string>
-        {
-            $"percent={usage.GetUsagePercentage():0.####}"
-        };
+        var sb = new System.Text.StringBuilder();
+        sb.Append($"percent={usage.GetUsagePercentage():0.####}");
+        sb.Append($"|usedTokens={usage.UsedTokens}|totalTokens={usage.TotalTokens}");
         if (usage.Extra != null)
         {
-            if (string.Equals(usage.ProviderId, "MiniMax", StringComparison.OrdinalIgnoreCase))
+            foreach (var key in usage.Extra.Keys.OrderBy(k => k, StringComparer.OrdinalIgnoreCase))
             {
-                fields.Add($"5h={TryGetDouble(usage.Extra, "mm_5hUsedPercent")}");
-                fields.Add($"week={TryGetDouble(usage.Extra, "mm_weeklyUsedPercent")}");
-                fields.Add($"credits={TryGetDouble(usage.Extra, "mm_remainingCredits")}");
-                fields.Add($"subTitle={TryGetString(usage.Extra, "mm_subscriptionTitle")}");
-                fields.Add($"subActive={TryGetBool(usage.Extra, "mm_subscriptionActive")}");
-            }
-            else
-            {
-                fields.Add($"usedTokens={TryGetLong(usage.Extra, "used_tokens")}");
-                fields.Add($"totalTokens={TryGetLong(usage.Extra, "total_tokens")}");
+                var value = usage.Extra[key];
+                if (value == null) continue;
+                // 集合型不参与指纹：非 string 的 IEnumerable，或 JSON 数组/对象
+                if (value is not string && value is System.Collections.IEnumerable) continue;
+                if (value is JsonElement je
+                    && (je.ValueKind == JsonValueKind.Array || je.ValueKind == JsonValueKind.Object)) continue;
+                sb.Append('|').Append(key).Append('=').Append(FormatFingerprintValue(value));
             }
         }
-        return string.Join("|", fields);
+        return sb.ToString();
+    }
+
+    /// <summary>Stage B：指纹值规范化——数字用不变文化固定精度格式，JsonElement 取原始文本，其余 ToString。</summary>
+    /// <param name="value">extras 标量值（非 null）。</param>
+    private static string FormatFingerprintValue(object value)
+    {
+        return value switch
+        {
+            double d => d.ToString("0.####", CultureInfo.InvariantCulture),
+            float f => f.ToString("0.####", CultureInfo.InvariantCulture),
+            decimal m => m.ToString("0.####", CultureInfo.InvariantCulture),
+            JsonElement je => je.ToString(),
+            _ => value.ToString() ?? string.Empty
+        };
     }
 
     /// <summary>req-070 F-30：从 extras 字典安全提取 double，补充 JsonElement 分支。</summary>

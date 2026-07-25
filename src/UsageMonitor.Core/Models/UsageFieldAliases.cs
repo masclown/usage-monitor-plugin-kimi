@@ -22,12 +22,20 @@ public static class UsageFieldAliases
         ["mmsubscriptionactive"] = UsageFields.SubscriptionActive,
         ["mmsubscriptiontype"] = UsageFields.SubscriptionType,
         ["mmsubscriptiontier"] = UsageFields.SubscriptionTier,
-        // —— MiniMax DOM 提取器原始键（req-网页校准：总体/排名/峰值/周视频/积分/账号名）——
+        // —— MiniMax DOM 提取器原始键（req-网页校准：总体/排名/峰值/视频/积分/账号名/重置时刻）——
         ["mmactivedays"] = UsageFields.ActiveDays,
+        ["mmtotaldays"] = UsageFields.TotalDays,
         ["mmrankingpercent"] = UsageFields.UsageRankingPercent,
         ["mmtotalcredits"] = UsageFields.TotalCredits,
-        ["mmvideoweeklyused"] = UsageFields.VideoUsedCount,
-        ["mmvideoweeklytotal"] = UsageFields.VideoTotalCount,
+        ["mm5hresetat"] = UsageFields.FiveHourResetAt,
+        ["mmweeklyresetat"] = UsageFields.WeeklyResetAt,
+        // Stage C：视频字段改为窗口区分的通用键（扁平 extras 下 5h/周不能塔缩同名）。
+        ["mmvideointervalused"] = "five_hour_video_used",
+        ["mmvideointervaltotal"] = "five_hour_video_total",
+        ["mmvideointervalremaining"] = "five_hour_video_remaining",
+        ["mmvideoweeklyused"] = "weekly_video_used",
+        ["mmvideoweeklytotal"] = "weekly_video_total",
+        ["mmvideoweeklyremaining"] = "weekly_video_remaining",
         ["mmmostactivedate"] = UsageFields.MostActiveDate,
         ["mmmostactivetoken"] = UsageFields.MostActiveToken,
         ["mmaccountdisplayname"] = UsageFields.AccountDisplayName,

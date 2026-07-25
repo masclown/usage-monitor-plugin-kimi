@@ -64,6 +64,17 @@ jobs:
           --collect:"XPlat Code Coverage"
           --results-directory ./TestResults
 
+      # app-layer-zero-test: App 层（WPF ViewModel / DisplayModule）测试项目，
+      # 覆盖 MainViewModel 刷新命令 / Provider 启用过滤 / 配置联动钳制。
+      - name: Run App layer tests with coverage
+        run: >
+          dotnet test tests/UsageMonitor.App.Tests/UsageMonitor.App.Tests.csproj
+          --no-build
+          --configuration Release
+          --logger "trx;LogFileName=app-test-results.trx"
+          --collect:"XPlat Code Coverage"
+          --results-directory ./TestResults
+
       # req-059-003: 安装 ReportGenerator 并把 Cobertura 转成可视化 HTML。
       - name: Install ReportGenerator tool
         run: dotnet tool install -g dotnet-reportgenerator-globaltool

@@ -94,6 +94,74 @@ public static class PluginValidator
 
         if (manifest.Card != null) ValidateCard(manifest.Card, result);
         if (manifest.Taskbar != null) ValidateTaskbar(manifest.Taskbar, result);
+        ValidateAccessSections(manifest, result);
+    }
+
+    /// <summary>
+    /// Stage A：校验声明包新增节（configFields / errorGuidance / trayTooltip / fetch http 端点 / refresh）。
+    /// </summary>
+    private static void ValidateAccessSections(PluginManifest manifest, PluginValidationResult result)
+    {
+        // configFields：键非空且唯一（大小写不敏感）
+        var seenKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var field in manifest.ConfigFields)
+        {
+            if (string.IsNullOrWhiteSpace(field.Key))
+            {
+                result.Errors.Add("configFields 存在空 Key 的字段");
+                continue;
+            }
+            if (!seenKeys.Add(field.Key))
+                result.Errors.Add($"configFields 字段 Key 重复：{field.Key}");
+        }
+
+        // errorGuidance：文案必填；兑底规则（空关键字）至多一条
+        var fallbackCount = 0;
+        foreach (var rule in manifest.ErrorGuidance)
+        {
+            if (string.IsNullOrWhiteSpace(rule.Message))
+                result.Errors.Add("errorGuidance 存在空 Message 的规则");
+            if (rule.MatchKeywords.Count == 0) fallbackCount++;
+        }
+        if (fallbackCount > 1)
+            result.Warnings.Add($"errorGuidance 有 {fallbackCount} 条兑底规则（空关键字），仅首条生效");
+
+        // trayTooltip：字段白名单校验
+        if (manifest.TrayTooltip != null)
+        {
+            foreach (var fieldName in manifest.TrayTooltip.Fields)
+                EnsureField(fieldName, "trayTooltip", result);
+        }
+
+        // fetch http 端点：UrlTemplate 必填且必须 https；Method 限 GET/POST；真实 URL 展开后运行期另经 req-056 SSRF 校验
+        if (manifest.Fetch != null)
+        {
+            foreach (var ep in manifest.Fetch.Endpoints)
+            {
+                if (string.Equals(ep.Mode, "http", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (string.IsNullOrWhiteSpace(ep.UrlTemplate))
+                        result.Errors.Add("fetch 存在 http 端点缺少 urlTemplate");
+                    else if (!ep.UrlTemplate.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                        result.Errors.Add($"http 端点 urlTemplate 必须为 https：{ep.UrlTemplate}");
+                    if (!string.Equals(ep.Method, "GET", StringComparison.OrdinalIgnoreCase)
+                        && !string.Equals(ep.Method, "POST", StringComparison.OrdinalIgnoreCase))
+                        result.Errors.Add($"http 端点 method 仅支持 GET/POST：{ep.Method}");
+                }
+                else if (string.IsNullOrWhiteSpace(ep.UrlMatch))
+                {
+                    result.Warnings.Add("fetch 存在 capture 端点缺少 urlMatch（将无法命中任何响应）");
+                }
+            }
+        }
+
+        // refresh：间隔关系合理性
+        if (manifest.Refresh != null
+            && (manifest.Refresh.MinIntervalSeconds > manifest.Refresh.DefaultIntervalSeconds
+                || manifest.Refresh.DefaultIntervalSeconds > manifest.Refresh.MaxIntervalSeconds))
+        {
+            result.Warnings.Add("refresh 间隔应满足 Min ≤ Default ≤ Max，当前声明不满足（运行期将被钳制）");
+        }
     }
 
     /// <summary>校验卡片声明：基础信息字段白名单 + 各图表 ChartKindSpec 约束 + Tooltip 字段白名单。</summary>

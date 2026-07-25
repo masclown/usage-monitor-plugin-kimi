@@ -206,11 +206,9 @@ public partial class App : Application
 
         _pluginManager = new PluginManager();
 
-        // 先加载外部插件（会清空列表）
+        // Stage F（完全声明式插件架构）：宿主零内置 Provider，启动仅扫描 plugins/ 声明包
+        //（plugins/<包名>/defaults.json 等清单文件由通用 DeclarativeProvider 运行器实例化）。
         _pluginManager.LoadPlugins();
-
-        // 再注册内置插件（不会被清空）
-        RegisterBuiltinPlugins();
 
         // 同步插件启用状态
         foreach (var plugin in _pluginManager.Plugins)
@@ -219,46 +217,20 @@ public partial class App : Application
                 .GetValueOrDefault(plugin.Provider.ProviderId, true);
         }
 
-        // req-107 B8：插件默认热力图色阶由 Card.Chart.ColorTiers 声明驱动，App 端不再从 HeatMapTiers 接口成员装配
+        // Stage E：注册各插件声明的默认热力图色阶（card.heatMapTiers）作为声明级兜底；
+        // 用户在设置页保存的 ProviderHeatMapTiers 始终优先（ApplyConfig 已在上方加载）。
+        foreach (var plugin in _pluginManager.Plugins)
+        {
+            var declaredTiers = plugin.Provider.Card?.HeatMapTiers;
+            if (declaredTiers is { Count: > 0 })
+                UsageMonitor.App.Helpers.HeatMapTierScale.RegisterDeclaredDefaults(plugin.Provider.ProviderId, declaredTiers);
+        }
 
         // 创建用量历史持久化仓库（SQLite，%AppData%/UsageMonitor/history.db）
         _historyRepository = UsageHistoryRepository.CreateDefault();
         _historyRepository.EnsureSchema();
 
-        // req-021：启动时清理历史 token=0 错误数据（MiniMax Only）。仅在首次或距上次清理 >30 天时执行。
-        // OnStartup 是 void，清理是 I/O 操作 → 用 fire-and-forget 异步启动，不阻塞 UI 启动流程。
-        try
-        {
-            var lastCleaned = _configService.Settings.LastCleanedZeroTokensAt;
-            var shouldClean = lastCleaned == null || (DateTime.Now - lastCleaned.Value).TotalDays > 30;
-            if (shouldClean)
-            {
-                _ = Task.Run(async () =>
-                {
-                    try
-                    {
-                        var deleted = await _historyRepository.CleanHistoricalZeroTokenDataAsync();
-                        if (deleted > 0)
-                        {
-                            await _historyRepository.RecomputeDailyAggregatesAsync();
-                        }
-                        Dispatcher.Invoke(() =>
-                        {
-                            _configService.Settings.LastCleanedZeroTokensAt = DateTime.Now;
-                            _configService.Save();
-                        });
-                    }
-                    catch (Exception ex)
-                    {
-                        FileLogger.Error("App", "req-021 historical token=0 cleanup inner failed", ex);
-                    }
-                });
-            }
-        }
-        catch (Exception ex)
-        {
-            FileLogger.Error("App", "req-021 historical token=0 cleanup scheduling failed", ex);
-        }
+        // Stage B：req-021 的 token=0 历史修复清理已退役（一次性使命完成且 SQL 写死了 Provider，违反零硬编码原则）。
 
         // req-099 B2：创建数据模块（内部封装 UsageHistoryStore + Repository）。刷新时 SaveUsage 会 fire-and-forget 写 SQL。
         _dataModule = new UsageMonitor.Core.Services.Data.DataModule(_historyRepository);
@@ -407,14 +379,6 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// 注册内置插件（当前仅 MiniMax；Deepseek/Kimi/Qoder/MiMo 已移除）。
-    /// </summary>
-    private void RegisterBuiltinPlugins()
-    {
-        _pluginManager.RegisterPlugin(new Plugin.MiniMax.MiniMaxProvider());
-    }
-
-    /// <summary>
     /// 初始化系统托盘图标和右键菜单
     /// </summary>
     private void InitializeTrayIcon()
@@ -438,7 +402,7 @@ public partial class App : Application
             {
                 var cursorPos = System.Windows.Forms.Cursor.Position;
                 if (!IsCursorInTrayArea(cursorPos)) return;
-                var counterVm = _viewModel.Usages?.FirstOrDefault(vm => vm.HasFiveHourCountdown);
+                var counterVm = _viewModel.Usages?.FirstOrDefault(vm => vm.HasResetCountdown);
                 // req-053：直接读取已计算的 FiveHourCountdownText，不再重新调用 RefreshFiveHourCountdownText
                 var countdown = counterVm?.FiveHourCountdownText ?? "00:00:00";
                 // 托盘 tooltip Text 最大约 63 char（Windows 限制），拼接 "Provider/用量/倒计时" 形式。
@@ -678,7 +642,7 @@ public partial class App : Application
 
         try
         {
-            var counterVm = _viewModel.Usages?.FirstOrDefault(vm => vm.HasFiveHourCountdown);
+            var counterVm = _viewModel.Usages?.FirstOrDefault(vm => vm.HasResetCountdown);
             // req-053：直接读取已计算的 FiveHourCountdownText（由 OnFiveHourCountdownTick 每秒更新）
             var countdown = counterVm?.FiveHourCountdownText ?? "00:00:00";
             if (counterVm != null)
@@ -838,12 +802,12 @@ public partial class App : Application
             if (_notifyIcon != null)
             {
                 // req-028：托盘 tooltip 加上 5h 倒计时。格式：用量 X% · 5h 倒计时 HH:mm:ss
-                // 多 Provider 场景只取第一个有 5h 字段的 VM（MiniMax）。
+                // 多 Provider 场景只取第一个有重置倒计时字段的 VM。
                 var lines = e.Usages
                     .Where(u => u.IsSuccess)
                     .Select(u => u.GetShortDisplayText())
                     .ToList();
-                var counterVm = _viewModel.Usages?.FirstOrDefault(vm => vm.HasFiveHourCountdown);
+                var counterVm = _viewModel.Usages?.FirstOrDefault(vm => vm.HasResetCountdown);
                 if (counterVm != null)
                 {
                     lines.Add($"5h 倒计时 {counterVm.FiveHourCountdownText}");
@@ -1059,7 +1023,7 @@ public partial class App : Application
         FileLogger.Info("App", "=== UsageMonitor exiting ===");
         _trayHoverCheckTimer?.Stop();
         // req-028：停止 5h 倒计时 timer（避免 DispatcherTimer 持续持有 root 引用）
-        _viewModel?.StopFiveHourCountdownTimer();
+        _viewModel?.StopResetCountdownTimer();
         _refreshService.Dispose();
         _taskbarWindow?.Close();
         _historyWindow?.Close();

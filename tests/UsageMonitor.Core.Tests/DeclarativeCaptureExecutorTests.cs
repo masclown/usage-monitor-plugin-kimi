@@ -23,31 +23,31 @@ public class DeclarativeCaptureExecutorTests
           {
             "urlMatch": "remains_percent",
             "fields": [
-              { "path": "$.model_remains[0].current_interval_used_percent", "target": "mm_5hUsedPercent", "transform": "parsePercent" },
-              { "path": "$.model_remains[0].current_weekly_used_percent", "target": "mm_weeklyUsedPercent", "transform": "parsePercent" }
+              { "path": "$.model_remains[0].current_interval_used_percent", "target": "five_hour_used_percent", "transform": "parsePercent" },
+              { "path": "$.model_remains[0].current_weekly_used_percent", "target": "weekly_used_percent", "transform": "parsePercent" }
             ]
           },
           {
             "urlMatch": "usage_summary",
             "fields": [
-              { "path": "$.total_days", "target": "mm_totalDays", "transform": "parseNumber" },
-              { "path": "$.active_days", "target": "mm_activeDays", "transform": "parseNumber" }
+              { "path": "$.total_days", "target": "total_days", "transform": "parseNumber" },
+              { "path": "$.active_days", "target": "active_days", "transform": "parseNumber" }
             ],
             "arrays": [
               {
                 "itemsPath": "$.date_model_usage",
                 "mode": "parallel",
                 "itemFields": [
-                  { "path": "$.date", "target": "mm_dailyTokenDates", "elementType": "string" },
-                  { "path": "$.total_token", "target": "mm_dailyTokenValues", "elementType": "long" },
-                  { "path": "$.cache_hit_percent", "target": "mm_dailyCacheHitPercents", "transform": "parsePercent", "elementType": "double" }
+                  { "path": "$.date", "target": "daily_token_dates", "elementType": "string" },
+                  { "path": "$.total_token", "target": "daily_token_values", "elementType": "long" },
+                  { "path": "$.cache_hit_percent", "target": "daily_cache_hit_percents", "transform": "parsePercent", "elementType": "double" }
                 ]
               },
               {
                 "itemsPath": "$.date_model_usage",
                 "mode": "objects",
                 "nestedItems": "models",
-                "target": "mm_modelDaily",
+                "target": "model_daily",
                 "inheritFromParent": { "date": "date" },
                 "itemFields": [
                   { "path": "$.model", "target": "model" },
@@ -60,7 +60,7 @@ public class DeclarativeCaptureExecutorTests
           {
             "urlMatch": "token_plan_credit",
             "fields": [
-              { "path": "$.remaining_credits", "target": "mm_remainingCredits", "transform": "parseNumber" }
+              { "path": "$.remaining_credits", "target": "remaining_credits", "transform": "parseNumber" }
             ]
           }
         ],
@@ -111,22 +111,22 @@ public class DeclarativeCaptureExecutorTests
     public void ScalarFields_ParsedFromCapturedJson()
     {
         var r = RunExecute();
-        r.Extras["mm_5hUsedPercent"].Should().Be(3L);
-        r.Extras["mm_weeklyUsedPercent"].Should().Be(83L);
-        r.Extras["mm_totalDays"].Should().Be(44L);
-        r.Extras["mm_activeDays"].Should().Be(39L);
-        r.Extras["mm_remainingCredits"].Should().Be(0L);
+        r.Extras["five_hour_used_percent"].Should().Be(3L);
+        r.Extras["weekly_used_percent"].Should().Be(83L);
+        r.Extras["total_days"].Should().Be(44L);
+        r.Extras["active_days"].Should().Be(39L);
+        r.Extras["remaining_credits"].Should().Be(0L);
     }
 
     [Fact]
     public void ParallelArrays_ProduceAlignedTypedLists()
     {
         var r = RunExecute();
-        r.Extras["mm_dailyTokenDates"].Should().BeOfType<List<string>>()
+        r.Extras["daily_token_dates"].Should().BeOfType<List<string>>()
             .Which.Should().Equal("2026-07-20", "2026-07-21");
-        r.Extras["mm_dailyTokenValues"].Should().BeOfType<List<long>>()
+        r.Extras["daily_token_values"].Should().BeOfType<List<long>>()
             .Which.Should().Equal(254674208L, 379039852L);
-        r.Extras["mm_dailyCacheHitPercents"].Should().BeOfType<List<double>>()
+        r.Extras["daily_cache_hit_percents"].Should().BeOfType<List<double>>()
             .Which.Should().HaveCount(2);
     }
 
@@ -134,7 +134,7 @@ public class DeclarativeCaptureExecutorTests
     public void ObjectArray_NestedModels_ExpandWithParentDate()
     {
         var r = RunExecute();
-        var rows = r.Extras["mm_modelDaily"].Should().BeOfType<List<Dictionary<string, object>>>().Which;
+        var rows = r.Extras["model_daily"].Should().BeOfType<List<Dictionary<string, object>>>().Which;
         rows.Should().HaveCount(3); // 1 + 2 models
         rows[0]["date"].Should().Be("2026-07-20");
         rows[0]["model"].Should().Be("MiniMax-M3-512k");
@@ -163,15 +163,15 @@ public class DeclarativeCaptureExecutorTests
               {
                 "itemsPath": "$.model_remains", "matchField": "model_name", "matchValue": "general",
                 "fields": [
-                  { "path": "$.current_interval_used_percent", "target": "mm_5hUsedPercent", "transform": "parsePercent" },
-                  { "path": "$.end_time", "target": "mm_5hResetAt", "transform": "fromUnixMs" }
+                  { "path": "$.current_interval_used_percent", "target": "five_hour_used_percent", "transform": "parsePercent" },
+                  { "path": "$.end_time", "target": "five_hour_reset_at", "transform": "fromUnixMs" }
                 ]
               },
               {
                 "itemsPath": "$.model_remains", "matchField": "model_name", "matchValue": "video",
                 "fields": [
-                  { "path": "$.current_interval_total_count", "target": "mm_videoIntervalTotal", "transform": "parseNumber" },
-                  { "path": "$.current_weekly_total_count", "target": "mm_videoWeeklyTotal", "transform": "parseNumber" }
+                  { "path": "$.current_interval_total_count", "target": "five_hour_video_total", "transform": "parseNumber" },
+                  { "path": "$.current_weekly_total_count", "target": "weekly_video_total", "transform": "parseNumber" }
                 ]
               }
             ]
@@ -179,8 +179,8 @@ public class DeclarativeCaptureExecutorTests
           {
             "urlMatch": "usage_summary",
             "fields": [
-              { "path": "$.most_active_day.date", "target": "mm_mostActiveDate" },
-              { "path": "$.most_active_day.token_count", "target": "mm_mostActiveToken", "transform": "parseFormattedToken" }
+              { "path": "$.most_active_day.date", "target": "most_active_date" },
+              { "path": "$.most_active_day.token_count", "target": "most_active_token", "transform": "parseFormattedToken" }
             ]
           }
         ]
@@ -214,24 +214,24 @@ public class DeclarativeCaptureExecutorTests
     public void Finds_SelectGeneralAndVideoByModelName()
     {
         var r = RunFinds();
-        r.Extras["mm_5hUsedPercent"].Should().Be(3L);
-        r.Extras["mm_videoIntervalTotal"].Should().Be(3L);
-        r.Extras["mm_videoWeeklyTotal"].Should().Be(21L);
+        r.Extras["five_hour_used_percent"].Should().Be(3L);
+        r.Extras["five_hour_video_total"].Should().Be(3L);
+        r.Extras["weekly_video_total"].Should().Be(21L);
     }
 
     [Fact]
     public void FromUnixMs_ProducesDateTime()
     {
         var r = RunFinds();
-        r.Extras["mm_5hResetAt"].Should().BeOfType<System.DateTime>();
+        r.Extras["five_hour_reset_at"].Should().BeOfType<System.DateTime>();
     }
 
     [Fact]
     public void ParseFormattedToken_RestoresRawLong()
     {
         var r = RunFinds();
-        r.Extras["mm_mostActiveDate"].Should().Be("2026-07-01");
-        r.Extras["mm_mostActiveToken"].Should().Be(552_490_000L);
+        r.Extras["most_active_date"].Should().Be("2026-07-01");
+        r.Extras["most_active_token"].Should().Be(552_490_000L);
     }
 
     // ===== 新能力：aggregates 加权平均 + computed 减法计算列 =====
@@ -243,16 +243,16 @@ public class DeclarativeCaptureExecutorTests
         "endpoints": [
           { "urlMatch": "remains_percent", "finds": [
             { "itemsPath": "$.model_remains", "matchField": "model_name", "matchValue": "video", "fields": [
-              { "path": "$.current_interval_total_count", "target": "mm_videoIntervalTotal", "transform": "parseNumber" },
-              { "path": "$.current_interval_remains_count", "target": "mm_videoIntervalRemaining", "transform": "parseNumber" }
+              { "path": "$.current_interval_total_count", "target": "five_hour_video_total", "transform": "parseNumber" },
+              { "path": "$.current_interval_remains_count", "target": "five_hour_video_remaining", "transform": "parseNumber" }
             ]}
           ]}
         ],
         "aggregates": [
-          { "urlMatch": "usage_summary", "itemsPath": "$.date_model_usage", "op": "weightedAvg", "valuePath": "$.cache_hit_percent", "valueTransform": "parsePercent", "weightPath": "$.total_token", "target": "mm_cacheHitPercent" }
+          { "urlMatch": "usage_summary", "itemsPath": "$.date_model_usage", "op": "weightedAvg", "valuePath": "$.cache_hit_percent", "valueTransform": "parsePercent", "weightPath": "$.total_token", "target": "cache_hit_percent_agg" }
         ],
         "computed": [
-          { "target": "mm_videoIntervalUsed", "op": "subtract", "operands": ["mm_videoIntervalTotal", "mm_videoIntervalRemaining"] }
+          { "target": "five_hour_video_used", "op": "subtract", "operands": ["five_hour_video_total", "five_hour_video_remaining"] }
         ]
       }
     }
@@ -272,8 +272,8 @@ public class DeclarativeCaptureExecutorTests
         };
         var r = DeclarativeCaptureExecutor.Execute(manifest!.Fetch, captured);
         // 视频 used = total(3) - remains(2) = 1
-        r.Extras["mm_videoIntervalUsed"].Should().Be(1L);
+        r.Extras["five_hour_video_used"].Should().Be(1L);
         // 加权平均 = (100*90 + 300*98)/400 = 96.0
-        System.Convert.ToDouble(r.Extras["mm_cacheHitPercent"]).Should().BeApproximately(96.0, 0.001);
+        System.Convert.ToDouble(r.Extras["cache_hit_percent_agg"]).Should().BeApproximately(96.0, 0.001);
     }
 }

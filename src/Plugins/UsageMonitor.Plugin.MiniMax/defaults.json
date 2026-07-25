@@ -3,12 +3,51 @@
   "minSdkVersion": "0.24.3",
   "providerId": "MiniMax",
   "displayName": "MiniMax",
+  "meta": {
+    "version": "2.0.0",
+    "author": "UsageMonitor",
+    "description": "Query MiniMax Token Plan usage (5h / weekly windows)"
+  },
+  "loginConfig": {
+    "loginUrl": "https://platform.minimaxi.com",
+    "cookieDomainFilters": [ "minimaxi.com", "api.minimaxi.com", "api.minimax.io" ],
+    "loginTimeout": "00:02:00",
+    "uiButtonText": "Get MiniMax login state",
+    "validateUrl": "https://platform.minimaxi.com/console/usage",
+    "requiredCookieDomain": "minimaxi.com",
+    "requiredCookieNames": [ "_token" ],
+    "loginUrlKeywords": [ "login", "unified-login", "signin", "sign-in", "signup", "register" ],
+    "loginSuccessHost": "platform.minimaxi.com",
+    "loggedInPathKeywords": [ "/console/", "/user-center/", "/plan", "/usage" ]
+  },
+  "configFields": [
+    { "key": "ApiKey", "displayName": "Token Plan 订阅密钥", "fieldType": "Password", "isRequired": false, "placeholder": "请输入 MiniMax Token Plan 订阅密钥（可在订阅页面获取）" },
+    { "key": "Cookie", "displayName": "Cookie 登录态（可选备用）", "fieldType": "Password", "isRequired": false, "placeholder": "可选。当密钥失效时，可尝试使用已登录浏览器的 Cookie" },
+    { "key": "Region", "displayName": "接口区域", "fieldType": "Select", "isRequired": false, "defaultValue": "CN", "options": [ "CN", "Global" ] },
+    { "key": "Show5hBar", "displayName": "显示 5h 限额进度条", "fieldType": "Boolean", "isRequired": false, "defaultValue": "true" },
+    { "key": "ShowWeeklyBar", "displayName": "显示 本周限额 进度条", "fieldType": "Boolean", "isRequired": false, "defaultValue": "true" },
+    { "key": "ShowVideo5hBar", "displayName": "显示 视频赠送 5h 进度条", "fieldType": "Boolean", "isRequired": false, "defaultValue": "true" },
+    { "key": "ShowVideoWeeklyBar", "displayName": "显示 视频赠送 本周 进度条", "fieldType": "Boolean", "isRequired": false, "defaultValue": "true" }
+  ],
+  "errorGuidance": [
+    { "matchKeywords": [ "Token Plan 订阅 Key", "填写" ], "message": "请进入设置界面来配置 Token Plan 订阅 Key" },
+    { "matchKeywords": [ "1004", "login fail" ], "message": "Token Plan 订阅 Key 无效，请进入设置检查" },
+    { "matchKeywords": [], "message": "请进入设置界面来配置 MiniMax 的权限" }
+  ],
   "usageUrls": {
     "zh-CN": "https://platform.minimaxi.com/console/usage",
     "en-US": "https://platform.minimax.io/console/usage",
     "ko-KR": "https://platform.minimax.io/ko/console/usage"
   },
   "fetch": {
+    "capture": {
+      "navigateUrl": "https://platform.minimaxi.com/console/usage",
+      "cookieDomain": ".minimaxi.com",
+      "variantField": "Region",
+      "variants": {
+        "Global": { "navigateUrl": "https://platform.minimax.io/console/usage", "cookieDomain": ".minimax.io" }
+      }
+    },
     "endpoints": [
       {
         "urlMatch": "remains_percent",
@@ -16,19 +55,41 @@
           {
             "itemsPath": "$.model_remains", "matchField": "model_name", "matchValue": "general",
             "fields": [
-              { "path": "$.current_interval_used_percent", "target": "mm_5hUsedPercent", "transform": "parsePercent" },
-              { "path": "$.current_weekly_used_percent", "target": "mm_weeklyUsedPercent", "transform": "parsePercent" },
-              { "path": "$.end_time", "target": "mm_5hResetAt", "transform": "fromUnixMs" },
-              { "path": "$.weekly_end_time", "target": "mm_weeklyResetAt", "transform": "fromUnixMs" }
+              { "path": "$.current_interval_used_percent", "target": "five_hour_used_percent", "transform": "parsePercent" },
+              { "path": "$.current_weekly_used_percent", "target": "weekly_used_percent", "transform": "parsePercent" },
+              { "path": "$.end_time", "target": "five_hour_reset_at", "transform": "fromUnixMs" },
+              { "path": "$.weekly_end_time", "target": "weekly_reset_at", "transform": "fromUnixMs" }
             ]
           },
           {
             "itemsPath": "$.model_remains", "matchField": "model_name", "matchValue": "video",
             "fields": [
-              { "path": "$.current_interval_total_count", "target": "mm_videoIntervalTotal", "transform": "parseNumber" },
-              { "path": "$.current_interval_remains_count", "target": "mm_videoIntervalRemaining", "transform": "parseNumber" },
-              { "path": "$.current_weekly_total_count", "target": "mm_videoWeeklyTotal", "transform": "parseNumber" },
-              { "path": "$.current_weekly_remains_count", "target": "mm_videoWeeklyRemaining", "transform": "parseNumber" }
+              { "path": "$.current_interval_total_count", "target": "five_hour_video_total", "transform": "parseNumber" },
+              { "path": "$.current_interval_remains_count", "target": "five_hour_video_remaining", "transform": "parseNumber" },
+              { "path": "$.current_weekly_total_count", "target": "weekly_video_total", "transform": "parseNumber" },
+              { "path": "$.current_weekly_remains_count", "target": "weekly_video_remaining", "transform": "parseNumber" }
+            ]
+          }
+        ]
+      },
+      {
+        "urlMatch": "remains_percent",
+        "mode": "http",
+        "fallback": true,
+        "method": "GET",
+        "urlTemplate": "https://www.minimaxi.com/backend/account/token_plan/remains_percent",
+        "headers": {
+          "Cookie": "{cookieHeader}",
+          "x-group-id": "{cookie:minimax_group_id_v2}"
+        },
+        "finds": [
+          {
+            "itemsPath": "$.model_remains", "matchField": "model_name", "matchValue": "general",
+            "fields": [
+              { "path": "$.current_interval_used_percent", "target": "five_hour_used_percent", "transform": "parsePercent" },
+              { "path": "$.current_weekly_used_percent", "target": "weekly_used_percent", "transform": "parsePercent" },
+              { "path": "$.end_time", "target": "five_hour_reset_at", "transform": "fromUnixMs" },
+              { "path": "$.weekly_end_time", "target": "weekly_reset_at", "transform": "fromUnixMs" }
             ]
           }
         ]
@@ -36,29 +97,29 @@
       {
         "urlMatch": "usage_summary",
         "fields": [
-          { "path": "$.total_days", "target": "mm_totalDays", "transform": "parseNumber" },
-          { "path": "$.active_days", "target": "mm_activeDays", "transform": "parseNumber" },
-          { "path": "$.usage_ranking_percent", "target": "mm_rankingPercent", "transform": "parseNumber" },
-          { "path": "$.total_token_consumed", "target": "mm_totalTokens", "transform": "identity" },
-          { "path": "$.most_active_day.date", "target": "mm_mostActiveDate" },
-          { "path": "$.most_active_day.token_count", "target": "mm_mostActiveToken", "transform": "parseFormattedToken" },
-          { "path": "$.most_active_day.token_count", "target": "mm_mostActiveTokenText", "transform": "identity" }
+          { "path": "$.total_days", "target": "total_days", "transform": "parseNumber" },
+          { "path": "$.active_days", "target": "active_days", "transform": "parseNumber" },
+          { "path": "$.usage_ranking_percent", "target": "usage_ranking_percent", "transform": "parseNumber" },
+          { "path": "$.total_token_consumed", "target": "used_tokens_text", "transform": "identity" },
+          { "path": "$.most_active_day.date", "target": "most_active_date" },
+          { "path": "$.most_active_day.token_count", "target": "most_active_token", "transform": "parseFormattedToken" },
+          { "path": "$.most_active_day.token_count", "target": "most_active_token_text", "transform": "identity" }
         ],
         "arrays": [
           {
             "itemsPath": "$.date_model_usage",
             "mode": "parallel",
             "itemFields": [
-              { "path": "$.date", "target": "mm_dailyTokenDates", "elementType": "string" },
-              { "path": "$.total_token", "target": "mm_dailyTokenValues", "elementType": "long" },
-              { "path": "$.cache_hit_percent", "target": "mm_dailyCacheHitPercents", "transform": "parsePercent", "elementType": "double" }
+              { "path": "$.date", "target": "daily_token_dates", "elementType": "string" },
+              { "path": "$.total_token", "target": "daily_token_values", "elementType": "long" },
+              { "path": "$.cache_hit_percent", "target": "daily_cache_hit_percents", "transform": "parsePercent", "elementType": "double" }
             ]
           },
           {
             "itemsPath": "$.date_model_usage",
             "mode": "objects",
             "nestedItems": "models",
-            "target": "mm_modelDaily",
+            "target": "model_daily",
             "inheritFromParent": { "date": "date" },
             "itemFields": [
               { "path": "$.model", "target": "model" },
@@ -74,26 +135,41 @@
       {
         "urlMatch": "token_plan_credit",
         "fields": [
-          { "path": "$.remaining_credits", "target": "mm_remainingCredits", "transform": "parseNumber" },
-          { "path": "$.total_credits", "target": "mm_totalCredits", "transform": "parseNumber" }
+          { "path": "$.remaining_credits", "target": "remaining_credits", "transform": "parseNumber" },
+          { "path": "$.total_credits", "target": "total_credits", "transform": "parseNumber" }
         ]
       }
     ],
     "aggregates": [
-      { "urlMatch": "usage_summary", "itemsPath": "$.date_model_usage", "op": "weightedAvg", "valuePath": "$.cache_hit_percent", "valueTransform": "parsePercent", "weightPath": "$.total_token", "target": "mm_cacheHitPercent" }
+      { "urlMatch": "usage_summary", "itemsPath": "$.date_model_usage", "op": "weightedAvg", "valuePath": "$.cache_hit_percent", "valueTransform": "parsePercent", "weightPath": "$.total_token", "target": "cache_hit_percent" }
     ],
     "computed": [
-      { "target": "mm_videoIntervalUsed", "op": "subtract", "operands": ["mm_videoIntervalTotal", "mm_videoIntervalRemaining"] },
-      { "target": "mm_videoWeeklyUsed", "op": "subtract", "operands": ["mm_videoWeeklyTotal", "mm_videoWeeklyRemaining"] }
+      { "target": "five_hour_video_used", "op": "subtract", "operands": ["five_hour_video_total", "five_hour_video_remaining"] },
+      { "target": "weekly_video_used", "op": "subtract", "operands": ["weekly_video_total", "weekly_video_remaining"] },
+      { "target": "subscription_type", "op": "splitBefore", "operands": ["subscription_raw"], "separators": "·・•", "whenPresent": "subscription_raw" },
+      { "target": "subscription_tier", "op": "splitAfter", "operands": ["subscription_raw"], "separators": "·・•", "whenPresent": "subscription_raw" },
+      { "target": "subscription_type", "op": "constant", "value": "Token Plan", "whenPresent": "subscription_raw", "onlyIfAbsent": true },
+      { "target": "subscription_title", "op": "coalesce", "operands": ["subscription_tier"] },
+      { "target": "subscription_active", "op": "constant", "value": true, "whenPresent": "subscription_raw" },
+      { "target": "most_active_day", "op": "template", "template": "{most_active_date} ({most_active_token_text})", "whenPresent": "most_active_date" }
     ],
     "dom": [
-      { "tool": "jsFunction", "source": "() => { const els=Array.from(document.querySelectorAll('span,div,p')); const cands=els.map(x=>(x.textContent||'').trim()).filter(t=>t.length>0 && t.length<40 && (t.indexOf('·')>=0||t.indexOf('・')>=0) && (/Plan/.test(t)||t.indexOf('会员')>=0)); if(cands.length===0) return null; cands.sort((a,b)=>a.length-b.length); return cands[0]; }", "target": "mm_subscriptionRaw" }
+      { "tool": "jsFunction", "source": "() => { const els=Array.from(document.querySelectorAll('span,div,p')); const cands=els.map(x=>(x.textContent||'').trim()).filter(t=>t.length>0 && t.length<40 && (t.indexOf('·')>=0||t.indexOf('・')>=0) && (/Plan/.test(t)||t.indexOf('会员')>=0)); if(cands.length===0) return null; cands.sort((a,b)=>a.length-b.length); return cands[0]; }", "target": "subscription_raw" }
     ],
     "accountId": { "urlMatch": "group/list", "path": "$.groups[0].group_id" }
   },
   "card": {
     "renderKinds": ["subscriptionTitle", "primaryBar", "weeklyBar", "videoProgress", "summary", "ranking", "credits"],
     "primaryMetric": "five_hour_used_percent",
+    "collapseVisibleParts": ["limitBars"],
+    "heatMapTiers": [
+      { "minTokens": 0, "colorHex": "#f3f4f6" },
+      { "minTokens": 1, "colorHex": "#ffe7e2" },
+      { "minTokens": 20000000, "colorHex": "#ffc6bb" },
+      { "minTokens": 100000000, "colorHex": "#ffa595" },
+      { "minTokens": 200000000, "colorHex": "#ff7b64" },
+      { "minTokens": 300000000, "colorHex": "#ff5a3d" }
+    ],
     "baseInfo": {
       "fields": [
         { "fieldName": "subscription_type", "role": "Meta" },

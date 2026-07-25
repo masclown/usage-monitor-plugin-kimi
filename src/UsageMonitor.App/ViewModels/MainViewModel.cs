@@ -41,9 +41,9 @@ public partial class MainViewModel : INotifyPropertyChanged
         set => _hostAppRef = value;
     }
 
-    // req-028：每 1s 触发一次的全局 DispatcherTimer，用来刷新各 Provider 卡的 5h 倒计时 + 到时自动刷新。
-    // 单例复用；启动时由 MainViewModel 构造函数 Start，资沅销毁由 App.xaml.cs OnExit 调用 Stop。
-    private System.Windows.Threading.DispatcherTimer? _fiveHourCountdownTimer;
+    // req-028：每 1s 触发一次的全局 DispatcherTimer，用来刷新各 Provider 卡的重置倒计时 + 到时自动刷新（Provider 无关，能力标志驱动）。
+    // 单例复用；启动时由 MainViewModel 构造函数 Start，资源销毁由 App.xaml.cs OnExit 调用 Stop。
+    private System.Windows.Threading.DispatcherTimer? _resetCountdownTimer;
     // req-028："上一次自动刷新触发"时间，防止系统时间回退 / 重复 tick 造成连续多次触发 RefreshProviderAsync。
     private DateTime _lastAutoRefreshUtc = DateTime.MinValue;
 

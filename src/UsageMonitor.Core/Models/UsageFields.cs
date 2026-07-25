@@ -3,7 +3,7 @@ namespace UsageMonitor.Core.Models;
 /// <summary>
 /// SDK 标准字段名常量定义 - 插件上报数据时使用的标准字段名（req-107 B1 统一字段体系）。
 /// <para>设计原则（见 <c>docs/sdk-unified-fields.md</c>）：
-/// ① 去 Provider 前缀——同语义字段跨 Provider 共用一个名字（如 <see cref="FiveHourUsedPercent"/> 而非 mm_5h_used_percent）；
+/// ① 去 Provider 前缀——同语义字段跨 Provider 共用一个名字（如 <see cref="FiveHourUsedPercent"/>，而非带 Provider 私有前缀的名字）；
 /// ② 字段名 = 入库列名，反向生成 SQLite schema，额外系统列 ProviderId/AccountId/PlanType/Timestamp；
 /// ③ 百分比存数字 0-100、比例归一、金额分→元；④ 敏感字段（<see cref="ApiKey"/> 等）永不入库；
 /// ⑤ 多窗口字段用 plan_type 区分归属。</para>
@@ -65,9 +65,6 @@ public static class UsageFields
 
     /// <summary>Code 子维度用量百分比</summary>
     public const string CodeUsedPercent = "code_used_percent";
-
-    /// <summary>派生：total - code（Kimi）</summary>
-    public const string KimiUsedPercent = "kimi_used_percent";
 
     /// <summary>5 小时窗口已用百分比（0-100）</summary>
     public const string FiveHourUsedPercent = "five_hour_used_percent";
@@ -228,6 +225,9 @@ public static class UsageFields
     /// <summary>活跃天数</summary>
     public const string ActiveDays = "active_days";
 
+    /// <summary>注册以来总天数（Stage C 新增：与 active_days 组成“活跃/总”比）</summary>
+    public const string TotalDays = "total_days";
+
     /// <summary>用量排名前 %（越小越靠前）</summary>
     public const string UsageRankingPercent = "usage_ranking_percent";
 
@@ -303,34 +303,7 @@ public static class UsageFields
     /// <summary>访问令牌（敏感，永不入库/日志）</summary>
     public const string AccessToken = "access_token";
 
-    // ===================== 旧 Provider 前缀字段（遗留兼容，req-107 统一后由 req-108 迁移） =====================
-    // 说明：以下 mm_/ds_ 前缀字段为 req-092 阶段产物，已被上方统一字段取代（映射见 UsageFieldAliases）。
-    // 当前 MiniMax/Kimi 插件仍在写入这些旧键，为保证编译绿色与零回归暂予保留，待 req-108 迁移后移除。
-
-    // ===================== MiniMax 特有字段 =====================
-
-    /// <summary>MiniMax 5小时额度已用百分比</summary>
-    public const string Mm5hUsedPercent = "mm_5h_used_percent";
-
-    /// <summary>MiniMax 周额度已用百分比</summary>
-    public const string MmWeeklyUsedPercent = "mm_weekly_used_percent";
-
-    /// <summary>MiniMax 剩余额度（Credits）</summary>
-    public const string MmRemainingCredits = "mm_remaining_credits";
-
-    /// <summary>MiniMax 订阅标题</summary>
-    public const string MmSubscriptionTitle = "mm_subscription_title";
-
-    /// <summary>MiniMax 订阅是否激活</summary>
-    public const string MmSubscriptionActive = "mm_subscription_active";
-
-    // ===================== DeepSeek 特有字段 =====================
-
-    /// <summary>DeepSeek 消费金额</summary>
-    public const string DsSpendAmount = "ds_spend_amount";
-
-    /// <summary>DeepSeek 请求次数</summary>
-    public const string DsRequestCount = "ds_request_count";
+    // Stage C：旧 Provider 前缀遗留常量已全部删除——历史库旧名由 UsageFieldAliases 解析到现名。
 
     // ===================== 扩展字段前缀 =====================
 
@@ -348,7 +321,7 @@ public static class UsageFields
         // 系统列
         ProviderId, AccountId, PlanType, Timestamp,
         // 用量百分比（多窗口）
-        TotalUsedPercent, CodeUsedPercent, KimiUsedPercent,
+        TotalUsedPercent, CodeUsedPercent,
         FiveHourUsedPercent, WeeklyUsedPercent, SevenDayUsedPercent,
         // 配额额度
         RemainingAmount, UsedCredits, TotalCredits, RemainingCredits,
@@ -372,7 +345,7 @@ public static class UsageFields
         // 缓存命中
         CacheHitPercent,
         // 状态 / 元信息
-        ActiveDays, UsageRankingPercent, MostActiveDate, MostActiveToken,
+        ActiveDays, TotalDays, UsageRankingPercent, MostActiveDate, MostActiveToken,
         // 账号元数据
         AccountDisplayName,
         // 时序明细
@@ -381,11 +354,7 @@ public static class UsageFields
         InputToken, OutputToken, CacheReadToken, CacheMissToken,
         RequestCount, RequestId, RequestClient, RequestStatus, RequestCost,
         // 敏感字段（仅用于白名单识别与入库拦截）
-        ApiKey, AccessToken,
-        // 旧前缀字段（遗留兼容，过渡期保留）
-        Mm5hUsedPercent, MmWeeklyUsedPercent, MmRemainingCredits,
-        MmSubscriptionTitle, MmSubscriptionActive,
-        DsSpendAmount, DsRequestCount
+        ApiKey, AccessToken
     };
 
     /// <summary>
@@ -417,13 +386,7 @@ public static class UsageFields
             "lastupdated" => LastUpdated,
             "issuccess" => IsSuccess,
             "errormessage" => ErrorMessage,
-            "mm_5husedpercent" or "mm5husedpercent" => Mm5hUsedPercent,
-            "mm_weeklyusedpercent" or "mmweeklyusedpercent" => MmWeeklyUsedPercent,
-            "mm_remainingcredits" or "mmremainingcredits" => MmRemainingCredits,
-            "mm_subscriptiontitle" or "mmsubscriptiontitle" => MmSubscriptionTitle,
-            "mm_subscriptionactive" or "mmsubscriptionactive" => MmSubscriptionActive,
-            "ds_spendamount" or "dsspendamount" => DsSpendAmount,
-            "ds_requestcount" or "dsrequestcount" => DsRequestCount,
+            // Stage C：mm_/ds_ 旧名分支已删除——统一经下方 UsageFieldAliases 解析到现用通用字段。
             // 其余名称尝试经字段改名历史表解析到现用统一字段（req-107 B1），无别名则保持原样
             _ => UsageFieldAliases.Resolve(rawFieldName) ?? rawFieldName
         };

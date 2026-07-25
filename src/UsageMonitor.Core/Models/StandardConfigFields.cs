@@ -25,6 +25,21 @@ namespace UsageMonitor.Core.Models;
 /// </summary>
 public static class StandardConfigFields
 {
+    // ============ Stage D：渲染块显隐开关的 SDK 标准配置键（宿主按常量读取，不硬编码魔法字符串） ============
+    // 任何插件声明同名 Boolean 配置字段即可获得对应进度条的用户显隐开关；键值保持历史写法以兼容已有用户配置。
+
+    /// <summary>渲染开关：5 小时窗口主进度条显隐。</summary>
+    public const string ToggleShowFiveHourBar = "Show5hBar";
+
+    /// <summary>渲染开关：周窗口进度条显隐。</summary>
+    public const string ToggleShowWeeklyBar = "ShowWeeklyBar";
+
+    /// <summary>渲染开关：视频配额 5 小时窗口进度条显隐。</summary>
+    public const string ToggleShowVideoFiveHourBar = "ShowVideo5hBar";
+
+    /// <summary>渲染开关：视频配额周窗口进度条显隐。</summary>
+    public const string ToggleShowVideoWeeklyBar = "ShowVideoWeeklyBar";
+
     /// <summary>
     /// 标准 <c>ApiKey</c> 字段（<see cref="ConfigFieldType.Password"/>，<c>isRequired: true</c>）。
     /// i18n key = <c>plugin.{providerId}.field.ApiKey.{name,placeholder}</c>。

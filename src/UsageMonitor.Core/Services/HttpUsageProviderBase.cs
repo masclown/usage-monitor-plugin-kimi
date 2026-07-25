@@ -87,14 +87,8 @@ public abstract class HttpUsageProviderBase : IUsageProvider
         return result.IsSuccess;
     }
 
-    /// <inheritdoc />
-    public virtual IReadOnlyList<string> SupportedRingChartMetrics => new[] { "Percent" };
-
-    /// <inheritdoc />
-    public virtual bool SupportsPeriodSwitch => false;
-
-    /// <inheritdoc />
-    public virtual IReadOnlyList<string>? ExtraTooltipLines => null;
+    // Stage E：SupportedRingChartMetrics / SupportsPeriodSwitch / ExtraTooltipLines 已随
+    // IUsageProvider 的 [Obsolete] 成员删除——能力由 Card / Taskbar 声明聚合根承载。
 
     /// <inheritdoc />
     public virtual Task SetPeriodAsync(string period, CancellationToken ct = default)

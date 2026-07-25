@@ -139,9 +139,9 @@ public partial class MainViewModel : INotifyPropertyChanged
         // 与 App.xaml.cs 中 _configService.ConfigChanged 订阅互不冲突（多订阅者并行接收）。
         _configService.ConfigChanged += OnConfigChangedRefreshSettings;
 
-        // req-028：启动全局每秒 DispatcherTimer，刷新托盘/悬浮窗/卡片的 5h 倒计时 + 到时自动刷新。
+        // req-028：启动全局每秒 DispatcherTimer，刷新托盘/悬浮窗/卡片的重置倒计时 + 到时自动刷新。
         // 必须在 Usages / EnabledUsages / PluginItems 都装配后启动；后续调用连动。
-        StartFiveHourCountdownTimer();
+        StartResetCountdownTimer();
 
         // 初始化插件列表与用量显示（req-099 B1：卡片装配 / 已启用过滤逻辑已抽离到 DisplayModule.Build）
         _displayModule.Build();
@@ -213,7 +213,7 @@ public partial class MainViewModel : INotifyPropertyChanged
     /// <list type="number">
     ///   <item><description>providerId 为空 → <see cref="UsageMonitor.App.Helpers.HeatMapTierScale.GenericDefaults"/></description></item>
     ///   <item><description><c>ConfigService.Settings.ProviderHeatMapTiers[providerId]</c> 存在且非空 → 持久化的色阶</description></item>
-    ///   <item><description>MiniMax 专用 → <see cref="UsageMonitor.App.Helpers.HeatMapTierScale.MiniMaxDefaults"/> 6 档</description></item>
+    ///   <item><description>插件声明包 card.heatMapTiers 已注册 → 声明默认色阶</description></item>
     ///   <item><description>其他 → <see cref="UsageMonitor.App.Helpers.HeatMapTierScale.GenericDefaults"/> 4 档</description></item>
     /// </list>
     /// </para>
@@ -230,10 +230,9 @@ public partial class MainViewModel : INotifyPropertyChanged
             && saved != null && saved.Count > 0)
             return saved.ToList();
 
-        // 兜底：MiniMax 用 6 档，其他用 4 档
-        var defaults = string.Equals(key, "MiniMax", System.StringComparison.OrdinalIgnoreCase)
-            ? UsageMonitor.App.Helpers.HeatMapTierScale.MiniMaxDefaults
-            : UsageMonitor.App.Helpers.HeatMapTierScale.GenericDefaults;
+        // 兜底：插件声明默认色阶 → 通用 4 档（Stage E：零 Provider 专名硬编码）
+        var defaults = UsageMonitor.App.Helpers.HeatMapTierScale.GetDeclaredDefaults(key)
+            ?? UsageMonitor.App.Helpers.HeatMapTierScale.GenericDefaults;
         return RuntimeTiersToConfigList(defaults);
     }
 
@@ -484,32 +483,32 @@ public partial class MainViewModel : INotifyPropertyChanged
     // =====================================================================
 
     /// <summary>
-    /// req-028：启动全局每秒 <c>DispatcherTimer</c>，刷新所有 Provider 卡片的 5h 倒计时文本 + 到时自动刷新。
+    /// req-028：启动全局每秒 <c>DispatcherTimer</c>，刷新所有 Provider 卡片的重置倒计时文本 + 到时自动刷新。
     /// <para>
     /// 调用方：MainViewModel 构造函数末尾（确保所有 <see cref="Usages"/> 已装配后再启动）。
-    /// 期望与 <c>App.OnExit</c> 配对调 <see cref="StopFiveHourCountdownTimer"/> 避免泄漏。
+    /// 期望与 <c>App.OnExit</c> 配对调 <see cref="StopResetCountdownTimer"/> 避免泄漏。
     /// </para>
     /// </summary>
-    public void StartFiveHourCountdownTimer()
+    public void StartResetCountdownTimer()
     {
-        if (_fiveHourCountdownTimer != null) return; // 幂等
-        _fiveHourCountdownTimer = new System.Windows.Threading.DispatcherTimer
+        if (_resetCountdownTimer != null) return; // 幂等
+        _resetCountdownTimer = new System.Windows.Threading.DispatcherTimer
         {
             Interval = TimeSpan.FromSeconds(1)
         };
-        _fiveHourCountdownTimer.Tick += OnFiveHourCountdownTick;
-        _fiveHourCountdownTimer.Start();
+        _resetCountdownTimer.Tick += OnResetCountdownTick;
+        _resetCountdownTimer.Start();
     }
 
     /// <summary>
     /// req-028：停止全局每秒 timer，App.OnExit 入口调用以避免 <c>DispatcherTimer</c> 引用泄漏。
     /// </summary>
-    public void StopFiveHourCountdownTimer()
+    public void StopResetCountdownTimer()
     {
-        if (_fiveHourCountdownTimer == null) return;
-        _fiveHourCountdownTimer.Stop();
-        _fiveHourCountdownTimer.Tick -= OnFiveHourCountdownTick;
-        _fiveHourCountdownTimer = null;
+        if (_resetCountdownTimer == null) return;
+        _resetCountdownTimer.Stop();
+        _resetCountdownTimer.Tick -= OnResetCountdownTick;
+        _resetCountdownTimer = null;
     }
 
     /// <summary>
@@ -518,7 +517,7 @@ public partial class MainViewModel : INotifyPropertyChanged
     /// <see cref="RefreshService.RefreshProviderAsync"/>。为防重复触发，已经在 VM 上标记过的不会再被本 tick 选中，
     /// 直到新 <see cref="ProviderUsageViewModel.Next5hResetAt"/> 到来重置该标记。</para>
     /// </summary>
-    private void OnFiveHourCountdownTick(object? sender, EventArgs e)
+    private void OnResetCountdownTick(object? sender, EventArgs e)
     {
         if (Usages == null) return;
         foreach (var vm in Usages)

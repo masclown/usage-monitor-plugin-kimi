@@ -7,6 +7,11 @@
     <Nullable>enable</Nullable>
   <!-- req-107 B6：IUsageProvider 收敛过渡期，抑制过时接口成员警告 -->
     <NoWarn>$(NoWarn);CS0618</NoWarn>
+    <!-- ci-no-quality-gate：Core 层质量门禁——warning 即失败（当前基线 0 warning），
+         并让 .editorconfig 的命名约定（warning 级）参与构建检查。
+         渐进式策略：仅 Core 启用；App/Plugins 因第三方包与兼容层警告暂不强制。 -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
   </PropertyGroup>
 
   <ItemGroup>

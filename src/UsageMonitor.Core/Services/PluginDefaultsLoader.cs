@@ -17,15 +17,62 @@ public static class PluginDefaultsLoader
     private const string LogSource = "PluginDefaultsLoader";
 
     /// <summary>
-    /// 从插件目录装载 defaults.json；文件不存在返回 null（插件走代码 override 或旧路径）。
+    /// Stage A 声明包文件名（按优先级顺序）：三文件对应插件三部分（接入/取数/显示），
+    /// defaults.json 为单文件兼容形态（优先级最低，拆分文件可覆盖它）。
     /// </summary>
-    /// <param name="pluginDirectory">插件目录（含 defaults.json）。</param>
+    private static readonly string[] ManifestFileNames = { "plugin.json", "fetch.json", "display.json", "defaults.json" };
+
+    /// <summary>
+    /// 从插件目录装载声明清单（Stage A：支持 plugin.json / fetch.json / display.json / defaults.json 多文件合并）。
+    /// <para>存在的文件逐个解析后按优先级合并，再对合并结果做语义校验（部分文件单独看可以不完整）。
+    /// 任一文件 JSON 语法错误或合并后校验失败均返回 null（整包判失败）；目录无任何清单文件返回 null。</para>
+    /// </summary>
+    /// <param name="pluginDirectory">插件目录。</param>
     /// <param name="currentSdkVersion">当前 SDK 版本（供 minSdkVersion 兼容校验）。</param>
-    /// <returns>校验通过的插件清单；文件缺失或校验失败返回 null。</returns>
+    /// <returns>校验通过的合并清单；文件缺失或校验失败返回 null。</returns>
     public static PluginManifest? LoadFromDirectory(string pluginDirectory, Version? currentSdkVersion = null)
     {
-        var path = Path.Combine(pluginDirectory, "defaults.json");
-        return File.Exists(path) ? LoadFromFile(path, currentSdkVersion) : null;
+        if (string.IsNullOrWhiteSpace(pluginDirectory) || !Directory.Exists(pluginDirectory)) return null;
+
+        PluginManifest? merged = null;
+        foreach (var fileName in ManifestFileNames)
+        {
+            var path = Path.Combine(pluginDirectory, fileName);
+            if (!File.Exists(path)) continue;
+
+            var part = ParseManifestFile(path);
+            if (part == null) return null; // 语法错误已记日志，整包判失败
+            merged = merged == null ? part : PluginManifest.Merge(merged, part);
+        }
+        if (merged == null) return null;
+
+        // 对合并结果做语义校验（与 --validate-plugin 共用 PluginValidator）
+        var result = new PluginValidationResult();
+        PluginValidator.ValidateManifest(merged, currentSdkVersion, result);
+        foreach (var warning in result.Warnings)
+            FileLogger.Warn(LogSource, $"{pluginDirectory}: {warning}");
+        if (!result.IsValid)
+        {
+            foreach (var error in result.Errors)
+                FileLogger.Warn(LogSource, $"{pluginDirectory}: {error}");
+            return null;
+        }
+        return merged;
+    }
+
+    /// <summary>解析单个清单文件为部分 <see cref="PluginManifest"/>（仅 JSON 语法层，不做语义校验）。</summary>
+    /// <param name="path">清单文件绝对路径。</param>
+    private static PluginManifest? ParseManifestFile(string path)
+    {
+        try
+        {
+            return PluginManifest.Load(File.ReadAllText(path));
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Warn(LogSource, $"解析 {path} 失败：{ex.Message}");
+            return null;
+        }
     }
 
     /// <summary>
@@ -60,18 +107,7 @@ public static class PluginDefaultsLoader
     }
 
     /// <summary>
-    /// 按 providerId 在 Plugins 目录下定位插件目录并装载其 defaults.json。
-    /// </summary>
-    /// <param name="providerId">插件 ID（用于匹配目录名，如 "MiniMax" 匹配 UsageMonitor.Plugin.MiniMax）。</param>
-    /// <param name="currentSdkVersion">当前 SDK 版本。</param>
-    public static PluginManifest? LoadForProvider(string providerId, Version? currentSdkVersion = null)
-    {
-        var dir = ResolvePluginDirectory(providerId);
-        return dir != null ? LoadFromDirectory(dir, currentSdkVersion) : null;
-    }
-
-    /// <summary>
-    /// 从程序集所在目录装载 defaults.json（供插件 override Card/Taskbar 时复用，defaults.json 随插件 DLL 同目录部署）。
+    /// 从程序集所在目录装载声明清单（供插件 override Card/Taskbar 时复用，清单文件随插件 DLL 同目录部署）。
     /// </summary>
     /// <param name="pluginAssemblyLocation">插件程序集文件路径（Assembly.Location）。</param>
     /// <param name="currentSdkVersion">当前 SDK 版本。</param>
@@ -80,28 +116,5 @@ public static class PluginDefaultsLoader
         if (string.IsNullOrWhiteSpace(pluginAssemblyLocation)) return null;
         var dir = Path.GetDirectoryName(pluginAssemblyLocation);
         return string.IsNullOrEmpty(dir) ? null : LoadFromDirectory(dir, currentSdkVersion);
-    }
-
-    /// <summary>
-    /// 定位插件目录：优先 BaseDirectory/Plugins/*{providerId}*/defaults.json，回退到 BaseDirectory/*{providerId}*/defaults.json。
-    /// </summary>
-    private static string? ResolvePluginDirectory(string providerId)
-    {
-        var baseDir = AppDomain.CurrentDomain.BaseDirectory;
-        var candidates = new[]
-        {
-            Path.Combine(baseDir, "Plugins"),
-            baseDir
-        };
-        foreach (var root in candidates)
-        {
-            if (!Directory.Exists(root)) continue;
-            foreach (var dir in Directory.GetDirectories(root))
-            {
-                if (dir.IndexOf(providerId, StringComparison.OrdinalIgnoreCase) < 0) continue;
-                if (File.Exists(Path.Combine(dir, "defaults.json"))) return dir;
-            }
-        }
-        return null;
     }
 }

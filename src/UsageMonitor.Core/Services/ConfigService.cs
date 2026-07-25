@@ -246,19 +246,7 @@ public class AppSettings
     /// <summary>REQ-004：托盘悬浮窗触发区域矩形（屏幕坐标系绝对坐标，单位像素）。</summary>
     public Models.RectInt TrayTooltipTriggerRect { get; set; } = Models.RectInt.DefaultBottomRight();
 
-    // =====================================================================
-    // REQ-021 历史 token=0 数据清理时间戳
-    // 防重复清理：仅当 LastCleanedZeroTokensAt 为 null 或超过指定间隔才再次清理。
-    // =====================================================================
-
-    /// <summary>
-    /// req-021：上次清理 <c>usage_points</c> 中 token=0 记录的时间戳（null = 从未清理）。
-    /// <para>
-    /// 启动时检查：null 或距今 > 30 天 → 执行一次清理；否则跳过。清理成功后写入当前时间戳。
-    /// 此设计避免每次启动都跑 DELETE SQL（MiniMax 数据量大时浪费 IO）。
-    /// </para>
-    /// </summary>
-    public DateTime? LastCleanedZeroTokensAt { get; set; }
+    // Stage B：req-021 的 LastCleanedZeroTokensAt 已随 token=0 清理退役移除（旧配置文件中的残留键反序列化时自动忽略）。
 
     /// <summary>
     /// req-090-003：Cookie 保留天数（默认 90 天，范围 7-365）。超过此天数的 Cookie 文件在启动时被清理。
@@ -660,7 +648,6 @@ public class ConfigService : IConfigService
             RingChartStickySeconds = _settings.RingChartStickySeconds,
             RingChartSwitchAnimationMs = _settings.RingChartSwitchAnimationMs,
             TrayTooltipTriggerRect = _settings.TrayTooltipTriggerRect,
-            LastCleanedZeroTokensAt = _settings.LastCleanedZeroTokensAt,
             CookieRetentionDays = _settings.CookieRetentionDays,
             ProviderCardOrder = new List<string>(_settings.ProviderCardOrder),
             SelectedProgressFields = new Dictionary<string, List<string>>(),

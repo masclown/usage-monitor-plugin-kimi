@@ -202,14 +202,13 @@ public class Program
     }
 
     /// <summary>
-    /// 创建 PluginManager 并注册内置插件（仅内置，不加载外部 DLL）。
+    /// 创建 PluginManager 并扫描 plugins/ 声明包（Stage F：零内置 Provider，与主程序同一声明包加载链路）。
     /// </summary>
     private static PluginManager CreatePluginManager()
     {
-        PluginManager.AllowExternalPlugins = false; // 仅内置插件
+        PluginManager.AllowExternalPlugins = false; // DLL 通道保持关闭，仅声明包
         var pm = new PluginManager();
-        // 注册内置插件（与 App.xaml.cs RegisterBuiltinPlugins 保持一致；当前仅 MiniMax）
-        pm.RegisterPlugin(new Plugin.MiniMax.MiniMaxProvider());
+        pm.LoadPlugins();
         return pm;
     }
 }

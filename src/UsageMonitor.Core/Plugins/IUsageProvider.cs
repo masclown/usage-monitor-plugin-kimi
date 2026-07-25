@@ -5,8 +5,10 @@ using UsageMonitor.Core.Services.Auth;
 namespace UsageMonitor.Core.Plugins;
 
 /// <summary>
-/// AI用量提供者插件接口 - 所有服务商插件必须实现此接口
-/// 定义了插件的基本信息、配置项和用量查询能力
+/// AI用量提供者接口——宿主内部抽象（Stage E 降级）。
+/// <para>完全声明式插件架构下，插件作者不再实现本接口：新 Provider 只需编写声明包
+/// （plugins/&lt;包名&gt;/defaults.json 等），由通用 <see cref="DeclarativeProvider"/> 运行器实例化。
+/// 本接口仅作为宿主（App/Core 服务）与运行器之间的内部契约保留。</para>
 /// </summary>
 public interface IUsageProvider : IBrowserLoginProvider, IChartSupportProvider, IRefreshPolicyProvider, IBalanceItemProvider, IDefaultRenderKindsProvider
 {
@@ -66,84 +68,17 @@ public interface IUsageProvider : IBrowserLoginProvider, IChartSupportProvider, 
     /// <returns>配置是否有效</returns>
     Task<bool> ValidateConfigAsync(ProviderConfig config, CancellationToken ct = default);
 
-    /// <summary>
-    /// req-026：插件声明支持的环形图中心数字 metric key 集合。
-    /// <para>
-    /// 默认返回 <c>["Percent"]</c>（仅显示已用百分比）。有更多数字类型的插件可重写，
-    /// 例如 MiniMax 重写为 <c>["Percent", "Credits"]</c>。
-    /// </para>
-    /// <para>
-    /// 用户侧（设置窗口 → "环形图中心" Tab）按此集合展示 CheckBox；
-    /// 用户勾选结果存到 <c>AppSettings.ProviderEnabledRingChartMetrics[ProviderId]</c>。
-    /// </para>
-    /// </summary>
-    [Obsolete("req-107 B6：SupportedRingChartMetrics 已被 Card.Ring 数据组替代")]
-    IReadOnlyList<string> SupportedRingChartMetrics => new[] { "Percent" };
+    // Stage E：req-107 B6 标记的 5 个 [Obsolete] 成员（SupportedRingChartMetrics / SupportsPeriodSwitch /
+    // ExtraTooltipLines / SupportedMiniCharts / MiniChartDataTypes）已删除——能力全部由
+    // Card / Taskbar 声明聚合根（defaults.json）承载。
 
     /// <summary>
-    /// 插件是否支持在主窗口卡片折线图右上角显示"近 7 天 / 近 30 天"等周期切换按钮。
-    /// <para>
-    /// 返回 <c>true</c> 时，宿主会在控件右上角绘制分段按钮，<see cref="SetPeriodAsync"/>
-    /// 会被调用以让插件按指定周期重算数据；返回 <c>false</c>（默认）时不显示切换按钮。
-    /// 仅当插件能提供带真实日期的"每日"数据源时（如 MiniMax usage_summary 返回的
-    /// <c>mm_dailyTokenValues</c> + <c>mm_dailyTokenDates</c>）才应返回 <c>true</c>。
-    /// </para>
+    /// Stage B（声明式插件架构）：错误引导声明（来自声明包 errorGuidance 节）。
+    /// <para>查询失败时宿主按声明顺序匹配错误消息关键字并显示引导文案（空关键字规则为兑底）；
+    /// 空集合 = 无引导，宿主显示通用失败文案。替代宿主按 ProviderId 硬编码的错误提示分支。</para>
     /// </summary>
-    [Obsolete("req-107 B6：SupportsPeriodSwitch 已被 Card.Line.Slicer(Period) 替代")]
-    bool SupportsPeriodSwitch => false;
+    IReadOnlyList<Models.ErrorGuidanceRule> ErrorGuidance => System.Array.Empty<Models.ErrorGuidanceRule>();
 
-    /// <summary>
-    /// 插件为折线图 hover tooltip 提供的扩展文本行（每行一项，UI 用换行拼接展示）。
-    /// <para>
-    /// 例如 MiniMax 可返回 <c>["调用 {value}", "缓存命中 {pct}%"]</c>，让 tooltip 显示更丰富
-    /// 的当日附加信息。返回 <c>null</c> 或空集合时，tooltip 仅显示标题 + 数值。
-    /// </para>
-    /// </summary>
-    [Obsolete("req-107 B6：ExtraTooltipLines 已被 Card.Chart.Tooltip 替代")]
-    IReadOnlyList<string>? ExtraTooltipLines => null;
-    
-        /// <summary>
-        /// req-105：插件声明迷你图表（Taskbar / 卡片浮窗）Tooltip 应显示的字段列表。
-        /// <para>
-        /// 支持的字段名（由宿主 <c>MiniChartItemViewModel</c> 解析）：
-        /// <list type="bullet">
-        ///   <item><description><c>ProviderName</c>：插件显示名（<see cref="DisplayName"/>）。</description></item>
-        ///   <item><description><c>DataName</c>：当前数据指标名（如 "5h 用量"）。</description></item>
-        ///   <item><description><c>CurrentValue</c>：当前值（文本形式）。</description></item>
-        ///   <item><description><c>RefreshCountdown</c>：下一次刷新倒计时（如 "重置倒计时：2 小时 21 分钟"）。</description></item>
-        /// </list>
-        /// </para>
-        /// <para>
-        /// <summary>
-    /// req-098：插件声明支持的迷你图表类型（<see cref="Plugins.MiniChart.MiniChartKind"/>）。
-    /// <para>
-    /// 默认返回 <c>[MiniRingChart, MiniText]</c>。有额外能力的插件可重写返回更丰富的集合。
-    /// 返回空集合表示该插件不参与任务栏迷你图。
-    /// </para>
-    /// </summary>
-    [Obsolete("req-107 B6：SupportedMiniCharts 已被 TaskbarDeclaration.MiniCharts 替代")]
-    IReadOnlyList<Plugins.MiniChart.MiniChartKind> SupportedMiniCharts => new[]
-    {
-        Plugins.MiniChart.MiniChartKind.MiniRingChart,
-        Plugins.MiniChart.MiniChartKind.MiniText
-    };
-
-    /// <summary>
-    /// req-098：插件能为迷你图提供的数据类型（<see cref="Plugins.MiniChart.MiniChartContentKind"/>）。
-    /// <para>
-    /// 默认返回 3 项基本内容（主指标 / Credits / 重置时间）。
-    /// 设置页"任务栏迷你图表"配置 UI 按此集合生成下拉选项。
-    /// </para>
-    /// </summary>
-    [Obsolete("req-107 B6：MiniChartDataTypes 已被 TaskbarDeclaration.MiniCharts.DataGroups 替代")]
-    IReadOnlyList<Plugins.MiniChart.MiniChartContentKind> MiniChartDataTypes => new[]
-    {
-        Plugins.MiniChart.MiniChartContentKind.PrimaryMetric,
-        Plugins.MiniChart.MiniChartContentKind.Credits,
-        Plugins.MiniChart.MiniChartContentKind.ResetTime
-    };
-
-    /// <summary>
     // ============== req-107 B6：聚合声明根（声明式插件框架） ==============
 
     /// <summary>

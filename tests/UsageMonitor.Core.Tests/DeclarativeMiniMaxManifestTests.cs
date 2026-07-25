@@ -83,28 +83,53 @@ public class DeclarativeMiniMaxManifestTests
         var e = r.Extras;
 
         // 时刻级
-        e["mm_5hUsedPercent"].Should().Be(3L);
-        e["mm_weeklyUsedPercent"].Should().Be(83L);
-        e["mm_5hResetAt"].Should().BeOfType<System.DateTime>();
-        e["mm_weeklyResetAt"].Should().BeOfType<System.DateTime>();
+        e["five_hour_used_percent"].Should().Be(3L);
+        e["weekly_used_percent"].Should().Be(83L);
+        e["five_hour_reset_at"].Should().BeOfType<System.DateTime>();
+        e["weekly_reset_at"].Should().BeOfType<System.DateTime>();
         // 视频次数 + computed used=total-remains
-        e["mm_videoIntervalTotal"].Should().Be(3L);
-        e["mm_videoIntervalUsed"].Should().Be(0L);
-        e["mm_videoWeeklyUsed"].Should().Be(0L);
+        e["five_hour_video_total"].Should().Be(3L);
+        e["five_hour_video_used"].Should().Be(0L);
+        e["weekly_video_used"].Should().Be(0L);
         // 总体
-        e["mm_totalDays"].Should().Be(44L);
-        e["mm_activeDays"].Should().Be(39L);
-        e["mm_totalTokens"].Should().Be("5.85B");
-        e["mm_mostActiveDate"].Should().Be("2026-07-01");
-        e["mm_mostActiveToken"].Should().Be(552_490_000L);
+        e["total_days"].Should().Be(44L);
+        e["active_days"].Should().Be(39L);
+        e["used_tokens_text"].Should().Be("5.85B");
+        e["most_active_date"].Should().Be("2026-07-01");
+        e["most_active_token"].Should().Be(552_490_000L);
         // 日级并行列表 + 模型×日
-        e["mm_dailyTokenValues"].Should().BeOfType<List<long>>().Which.Should().Equal(254674208L, 379039852L);
-        e["mm_dailyTokenDates"].Should().BeOfType<List<string>>().Which.Should().Equal("2026-07-20", "2026-07-21");
-        e["mm_modelDaily"].Should().BeOfType<List<Dictionary<string, object>>>().Which.Should().HaveCount(3);
+        e["daily_token_values"].Should().BeOfType<List<long>>().Which.Should().Equal(254674208L, 379039852L);
+        e["daily_token_dates"].Should().BeOfType<List<string>>().Which.Should().Equal("2026-07-20", "2026-07-21");
+        e["model_daily"].Should().BeOfType<List<Dictionary<string, object>>>().Which.Should().HaveCount(3);
         // 缓存 token 加权平均
-        System.Convert.ToDouble(e["mm_cacheHitPercent"]).Should().BeApproximately(96.22, 0.5);
+        System.Convert.ToDouble(e["cache_hit_percent"]).Should().BeApproximately(96.22, 0.5);
         // 积分 + 账号身份
-        e["mm_remainingCredits"].Should().Be(0L);
+        e["remaining_credits"].Should().Be(0L);
         r.StableId.Should().Be("2031039003800637495");
+    }
+
+    /// <summary>
+    /// Stage E：验证原 MiniMaxProvider C# 后处理（订阅拆分 / 峰值日字符串）已由 computed 新算子完整声明化。
+    /// </summary>
+    [Fact]
+    public void RealDeclaration_ComputedOps_ReplaceLegacyCSharpPostProcessing()
+    {
+        var path = FindRealDefaultsJson();
+        path.Should().NotBeNull();
+        var manifest = PluginManifest.Load(File.ReadAllText(path!));
+        var captured = new Dictionary<string, string>
+        {
+            ["https://www.minimaxi.com/backend/account/token_plan/usage_summary"] = UsageSummaryJson
+        };
+        // DOM 兑底字段：订阅原始文案（与页面实测一致）
+        var dom = new Dictionary<string, string> { ["subscription_raw"] = "Token Plan · TokenPlanMax-年度会员" };
+        var e = DeclarativeCaptureExecutor.Execute(manifest!.Fetch, captured, dom).Extras;
+
+        e["subscription_type"].Should().Be("Token Plan");
+        e["subscription_tier"].Should().Be("TokenPlanMax-年度会员");
+        e["subscription_title"].Should().Be("TokenPlanMax-年度会员");
+        e["subscription_active"].Should().Be(true);
+        // 峰值日字符串：旧 C# 拼接 "日期 (值)" → template 算子等价产出
+        e["most_active_day"].Should().Be("2026-07-01 (552.49M)");
     }
 }

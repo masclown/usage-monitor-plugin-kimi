@@ -5,8 +5,11 @@ using UsageMonitor.Core.Services;
 namespace UsageMonitor.Core.Plugins;
 
 /// <summary>
-/// 插件管理器 - 负责扫描、加载和管理所有插件
-/// 从指定目录加载实现了 IUsageProvider 接口的插件DLL
+/// 插件管理器 - 负责扫描、加载和管理所有插件。
+/// <para>Stage E（完全声明式插件架构）：主通道为“纯声明包扫描”——plugins/&lt;包名&gt;/ 目录下含
+/// plugin.json / defaults.json 等清单文件即以通用 <see cref="DeclarativeProvider"/> 实例化注册（零 DLL，
+/// JSON 不可执行代码，无白名单问题）；DLL 通道（<see cref="AllowExternalPlugins"/> + SHA256 白名单）
+/// 保留给未来可能的二进制插件，默认关闭。</para>
 /// </summary>
 public class PluginManager
 {
@@ -56,10 +59,10 @@ public class PluginManager
     }
 
     /// <summary>
-    /// 扫描并加载plugins目录下的所有插件DLL。
-    /// 默认禁用外部DLL扫描（安全考虑），需显式设置 <see cref="AllowExternalPlugins"/> = true。
-    /// 启用时，仅加载 <see cref="AllowedPluginHashes"/> 白名单中的DLL。
-    /// req-057：加锁保护避免与并发枚举竞态。
+    /// 扫描并加载plugins目录下的所有插件。
+    /// <para>Stage E：先扫描声明包（plugins/*/ 含清单文件即以 <see cref="DeclarativeProvider"/> 注册）；
+    /// DLL 通道默认禁用，需显式 <see cref="AllowExternalPlugins"/> = true 且命中 SHA256 白名单。
+    /// req-057：加锁保护避免与并发枚举竞态。</para>
     /// </summary>
     public void LoadPlugins()
     {
@@ -68,16 +71,17 @@ public class PluginManager
             _plugins.Clear();
         }
 
-        if (!AllowExternalPlugins)
-        {
-            FileLogger.Info("PluginManager", "外部插件DLL扫描已禁用（AllowExternalPlugins=false），仅使用内置插件");
-            PluginsLoaded?.Invoke(this, EventArgs.Empty);
-            return;
-        }
-
         if (!Directory.Exists(_pluginDirectory))
         {
             Directory.CreateDirectory(_pluginDirectory);
+        }
+
+        // Stage E：声明包扫描（主通道，零 DLL）。
+        LoadDeclarativePackages();
+
+        if (!AllowExternalPlugins)
+        {
+            FileLogger.Info("PluginManager", "外部插件DLL扫描已禁用（AllowExternalPlugins=false），仅使用声明包插件");
             PluginsLoaded?.Invoke(this, EventArgs.Empty);
             return;
         }
@@ -98,6 +102,62 @@ public class PluginManager
         }
 
         PluginsLoaded?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>Stage A 声明包清单文件名（任一存在即视为声明包目录）。</summary>
+    private static readonly string[] DeclarativeManifestFiles = { "plugin.json", "fetch.json", "display.json", "defaults.json" };
+
+    /// <summary>
+    /// Stage E：扫描 plugins/&lt;包名&gt;/ 声明包目录，合并校验清单后以 <see cref="DeclarativeProvider"/> 注册。
+    /// <para>校验失败或缺 providerId 的包跳过（PluginDefaultsLoader 已记日志）；目录隔离天然避免
+    /// 根目录 defaults.json 多包覆盖冲突。</para>
+    /// </summary>
+    private void LoadDeclarativePackages()
+    {
+        string[] packageDirs;
+        try
+        {
+            packageDirs = Directory.GetDirectories(_pluginDirectory);
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Warn("PluginManager", $"声明包目录枚举失败: {ex.Message}");
+            return;
+        }
+
+        var loaded = 0;
+        foreach (var dir in packageDirs)
+        {
+            try
+            {
+                if (!DeclarativeManifestFiles.Any(f => File.Exists(Path.Combine(dir, f)))) continue;
+
+                var manifest = PluginDefaultsLoader.LoadFromDirectory(dir);
+                if (manifest == null || string.IsNullOrWhiteSpace(manifest.ProviderId))
+                {
+                    FileLogger.Warn("PluginManager", $"声明包校验失败或缺 providerId，跳过: {dir}");
+                    continue;
+                }
+
+                var provider = new DeclarativeProvider(manifest, dir);
+                lock (_pluginsLock)
+                {
+                    if (_plugins.Any(p => p.Provider.ProviderId == provider.ProviderId))
+                    {
+                        FileLogger.Warn("PluginManager", $"跳过重复声明包: {provider.ProviderId} ({dir})");
+                        continue;
+                    }
+                    _plugins.Add(new LoadedPlugin(provider, typeof(DeclarativeProvider).Assembly, dir));
+                }
+                loaded++;
+                FileLogger.Info("PluginManager", $"已加载声明包插件: {provider.DisplayName} v{provider.Version} from {Path.GetFileName(dir)}");
+            }
+            catch (Exception ex)
+            {
+                FileLogger.Error("PluginManager", $"声明包加载失败: {dir} - {ex.Message}", ex);
+            }
+        }
+        FileLogger.Info("PluginManager", $"声明包扫描完成：共加载 {loaded} 个纯声明插件");
     }
 
     /// <summary>

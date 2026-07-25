@@ -39,6 +39,10 @@ public abstract class WebPluginBase : PluginBase, IUsageProvider
     /// 插件可 override 从 defaults.json 装载（经 PluginDefaultsLoader），驱动声明式渲染。</summary>
     public virtual CardDeclaration? Card => null;
 
+    /// <summary>Stage B：错误引导声明，默认空（宿主显示通用失败文案）。
+    /// 插件可 override 从声明包 errorGuidance 节装载，驱动宿主失败态引导文案。</summary>
+    public virtual IReadOnlyList<ErrorGuidanceRule> ErrorGuidance => System.Array.Empty<ErrorGuidanceRule>();
+
     /// <summary>req-107 B6 / req-108 Task3：任务栏显示声明根，默认 null（宿主回退旧路径）。</summary>
     public virtual TaskbarDeclaration? Taskbar => null;
 
@@ -117,31 +121,9 @@ public abstract class WebPluginBase : PluginBase, IUsageProvider
     /// <inheritdoc />
     public virtual IReadOnlyList<IUsageChartFactory2>? CustomChartFactories => null;
 
-    /// <inheritdoc />
-    public virtual IReadOnlyList<string> SupportedRingChartMetrics => new[] { "Percent" };
-
-    /// <inheritdoc />
-    public virtual bool SupportsPeriodSwitch => false;
-
-    /// <inheritdoc />
-    public virtual IReadOnlyList<string>? ExtraTooltipLines => null;
-
-    /// <inheritdoc />
-    /// <remarks>req-098：在 WebPluginBase 中提供 virtual 实现供子类 override，接口 default 实现作为兑底。</remarks>
-    public virtual IReadOnlyList<UsageMonitor.Core.Plugins.MiniChart.MiniChartKind> SupportedMiniCharts => new[]
-    {
-        UsageMonitor.Core.Plugins.MiniChart.MiniChartKind.MiniRingChart,
-        UsageMonitor.Core.Plugins.MiniChart.MiniChartKind.MiniText
-    };
-
-    /// <inheritdoc />
-    /// <remarks>req-098：在 WebPluginBase 中提供 virtual 实现供子类 override。</remarks>
-    public virtual IReadOnlyList<UsageMonitor.Core.Plugins.MiniChart.MiniChartContentKind> MiniChartDataTypes => new[]
-    {
-        UsageMonitor.Core.Plugins.MiniChart.MiniChartContentKind.PrimaryMetric,
-        UsageMonitor.Core.Plugins.MiniChart.MiniChartContentKind.Credits,
-        UsageMonitor.Core.Plugins.MiniChart.MiniChartContentKind.ResetTime
-    };
+    // Stage E：SupportedRingChartMetrics / SupportsPeriodSwitch / ExtraTooltipLines /
+    // SupportedMiniCharts / MiniChartDataTypes 已随 IUsageProvider 的 [Obsolete] 成员删除——
+    // 能力由 Card / Taskbar 声明聚合根承载。
 
     /// <inheritdoc />
     /// <remarks>req-105：在 WebPluginBase 中提供 virtual 实现供子类 override。</remarks>

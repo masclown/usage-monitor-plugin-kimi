@@ -5,15 +5,15 @@
 [![License: BSL 1.1](https://img.shields.io/badge/license-BSL--1.1-orange)](LICENSE)
 [![SDK: Apache-2.0](https://img.shields.io/badge/SDK-Apache--2.0-green)](LICENSE-APACHE)
 
-一款轻量级 Windows 任务栏工具，用于统一监控各类 AI 服务的 API 用量和余额信息。参考 [TrafficMonitor](https://github.com/zhongyang219/TrafficMonitor) 的任务栏嵌入方式，采用插件式架构，支持灵活扩展更多 AI 服务商。
+一款轻量级 Windows 任务栏工具，用于统一监控各类 AI 服务的 API 用量和余额信息。参考 [TrafficMonitor](https://github.com/zhongyang219/TrafficMonitor) 的任务栏嵌入方式，采用**纯声明式插件架构**：宿主零内置 Provider，新增服务商只需编写一份 JSON 声明包（零 DLL、零 C#）。
 
 ## 功能特性
 
 - **任务栏嵌入显示** — 将 AI 用量信息直接嵌入 Windows 任务栏，随时可查看
 - **系统托盘** — 托盘图标右键菜单，快速访问设置和刷新
-- **插件式架构** — 基于 `IUsageProvider` 接口，支持添加任意 AI 服务商插件
+- **纯声明式插件** — 插件 = 一个 `plugins/<包名>/defaults.json` 声明包，由通用声明运行器加载，JSON 不可执行代码，天然安全
 - **定时自动刷新** — 可配置刷新间隔，自动获取最新用量数据
-- **多服务商支持** — 内置 MiniMax 插件；基于插件式架构可扩展 OpenAI、Claude 等更多服务商
+- **多服务商支持** — 随包提供 MiniMax 声明包；基于声明式 SDK 可扩展任意服务商
 - **API Key 安全存储** — 配置文件加密存储，保护敏感信息
 - **低资源占用** — 轻量设计，不影响系统性能
 
@@ -26,7 +26,7 @@
 | 任务栏嵌入 | Windows Shell DeskBand (COM) |
 | HTTP 请求 | System.Net.Http (HttpClient) |
 | 配置存储 | JSON (%AppData%/UsageMonitor/) |
-| 插件加载 | 基于接口的反射加载 |
+| 插件加载 | 声明包扫描（plugins/*/defaults.json → 通用 DeclarativeProvider 运行器） |
 
 ### 架构图
 
@@ -40,12 +40,12 @@
 │    │PluginMgr │  │ConfigSvc  │  │RefreshSvc │  │
 │    └────┬─────┘  └───────────┘  └───────────┘  │
 ├─────────┼───────────────────────────────────────┤
-│    IUsageProvider 插件接口                       │
+│    声明清单 PluginManifest + DeclarativeProvider  │
 ├─────────┼───────────────────────────────────────┤
-│  ┌──────┴──────┐  ┌──────────┐  ┌──────────┐   │
-│  │  MiniMax   │  │  OpenAI  │  │  Claude  │   │
-│  │   Plugin    │  │  Plugin  │  │  Plugin  │   │
-│  └─────────────┘  └──────────┘  └──────────┘   │
+│  plugins/ 声明包（纯 JSON，零 DLL）              │
+│  ┌──────┴───────────────┐  ┌──────────────┐    │
+│  │ MiniMax/defaults.json│  │ <你的声明包>  │    │
+│  └──────────────────────┘  └──────────────┘    │
 └─────────────────────────────────────────────────┘
 ```
 
@@ -75,8 +75,8 @@ UsageMonitor/
 │   │   ├── Helpers/                    # 辅助类
 │   │   └── UsageMonitor.App.csproj
 │   │
-│   └── Plugins/                        # 插件项目
-│       ├── UsageMonitor.Plugin.MiniMax/
+│   └── Plugins/                       # 声明包源目录
+│       ├── UsageMonitor.Plugin.MiniMax/   # 纯声明包（仅 defaults.json，零 DLL）
 │       ├── UsageMonitor.Plugin.Template.Api/
 │       └── UsageMonitor.Plugin.Template.Web/
 │
@@ -108,78 +108,54 @@ dotnet run --project src/UsageMonitor.App
 ### 使用说明
 
 1. 启动程序后，系统托盘会出现 UsageMonitor 图标
-2. 右键托盘图标 → "设置"，配置 AI 服务商的 API Key
-3. 启用"任务栏显示"，用量信息将嵌入任务栏
-4. 数据会按照设定的间隔自动刷新
+2. 首次启动若未发现任何声明包，主窗口为空态：请将声明包目录放入程序目录的 `plugins/` 下（随包构建已自动部署 MiniMax 声明包）
+3. 右键托盘图标 → "设置"，完成登录（🌐 获取登录态）或填写密钥
+4. 启用"任务栏显示"，用量信息将嵌入任务栏；数据按设定间隔自动刷新
 
-## 插件开发指南
+## 插件开发指南（纯声明包，零 C#）
 
-### 1. 创建插件项目
+一个插件 = 一个目录 `plugins/<包名>/`，核心是一份声明清单（单文件 `defaults.json`，或拆分为 `plugin.json`（接入）/ `fetch.json`（取数）/ `display.json`（显示）三文件，加载时自动合并）。
 
-```bash
-dotnet new classlib -n UsageMonitor.Plugin.YourProvider
-```
+### 1. 最小声明包示例
 
-### 2. 引用核心库
-
-```xml
-<ItemGroup>
-  <ProjectReference Include="..\..\UsageMonitor.Core\UsageMonitor.Core.csproj" />
-</ItemGroup>
-```
-
-### 3. 实现 IUsageProvider 接口
-
-```csharp
-using UsageMonitor.Core.Plugins;
-using UsageMonitor.Core.Models;
-
-public class YourProvider : IUsageProvider
+```jsonc
 {
-    public string ProviderId => "your-provider";
-    public string DisplayName => "Your Provider";
-    public string IconPath => "pack://application:,,,/Assets/your-icon.png";
-    
-    public IReadOnlyList<ConfigField> ConfigFields => new[]
-    {
-        new ConfigField("ApiKey", "API Key", ConfigFieldType.Password, true)
-    };
-    
-    public async Task<UsageInfo> GetUsageAsync(ProviderConfig config)
-    {
-        // 调用服务商API查询用量
-        var apiKey = config.GetValue("ApiKey");
-        // ... 实现查询逻辑
-    }
-    
-    public async Task<bool> ValidateConfigAsync(ProviderConfig config)
-    {
-        // 验证配置是否有效
-    }
+  "providerId": "YourProvider",
+  "displayName": "Your Provider",
+  "meta": { "version": "1.0.0", "author": "you", "description": "..." },
+  // 浏览器登录声明（Cookie 鉴权）
+  "loginConfig": { "loginUrl": "https://example.com", "cookieDomainFilters": [ "example.com" ] },
+  // 配置字段（设置页自动生成输入控件）
+  "configFields": [ { "key": "Cookie", "displayName": "登录态", "fieldType": "Password" } ],
+  // 取数声明：capture（浏览器响应捕获）或 http（直连端点，支持 {config:Key}/{cookie:名}/{cookieHeader} 占位符）
+  "fetch": {
+    "capture": { "navigateUrl": "https://example.com/usage", "cookieDomain": ".example.com" },
+    "endpoints": [ { "urlMatch": "usage_api", "fields": [ { "path": "$.used_percent", "target": "used_percent", "transform": "parsePercent" } ] } ]
+  },
+  // 卡片/任务栏显示声明
+  "card": { "primaryMetric": "used_percent", "charts": [ /* Bar/Line/HeatMap/Number 声明 */ ] },
+  "taskbar": { "miniCharts": [ /* MiniRingChart/MiniText 声明 */ ] }
 }
 ```
 
-### 4. 部署插件
+### 2. 部署
 
-将编译后的插件 DLL 放入程序目录下的 `plugins/` 文件夹，重启程序即可自动加载。
+把声明包目录放入程序目录的 `plugins/` 文件夹，重启程序即自动扫描加载（经 PluginValidator 校验，字段名走 SDK 白名单，http 端点 URL 经 SSRF 防护）。可用 `UsageMonitor.exe --validate-plugin <路径>` 预检。
 
-### 插件接口说明
+### 3. 参考
 
-| 接口/类 | 说明 |
-|---------|------|
-| `IUsageProvider` | 核心接口，定义用量查询方法 |
-| `IPluginMetadata` | 插件元数据（名称、版本、作者等） |
-| `UsageInfo` | 用量信息模型（已用/总额度、Token数等） |
-| `ProviderConfig` | 服务商配置（API Key 等键值对） |
-| `ConfigField` | 配置字段定义（类型、是否必填等） |
+- 完整示例：`src/Plugins/UsageMonitor.Plugin.MiniMax/defaults.json`（登录/取数/计算列/图表/迷你图全覆盖）
+- SDK 字段白名单与图表契约：`docs/` 下相关规范文档
+- 声明表达不了的逻辑 → 提 issue 补框架原语（项目原则：不回退写插件 C#）
 
-## 内置插件
+## 随包声明包
 
-### MiniMax
+### MiniMax（plugins/UsageMonitor.Plugin.MiniMax/）
 
-- **功能**: 查询 Token Plan 用量、5h / 本周限额、余额与账单
-- **登录方式**: 浏览器 Cookie 登录（Playwright）+ API 双通道
-- **配置项**: Token Plan 订阅密钥 / Cookie 登录态 / 接口区域
+- **形态**: 纯声明包（仅 defaults.json，无 DLL）
+- **功能**: 查询 Token Plan 用量、5h / 本周限额、积分余额、每日 Token 趋势与缓存命中热力图
+- **登录方式**: 浏览器 Cookie 登录（Playwright 捕获）+ 声明式 HTTP 直连回退
+- **配置项**: Token Plan 订阅密钥 / Cookie 登录态 / 接口区域（CN/Global）
 
 ## 已知限制
 
@@ -198,8 +174,11 @@ public class YourProvider : IUsageProvider
 - [x] 托盘悬浮窗（触发区域可配置）
 - [x] 用量历史统计与图表（折线图/柱状图/热力图/编程时段）
 - [x] 安全加固（DPAPI 加密、Cookie 保护、SSRF 防护）
-- [ ] 更多插件支持（OpenAI、Claude、Gemini 等）
-- [ ] 图表 SDK v2 泛化架构
+- [x] 图表 SDK v2 泛化架构
+- [x] 完全声明式插件架构（宿主零内置 Provider，MiniMax 外置为纯声明包）
+- [ ] 声明包生产测试期（SDK 缺口收集与原语补齐）
+- [ ] 更多声明包支持（OpenAI、Claude、Gemini 等）
+- [ ] MiniMax 声明包降级 samples/（sample 声明包 + sample 数据库）
 
 ## 许可证
 
@@ -207,7 +186,7 @@ public class YourProvider : IUsageProvider
 
 | 范围 | 许可证 | 说明 |
 |------|--------|------|
-| 主程序（App / Core 框架实现 / 内置插件 / LoginHelper） | **Business Source License 1.1** | 源码公开，个人 / 教育 / 内部使用免费；**未经商业授权，不得作为付费 / 托管 / 订阅 / 竞争性服务对外提供**。自 **2030-07-24** 起自动转为 Apache-2.0。全文见 [LICENSE](LICENSE)。 |
+| 主程序（App / Core 框架实现 / LoginHelper） | **Business Source License 1.1** | 源码公开，个人 / 教育 / 内部使用免费；**未经商业授权，不得作为付费 / 托管 / 订阅 / 竞争性服务对外提供**。自 **2030-07-24** 起自动转为 Apache-2.0。全文见 [LICENSE](LICENSE)。 |
 | 插件 SDK / 接口契约 + 插件模板（Template.Api / Template.Web） | **Apache License 2.0** | 便于社区自由开发第三方插件，无商用限制。全文见 [LICENSE-APACHE](LICENSE-APACHE)。 |
 | 云端后端 / 付费高级功能（规划中） | 专有闭源 | 多端同步、云备份、通知、多账号、二阶数据看板、高级插件等，不随本仓库开源。 |
 

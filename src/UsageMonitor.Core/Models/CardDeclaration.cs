@@ -150,4 +150,16 @@ public sealed class CardDeclaration
     /// 替代过去把 used_percent 硬编码为 5h 的做法（如 MiniMax 声明 "five_hour_used_percent"）。null = 沿用宿主默认。
     /// </summary>
     public string? PrimaryMetric { get; init; }
+
+    /// <summary>
+    /// Stage E：折叠态仍可见的部件集合（声明式替代 IDefaultRenderKindsProvider.CollapseVisibleParts 的 C# override）。
+    /// <para>如 ["limitBars"] 表示折叠时保留限额进度条区段；空集合 = 折叠态隐藏全部区段（宿主默认）。</para>
+    /// </summary>
+    public IReadOnlyList<string> CollapseVisibleParts { get; init; } = System.Array.Empty<string>();
+
+    /// <summary>
+    /// Stage E：Provider 默认热力图色阶（按 token 绝对值分档），声明式替代宿主按 ProviderId 硬编码的出厂色阶。
+    /// <para>启动时由宿主注册为声明级兜底；用户在设置页保存的色阶始终优先。空集合 = 使用宿主通用兜底。</para>
+    /// </summary>
+    public IReadOnlyList<HeatMapTierConfig> HeatMapTiers { get; init; } = System.Array.Empty<HeatMapTierConfig>();
 }

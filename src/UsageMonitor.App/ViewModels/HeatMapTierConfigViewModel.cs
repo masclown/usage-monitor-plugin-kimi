@@ -156,7 +156,8 @@ public class HeatMapTierListEditorViewModel : INotifyPropertyChanged
     /// <summary>设置项绑定集合（UI 双向绑定到这上面）。</summary>
     public System.Collections.ObjectModel.ObservableCollection<HeatMapTierConfigViewModel> TierItems { get; } = new();
 
-    private string _selectedProviderId = "minimax";
+    // Stage E：默认选中“通用默认”，构造时若有已加载插件则切到首个（不硬编码具体 Provider）。
+    private string _selectedProviderId = "";
     /// <summary>当前编辑的 ProviderId（"通用默认"为空字符串）。</summary>
     public string SelectedProviderId
     {
@@ -191,7 +192,7 @@ public class HeatMapTierListEditorViewModel : INotifyPropertyChanged
         ApplyPreviewCommand = new RelayCommand(ApplyPreview);
         SaveCommand = new RelayCommand(Save);
 
-        // 构造 ProviderOptions：内置 4 个插件 + "通用默认"
+        // 构造 ProviderOptions：已加载插件 + "通用默认"
         var opts = new System.Collections.Generic.List<System.Collections.Generic.KeyValuePair<string, string>>
         {
             new("", "通用默认（4 档 K~M 级）"),
@@ -200,6 +201,9 @@ public class HeatMapTierListEditorViewModel : INotifyPropertyChanged
         foreach (var (pid, pname) in _owner.GetLoadedProviderOptions())
             opts.Add(new(pid, pname));
         ProviderOptions = opts;
+
+        // 默认选中首个已加载插件（无插件时保持"通用默认"），避免 Provider 专名硬编码。
+        if (opts.Count > 1) _selectedProviderId = opts[1].Key;
 
         // 从磁盘加载当前生效配置（含未持久化的临时编辑）
         ReloadFromConfig();

@@ -88,10 +88,10 @@ public sealed class DataModule : IDataModule
             _ = SaveIncrementalDiffAsync(usage.ProviderId, accountId, newFields);
         }
 
-        // req-107 B8：把插件提供的每日时序数据（Extra 中 mm_dailyToken* ）写入 usage_daily_trend，供声明式折线/热力图取数。
+        // req-107 B8：把插件提供的每日时序数据（Extra 中 daily_token_*）写入 usage_daily_trend，供声明式折线/热力图取数。
         PopulateDailyTrendFromExtra(usage);
 
-        // req-网页校准：把插件提供的模型×日明细（Extra 中 mm_modelDaily）写入 usage_model_daily（分模型维度）。
+        // req-网页校准：把插件提供的模型×日明细（Extra 中 model_daily）写入 usage_model_daily（分模型维度）。
         PopulateModelDailyFromExtra(usage);
     }
 
@@ -100,8 +100,8 @@ public sealed class DataModule : IDataModule
         => string.IsNullOrWhiteSpace(usage.AccountId) ? "default" : usage.AccountId!;
 
     /// <summary>
-    /// req-107 B8：从 <see cref="UsageInfo.Extra"/> 的 <c>mm_dailyTokenDates</c> / <c>mm_dailyTokenValues</c> /
-    /// <c>mm_dailyCacheHitPercents</c>（由 MiniMaxDomExtractor 从 date_model_usage 提取）写入 <c>usage_daily_trend</c>。
+    /// req-107 B8：从 <see cref="UsageInfo.Extra"/> 的 <c>daily_token_dates</c> / <c>daily_token_values</c> /
+    /// <c>daily_cache_hit_percents</c>（由 MiniMaxDomExtractor 从 date_model_usage 提取）写入 <c>usage_daily_trend</c>。
     /// <para>仅当日期与数值列表齐备且等长时写入（date_model_usage 路径）；daily_token_usage 回退路径（无日期）不写表。失败仅日志，不影响主流程。</para>
     /// </summary>
     private void PopulateDailyTrendFromExtra(UsageInfo usage)
@@ -109,11 +109,11 @@ public sealed class DataModule : IDataModule
         if (_repository == null || usage.Extra == null) return;
         try
         {
-            if (!usage.Extra.TryGetValue("mm_dailyTokenDates", out var datesObj) || datesObj is not List<string> dates || dates.Count == 0)
+            if (!usage.Extra.TryGetValue("daily_token_dates", out var datesObj) || datesObj is not List<string> dates || dates.Count == 0)
                 return;
-            if (!usage.Extra.TryGetValue("mm_dailyTokenValues", out var valuesObj) || valuesObj is not List<long> values || values.Count == 0)
+            if (!usage.Extra.TryGetValue("daily_token_values", out var valuesObj) || valuesObj is not List<long> values || values.Count == 0)
                 return;
-            usage.Extra.TryGetValue("mm_dailyCacheHitPercents", out var cacheObj);
+            usage.Extra.TryGetValue("daily_cache_hit_percents", out var cacheObj);
             var cacheList = cacheObj as List<double>;
             if (values.Count != dates.Count) return; // 数据不齐时不写，避免日期/数值错位
 
@@ -134,7 +134,7 @@ public sealed class DataModule : IDataModule
     }
 
     /// <summary>
-    /// req-网页校准：从 <see cref="UsageInfo.Extra"/> 的 <c>mm_modelDaily</c>（MiniMaxDomExtractor 从 date_model_usage[].models[] 提取）
+    /// req-网页校准：从 <see cref="UsageInfo.Extra"/> 的 <c>model_daily</c>（MiniMaxDomExtractor 从 date_model_usage[].models[] 提取）
     /// 写入 <c>usage_model_daily</c>（分模型维度：输入/输出/缓存读取/总计/命中率）。
     /// <para>每项为 {date, model, input_token, output_token, cache_read_token, total_token, cache_hit_percent} 字典；
     /// cache_hit_percent 为 -1 时视为无数据存 null。失败仅日志，不影响主流程。</para>
@@ -144,7 +144,7 @@ public sealed class DataModule : IDataModule
         if (_repository == null || usage.Extra == null) return;
         try
         {
-            if (!usage.Extra.TryGetValue("mm_modelDaily", out var mdObj)
+            if (!usage.Extra.TryGetValue("model_daily", out var mdObj)
                 || mdObj is not List<Dictionary<string, object>> modelRows || modelRows.Count == 0)
                 return;
 

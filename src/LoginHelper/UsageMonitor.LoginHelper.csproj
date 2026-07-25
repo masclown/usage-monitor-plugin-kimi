@@ -13,7 +13,14 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Plugins\UsageMonitor.Plugin.MiniMax\UsageMonitor.Plugin.MiniMax.csproj" />
+    <ProjectReference Include="..\UsageMonitor.Core\UsageMonitor.Core.csproj" />
+  </ItemGroup>
+
+  <!-- Stage F：MiniMax 纯声明包随构建复制到 plugins/ 目录，供声明包扫描加载（零 ProjectReference）。 -->
+  <ItemGroup>
+    <Content Include="..\Plugins\UsageMonitor.Plugin.MiniMax\defaults.json"
+             Link="plugins\UsageMonitor.Plugin.MiniMax\defaults.json"
+             CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

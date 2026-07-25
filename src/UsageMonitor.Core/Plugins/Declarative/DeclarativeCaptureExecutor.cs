@@ -138,10 +138,40 @@ public static class DeclarativeCaptureExecutor
         catch (JsonException) { }
     }
 
-    /// <summary>基于已有 extras 键计算（当前仅 subtract：operands[0] - operands[1] - ...）；均为整数时产出 long。</summary>
+    /// <summary>基于已有 extras 键派生新键（subtract / splitBefore / splitAfter / constant / coalesce / template；见 <see cref="FetchComputed"/> 语义）。</summary>
     private static void ExecuteComputed(FetchComputed comp, Dictionary<string, object> extras)
     {
-        if (!string.Equals(comp.Op, "subtract", StringComparison.OrdinalIgnoreCase)) return;
+        // 统一条件门：WhenPresent 键缺失则跳过；OnlyIfAbsent 且 Target 已存在则跳过。
+        if (!string.IsNullOrEmpty(comp.WhenPresent) && !extras.ContainsKey(comp.WhenPresent!)) return;
+        if (comp.OnlyIfAbsent && extras.ContainsKey(comp.Target)) return;
+
+        switch (comp.Op?.ToLowerInvariant())
+        {
+            case "subtract":
+                ExecuteSubtract(comp, extras);
+                break;
+            case "splitbefore":
+            case "splitafter":
+                ExecuteSplit(comp, extras);
+                break;
+            case "constant":
+                ExecuteConstant(comp, extras);
+                break;
+            case "coalesce":
+                foreach (var key in comp.Operands)
+                {
+                    if (extras.TryGetValue(key, out var v) && v != null) { extras[comp.Target] = v; break; }
+                }
+                break;
+            case "template":
+                ExecuteTemplate(comp, extras);
+                break;
+        }
+    }
+
+    /// <summary>subtract 算子：operands[0] - operands[1] - ...；均为整数时产出 long。</summary>
+    private static void ExecuteSubtract(FetchComputed comp, Dictionary<string, object> extras)
+    {
         if (comp.Operands.Count == 0) return;
         if (!extras.TryGetValue(comp.Operands[0], out var first) || first == null) return;
         double acc;
@@ -153,6 +183,51 @@ public static class DeclarativeCaptureExecutor
             try { acc -= Convert.ToDouble(op, CultureInfo.InvariantCulture); allIntegral &= IsIntegral(op); } catch { }
         }
         extras[comp.Target] = allIntegral ? (object)(long)acc : acc;
+    }
+
+    /// <summary>splitBefore/splitAfter 算子：按首个分隔符拆分字符串；无分隔符时 before 不产出、after 产出整串（trim）。</summary>
+    private static void ExecuteSplit(FetchComputed comp, Dictionary<string, object> extras)
+    {
+        if (comp.Operands.Count == 0 || string.IsNullOrEmpty(comp.Separators)) return;
+        if (!extras.TryGetValue(comp.Operands[0], out var src) || src is not string raw || string.IsNullOrWhiteSpace(raw)) return;
+        var sepIdx = raw.IndexOfAny(comp.Separators!.ToCharArray());
+        var isBefore = string.Equals(comp.Op, "splitBefore", StringComparison.OrdinalIgnoreCase);
+        if (sepIdx > 0 && sepIdx < raw.Length - 1)
+        {
+            var part = isBefore ? raw.Substring(0, sepIdx) : raw.Substring(sepIdx + 1);
+            extras[comp.Target] = part.Trim();
+        }
+        else if (!isBefore)
+        {
+            extras[comp.Target] = raw.Trim();
+        }
+    }
+
+    /// <summary>constant 算子：把声明字面量（字符串/数值/布尔）写入 Target。</summary>
+    private static void ExecuteConstant(FetchComputed comp, Dictionary<string, object> extras)
+    {
+        if (comp.Value == null) return;
+        var el = comp.Value.Value;
+        object? val = el.ValueKind switch
+        {
+            JsonValueKind.String => el.GetString(),
+            JsonValueKind.Number => el.TryGetInt64(out var l) ? l : el.GetDouble(),
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            _ => null
+        };
+        if (val != null) extras[comp.Target] = val;
+    }
+
+    /// <summary>template 算子：把 <c>{键名}</c> 占位符替换为 extras 值（缺失补空串）后写入 Target。</summary>
+    private static void ExecuteTemplate(FetchComputed comp, Dictionary<string, object> extras)
+    {
+        if (string.IsNullOrEmpty(comp.Template)) return;
+        var text = System.Text.RegularExpressions.Regex.Replace(comp.Template!, @"\{([A-Za-z0-9_]+)\}",
+            m => extras.TryGetValue(m.Groups[1].Value, out var v) && v != null
+                ? Convert.ToString(v, CultureInfo.InvariantCulture) ?? string.Empty
+                : string.Empty);
+        extras[comp.Target] = text;
     }
 
     /// <summary>判断值是否为整型（供计算列结果类型推断）。</summary>

@@ -430,21 +430,22 @@ public class YearHeatMapControl : FrameworkElement, IHoverTooltipProvider
 
     /// <summary>
     /// req-018：绘制底部图例"少 → 多"。色阶改走 <see cref="UsageMonitor.App.Helpers.HeatMapTierScale"/>（按 Provider Token 绝对值分档）。
-    /// 色块数 = 当前 Provider 的档位数（MiniMax 6 档 / 其他 4 档），动态自适应。
+    /// 色块数 = 当前 Provider 的档位数（持久化/声明色阶档数，缺省 4 档），动态自适应。
     /// </summary>
     private void DrawLegend(DrawingContext dc, double left, double top, double gridWidth, double dpi, string? providerId)
     {
         double sw = 11, sgap = 3;
 
-        // req-018：从 HeatMapTierScale 按 ProviderId 取色阶表。空 / 未知 → 走 GenericDefaults。
+        // req-018 / Stage E：按 ProviderId 取色阶表：用户持久化 → 插件声明默认 → GenericDefaults。
         var key = (providerId ?? string.Empty).Trim();
         IReadOnlyList<UsageMonitor.App.Helpers.HeatMapTier> tiers;
         if (!string.IsNullOrEmpty(key) && UsageMonitor.App.Helpers.HeatMapTierScale.ProviderTiers.TryGetValue(key, out var t) && t.Count > 0)
             tiers = t;
         else
-            tiers = UsageMonitor.App.Helpers.HeatMapTierScale.GenericDefaults;
+            tiers = UsageMonitor.App.Helpers.HeatMapTierScale.GetDeclaredDefaults(key)
+                ?? UsageMonitor.App.Helpers.HeatMapTierScale.GenericDefaults;
 
-        // 色块数组：首块 = "无用量"档（HeatMapTierScale.MiniMaxDefaults[0] / GenericDefaults[0]），
+        // 色块数组：首块 = "无用量"档（声明默认色阶 / HeatMapTierScale.GenericDefaults[0]），
         // 与 EmptyCellBrush 视觉上区分（图例本身就是色阶提示，不是空格网底）。
         var swatches = new Brush[tiers.Count + 1];
         swatches[0] = tiers[0].ToBrush();

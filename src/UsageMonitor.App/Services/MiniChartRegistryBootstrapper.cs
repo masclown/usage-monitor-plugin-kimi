@@ -23,7 +23,7 @@ namespace UsageMonitor.App.Services;
 public static class MiniChartRegistryBootstrapper
 {
     /// <summary>
-    /// 注册内置 Provider（当前仅 MiniMax）的 MiniChartDescriptor。
+    /// 注册已加载 Provider 的 MiniChartDescriptor（数据驱动，不硬编码具体 Provider）。
     /// 默认使用 RingChart 类型 + Compact 样式，与 req-051 重构后的视觉一致。
     /// <para>req-098：用户可在「设置 → 任务栏迷你图表」关闭 / 切换特定 Provider 的迷你图，
     /// 本方法读取 <see cref="AppSettings.TaskbarMiniChartConfigs"/> 应用用户偏好。</para>
@@ -39,14 +39,12 @@ public static class MiniChartRegistryBootstrapper
         var userConfigs = configService?.Settings.TaskbarMiniChartConfigs
                           ?? new Dictionary<string, TaskbarMiniChartConfig>(StringComparer.OrdinalIgnoreCase);
 
-        // req-099 修复（Bug4）：改为数据驱动——遍历实际加载的插件，用其真实 ProviderId 注册，
-        // 只为声明了 SupportedMiniCharts（非空）的插件注册（按实际 ProviderId 通用匹配，不硬编码具体 Provider）。
+        // req-099 修复（Bug4）/ Stage E：数据驱动——遍历实际加载的插件，用其真实 ProviderId 注册。
+        // 优先按 taskbar.miniCharts 声明注册（带 ChartId）；无声明的插件回退默认单 descriptor
+        // （旧 SupportedMiniCharts 接口成员已随 Stage E 删除）。
         foreach (var plugin in pluginManager.Plugins)
         {
             var provider = plugin.Provider;
-            var supported = provider.SupportedMiniCharts;
-            // 未声明迷你图能力的插件（如纯 API 的 OpenAI）跳过。
-            if (supported == null || supported.Count == 0) continue;
 
             // req-109：优先按 taskbar.miniCharts 声明逐个注册（带 ChartId，供渲染端按 chartId 精确过滤）。
             var taskbar = provider.Taskbar;

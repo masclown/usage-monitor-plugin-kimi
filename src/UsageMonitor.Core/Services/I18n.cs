@@ -16,7 +16,7 @@ namespace UsageMonitor.Core.Services;
 /// <para>
 /// 键命名约定：
 /// <c>plugin.&lt;providerId&gt;.field.&lt;fieldKey&gt;.name</c> / <c>.placeholder</c>
-/// （如 <c>plugin.MiniMax.field.ApiKey.name</c>）。
+/// （如 <c>history.range.last7days</c>）。
 /// </para>
 /// <para>
 /// 当前范围仅覆盖插件配置字段名称/提示。App UI 文案仍以中文硬编码，
@@ -51,24 +51,8 @@ public static class I18n
         // 使用 var 局部变量便于维护：键 -> 中文文案，扁平结构便于搜索/审阅。
         var zhCn = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            // ---- MiniMax ----
-            ["plugin.MiniMax.field.ApiKey.name"] = "Token Plan 订阅密钥",
-            ["plugin.MiniMax.field.ApiKey.placeholder"] = "请输入 MiniMax Token Plan 订阅密钥（可在订阅页面获取）",
-            ["plugin.MiniMax.field.Cookie.name"] = "Cookie 登录态（可选备用）",
-            ["plugin.MiniMax.field.Cookie.placeholder"] = "可选。当密钥失效时，可尝试使用已登录浏览器的 Cookie",
-            ["plugin.MiniMax.field.Region.name"] = "接口区域",
-            ["plugin.MiniMax.field.Show5hBar.name"] = "显示 5h 限额进度条",
-            ["plugin.MiniMax.field.ShowWeeklyBar.name"] = "显示 本周限额 进度条",
-            ["plugin.MiniMax.field.ShowVideo5hBar.name"] = "显示 视频赠送 5h 进度条",
-            ["plugin.MiniMax.field.ShowVideoWeeklyBar.name"] = "显示 视频赠送 本周 进度条",
-
-            // ---- OpenAI ----
-            ["plugin.OpenAI.field.ApiKey.name"] = "API 密钥",
-            ["plugin.OpenAI.field.ApiKey.placeholder"] = "sk-xxxxxxxxxxxxxxxx",
-            ["plugin.OpenAI.field.BaseUrl.name"] = "API 地址",
-            ["plugin.OpenAI.field.BaseUrl.placeholder"] = "https://api.openai.com",
-            ["plugin.OpenAI.field.Organization.name"] = "组织 ID（Organization）",
-            ["plugin.OpenAI.field.Organization.placeholder"] = "org-xxxxxxxx（可选）",
+            // Stage D：plugin.MiniMax.* / plugin.OpenAI.* 硬编码文案块已删除——
+            // 插件配置字段文案改由插件 ConfigFields 声明自带（DisplayName/Placeholder 字面量或声明包 configFields 节）。
 
             // ---- req-070 F-28：历史窗口下拉框文案 ----
             ["history.range.last7days"] = "最近 7 天",

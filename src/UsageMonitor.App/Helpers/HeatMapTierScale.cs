@@ -31,7 +31,7 @@ public sealed record HeatMapTier(long MinTokens, Color Color, bool IsEnabled = t
 /// 热力图色阶运行时表（req-009）。
 /// <para>
 /// 设计参考：与 <see cref="UsageTierScale"/>（按百分比 4 档的全局进度条色阶）类似，
-/// 但本表是按 <c>token</c> 绝对值分档（MiniMax 默认 6 档：0/20M/100M/200M/300M），
+/// 但本表是按 <c>token</c> 绝对值分档（Provider 可经声明包 card.heatMapTiers 自定义档位），
 /// 且按 <c>ProviderId</c> 索引（不同 Provider 数据规模差异大）。
 /// </para>
 /// <para>
@@ -41,18 +41,10 @@ public sealed record HeatMapTier(long MinTokens, Color Color, bool IsEnabled = t
 /// </summary>
 public static class HeatMapTierScale
 {
-    /// <summary>MiniMax 出厂默认 6 档（无用量 / 极小 / 中等 / 大量 / 爆量）。</summary>
-    public static readonly IReadOnlyList<HeatMapTier> MiniMaxDefaults = new[]
-    {
-        new HeatMapTier(0,             Color.FromRgb(0xF3, 0xF4, 0xF6)),  // 无用量 #f3f4f6
-        new HeatMapTier(1,             Color.FromRgb(0xFF, 0xE7, 0xE2)),  // ≥1 (有用量) #ffe7e2
-        new HeatMapTier(20_000_000L,   Color.FromRgb(0xFF, 0xC6, 0xBB)),  // ≥20M #ffc6bb
-        new HeatMapTier(100_000_000L,  Color.FromRgb(0xFF, 0xA5, 0x95)),  // ≥100M #ffa595
-        new HeatMapTier(200_000_000L,  Color.FromRgb(0xFF, 0x7B, 0x64)),  // ≥200M #ff7b64
-        new HeatMapTier(300_000_000L,  Color.FromRgb(0xFF, 0x5A, 0x3D)),  // ≥300M #ff5a3d
-    };
+    // Stage E：MiniMax 专名出厂默认已删除——Provider 默认色阶改由声明包 card.heatMapTiers 声明，
+    // 启动时经 <see cref="RegisterDeclaredDefaults"/> 注册（宿主零专名硬编码）。
 
-    /// <summary>其他 Provider 通用 4 档兜底（阈值更低，适配 K~M 级别数据）。</summary>
+    /// <summary>通用 4 档兜底（适配 K~M 级别数据；无声明、无持久化配置时使用）。</summary>
     public static readonly IReadOnlyList<HeatMapTier> GenericDefaults = new[]
     {
         new HeatMapTier(0,             Color.FromRgb(0xF3, 0xF4, 0xF6)),
@@ -61,12 +53,39 @@ public static class HeatMapTierScale
         new HeatMapTier(100_000_000L,  Color.FromRgb(0xFF, 0xA5, 0x95)),  // ≥100M
     };
 
-    /// <summary>当前生效的色阶表（按 ProviderId 索引；key 不区分大小写）。</summary>
+    /// <summary>当前生效的色阶表（按 ProviderId 索引；key 不区分大小写；来自用户持久化配置）。</summary>
     public static System.Collections.Generic.IReadOnlyDictionary<string, IReadOnlyList<HeatMapTier>> ProviderTiers { get; private set; }
-        = new System.Collections.Generic.Dictionary<string, IReadOnlyList<HeatMapTier>>(System.StringComparer.OrdinalIgnoreCase)
+        = new System.Collections.Generic.Dictionary<string, IReadOnlyList<HeatMapTier>>(System.StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>声明包默认色阶表（来自插件 card.heatMapTiers 声明；优先级低于用户持久化配置）。</summary>
+    private static readonly System.Collections.Generic.Dictionary<string, IReadOnlyList<HeatMapTier>> DeclaredDefaults
+        = new(System.StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// 注册一个 Provider 的声明默认色阶（启动时从插件 card.heatMapTiers 装配）。
+    /// <para>仅作为 ResolveBrush / 编辑器回显的声明级兜底；用户持久化配置（ProviderTiers）始终优先。</para>
+    /// </summary>
+    /// <param name="providerId">插件 ID。</param>
+    /// <param name="tiers">声明的色阶档位（空集合则忽略）。</param>
+    public static void RegisterDeclaredDefaults(string providerId, System.Collections.Generic.IEnumerable<HeatMapTierConfig>? tiers)
+    {
+        if (string.IsNullOrWhiteSpace(providerId) || tiers == null) return;
+        var list = new System.Collections.Generic.List<HeatMapTier>();
+        foreach (var c in tiers)
         {
-            ["minimax"] = MiniMaxDefaults,
-        };
+            if (c == null) continue;
+            list.Add(new HeatMapTier(c.MinTokens, ColorStringHelper.Parse(c.ColorHex), c.IsEnabled));
+        }
+        if (list.Count > 0) DeclaredDefaults[providerId.Trim()] = list;
+    }
+
+    /// <summary>取指定 Provider 的声明默认色阶（未声明返回 null；供设置页编辑器回显兜底）。</summary>
+    /// <param name="providerId">插件 ID。</param>
+    public static IReadOnlyList<HeatMapTier>? GetDeclaredDefaults(string? providerId)
+    {
+        var key = (providerId ?? string.Empty).Trim();
+        return key.Length > 0 && DeclaredDefaults.TryGetValue(key, out var tiers) ? tiers : null;
+    }
 
     /// <summary>色阶变更事件（设置页保存 / 启动加载完成后触发）。订阅者应强制重绘热力图。</summary>
     public static event System.EventHandler? TierChanged;
@@ -100,7 +119,7 @@ public static class HeatMapTierScale
 
     /// <summary>
     /// 按 token 命中档位（取下界不超过 token 的最高档；未命中或全禁用时回退到首档颜色）。
-    /// 无 providerId 时用 <see cref="GenericDefaults"/> 兜底。
+    /// 优先级：用户持久化配置 → 插件声明默认 → <see cref="GenericDefaults"/>。
     /// </summary>
     public static Brush ResolveBrush(long token, string? providerId)
     {
@@ -109,7 +128,7 @@ public static class HeatMapTierScale
         if (!string.IsNullOrEmpty(key) && ProviderTiers.TryGetValue(key, out var t))
             tiers = t;
         else
-            tiers = GenericDefaults;
+            tiers = GetDeclaredDefaults(key) ?? GenericDefaults;
         if (tiers == null || tiers.Count == 0)
             return GenericDefaults[0].ToBrush();
         HeatMapTier? hit = null;
