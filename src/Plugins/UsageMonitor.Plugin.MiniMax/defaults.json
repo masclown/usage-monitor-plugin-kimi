@@ -194,7 +194,8 @@
             "fields": [
               { "fieldName": "five_hour_used_percent", "role": "Value" },
               { "fieldName": "five_hour_upper_limit", "role": "Upper" },
-              { "fieldName": "five_hour_lower_limit", "role": "Lower" }
+              { "fieldName": "five_hour_lower_limit", "role": "Lower" },
+              { "fieldName": "five_hour_reset_at", "role": "Reset" }
             ]
           },
           {
@@ -203,7 +204,8 @@
             "fields": [
               { "fieldName": "weekly_used_percent", "role": "Value" },
               { "fieldName": "weekly_upper_limit", "role": "Upper" },
-              { "fieldName": "weekly_lower_limit", "role": "Lower" }
+              { "fieldName": "weekly_lower_limit", "role": "Lower" },
+              { "fieldName": "weekly_reset_at", "role": "Reset" }
             ]
           },
           {
@@ -261,7 +263,8 @@
             "queryRange": { "type": "LastDays", "days": 90 },
             "fields": [
               { "fieldName": "daily_cache_hit_date", "role": "Meta" },
-              { "fieldName": "daily_cache_hit_value", "role": "Value" }
+              { "fieldName": "daily_cache_hit_value", "role": "Value" },
+              { "fieldName": "daily_token_value", "role": "Value" }
             ]
           }
         ]

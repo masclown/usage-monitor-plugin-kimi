@@ -145,7 +145,8 @@ public static class MiniChartRegistryBootstrapper
             Kind = MapDeclarativeKindToMiniChartKind(mini.Kind),
             Style = MiniChartStyle.Compact,
             DataSource = (double?)null,
-            ColorTier = null,
+            // 问题20：声明的内联色阶（thresholds/colors）转换为私有色阶；ref 引用全局色阶时保持 null（渲染层回退 UsageTierScale）。
+            ColorTier = ConvertDeclaredColorTiers(mini.ColorTiers),
             Tooltip = MiniChartTooltip.Default,
             ContentKind = contentKind,
             SecondaryKind = secondaryKind,
@@ -173,4 +174,43 @@ public static class MiniChartRegistryBootstrapper
             UsageMonitor.Core.Models.DeclarativeChartKind.HeatMap => MiniChartKind.MiniHeatMap,
             _ => MiniChartKind.MiniText,
         };
+
+    /// <summary>
+    /// 问题20：把声明的内联色阶（<see cref="UsageMonitor.Core.Models.ColorTierSpec"/> 的 thresholds/colors）
+    /// 转换为迷你图私有色阶 <see cref="MiniChartColorTier"/>。
+    /// <para>ref 引用全局色阶 / 声明缺失 / 解析失败时返回 null（渲染层回退全局 UsageTierScale）。</para>
+    /// </summary>
+    private static MiniChartColorTier? ConvertDeclaredColorTiers(UsageMonitor.Core.Models.ColorTierSpec? spec)
+    {
+        if (spec == null) return null;
+        // ref 引用（如 "global:usage-tier-default"）→ 交给全局色阶，保持 null
+        if (!string.IsNullOrEmpty(spec.Ref)) return null;
+        if (spec.Thresholds.Count == 0 || spec.Colors.Count == 0) return null;
+        try
+        {
+            var tiers = new List<UsageMonitor.Core.Models.UsageTierConfig>();
+            var count = Math.Min(spec.Thresholds.Count, spec.Colors.Count);
+            // MiniChartColorTier 限制 1-6 档，超出部分截断
+            for (var i = 0; i < count && i < 6; i++)
+            {
+                var hex = spec.Colors[i]?.TrimStart('#');
+                if (string.IsNullOrEmpty(hex)) continue;
+                if (hex.Length == 6) hex = "FF" + hex; // 默认不透明
+                if (!uint.TryParse(hex, System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture, out var argb))
+                    continue;
+                tiers.Add(new UsageMonitor.Core.Models.UsageTierConfig
+                {
+                    MinPercent = spec.Thresholds[i],
+                    ColorArgb = argb,
+                    IsEnabled = true
+                });
+            }
+            return tiers.Count > 0 ? new MiniChartColorTier(tiers) : null;
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Warn("MiniChartRegistryBootstrapper", $"声明色阶转换失败，回退全局色阶：{ex.Message}");
+            return null;
+        }
+    }
 }

@@ -21,6 +21,9 @@ public static class LogoProvider
     /// <summary>统一 logo 文件名（透明背景，单文件）。</summary>
     private const string LogoFileName = "usage-monitor-logo.png";
 
+    /// <summary>多尺寸 ico 文件名（Logo v3：256/128/64/48/32/24/16，供托盘等原生 Icon 场景使用）。</summary>
+    private const string IcoFileName = "UsageMonitor-v3.ico";
+
     /// <summary>
     /// 返回项目 Logo <see cref="ImageSource"/>（不再按主题区分，统一返回同一图片）。
     /// <para>
@@ -46,6 +49,16 @@ public static class LogoProvider
     public static string GetLogoPath()
     {
         return ResolveLogoPath(LogoFileName);
+    }
+
+    /// <summary>
+    /// 取得多尺寸 .ico 文件绝对路径；文件不存在时返回 null（调用方回退 PNG 路径）。
+    /// 托盘 NotifyIcon 优先用它，系统按 DPI 自动选择合适尺寸，高分屏不发糊。
+    /// </summary>
+    public static string? GetIcoPath()
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, "Assets", "Providers", IcoFileName);
+        return File.Exists(path) ? path : null;
     }
 
     /// <summary>

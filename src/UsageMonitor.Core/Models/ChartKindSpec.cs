@@ -87,7 +87,8 @@ public static class ChartKindSpecRegistry
                 Kind = DeclarativeChartKind.Bar,
                 SupportedSlicerModes = new[] { SlicerMode.DataGroup },
                 RequiredRoles = new[] { FieldRole.Value },
-                OptionalRoles = new[] { FieldRole.Upper, FieldRole.Lower, FieldRole.Meta },
+                // 问题4：允许 Reset 角色字段（进度条底部刷新倒计时）
+                OptionalRoles = new[] { FieldRole.Upper, FieldRole.Lower, FieldRole.Meta, FieldRole.Reset },
                 AllowedValueTypes = numeric,
                 SupportsColorTiers = true
             },
@@ -115,6 +116,8 @@ public static class ChartKindSpecRegistry
                 Kind = DeclarativeChartKind.Number,
                 SupportedSlicerModes = System.Array.Empty<SlicerMode>(),
                 RequiredRoles = new[] { FieldRole.Value },
+                // 问题6/7：允许 Upper（分母，渲染为 "分子/分母"）与 Meta（备注行）角色字段
+                OptionalRoles = new[] { FieldRole.Upper, FieldRole.Meta },
                 AllowedValueTypes = numeric,
                 SupportsColorTiers = false
             },

@@ -593,16 +593,23 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// req-016：从项目 Logo PNG 构造托盘 <see cref="System.Drawing.Icon"/>。
+    /// req-016：构造托盘 <see cref="System.Drawing.Icon"/>。
     /// <para>
-    /// PNG 不是 Windows 原生托盘格式（NotifyIcon 期望 .ico），所以走 Bitmap.GetHicon + Icon.FromHandle 路径。
-    /// 该 Icon 仅作过渡使用；高分屏可能略糊。后续如需清晰图标，准备多尺寸 .ico 后替换本方法。
+    /// Logo v3：优先加载多尺寸 UsageMonitor-v3.ico（256~16px，系统按 DPI 自动选择，高分屏清晰）；
+    /// .ico 缺失时回退旧路径：PNG 走 Bitmap.GetHicon + Icon.FromHandle 过渡。
     /// </para>
     /// </summary>
     private static System.Drawing.Icon LoadTrayIconFromLogo()
     {
         try
         {
+            // Logo v3：多尺寸 .ico 直接构造，避免 GetHicon 单尺寸缩放发糊
+            var icoPath = Helpers.LogoProvider.GetIcoPath();
+            if (icoPath != null)
+            {
+                return new System.Drawing.Icon(icoPath);
+            }
+
             var path = Helpers.LogoProvider.GetLogoPath();
             using var bmp = new System.Drawing.Bitmap(path);
             var hIcon = bmp.GetHicon();

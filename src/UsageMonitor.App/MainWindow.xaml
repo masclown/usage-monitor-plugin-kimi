@@ -23,69 +23,13 @@
         <!-- 子模板 1：卡片头部（Provider 名称 + 状态摘要 + 操作按钮） -->
         <DataTemplate x:Key="CardHeaderTemplate">
             <DockPanel Margin="0,0,0,10">
-                <!-- Logo + 折叠按钮 组：固定在 Left，折叠按钮置于 logo 右侧并 hover 才可见 -->
+                <!-- Logo：固定在 Left（问题18：折叠按钮已移至卡片底部常显，不再放在头部） -->
                 <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
                     <!-- Provider Logo 图标 -->
                     <Image Source="{Binding IconPath}" Width="22" Height="22"
                            VerticalAlignment="Center" Margin="0,0,6,0"
                            RenderOptions.BitmapScalingMode="HighQuality"
                            Visibility="{Binding IconPath, Converter={StaticResource StringToVisibility}}" />
-
-                    <!-- req-折叠插件控制：折叠按钮位于 logo 右侧，
-                         平常 opacity=0（不占用视觉权重），鼠标 hover 按钮或展开状态时 opacity=1。
-                         点击切换 IsDetailExpanded，进而控制下方限额/余额/图表区段的可见性。 -->
-                    <ToggleButton IsChecked="{Binding IsDetailExpanded, Mode=TwoWay}"
-                                  Margin="0,0,6,0" Width="22" Height="22"
-                                  ToolTip="展开/折叠详细信息"
-                                  AutomationProperties.Name="展开折叠详细信息"
-                                  AutomationProperties.HelpText="点击切换卡片的限额/余额/图表区段是否展开"
-                                  Cursor="Hand">
-                        <ToggleButton.Template>
-                            <ControlTemplate TargetType="ToggleButton">
-                                <Border x:Name="border" Background="Transparent"
-                                        CornerRadius="{DynamicResource RadiusSmall}"
-                                        Padding="2">
-                                    <Path x:Name="arrow" Data="M0,0 L6,0 L3,4 Z"
-                                          Fill="{DynamicResource TextTertiaryBrush}"
-                                          Width="8" Height="5"
-                                          HorizontalAlignment="Center"
-                                          VerticalAlignment="Center"
-                                          RenderTransformOrigin="0.5,0.5">
-                                        <Path.RenderTransform>
-                                            <RotateTransform Angle="0" />
-                                        </Path.RenderTransform>
-                                    </Path>
-                                </Border>
-                                <ControlTemplate.Triggers>
-                                    <Trigger Property="IsChecked" Value="True">
-                                        <Setter TargetName="arrow" Property="RenderTransform">
-                                            <Setter.Value>
-                                                <RotateTransform Angle="180" />
-                                            </Setter.Value>
-                                        </Setter>
-                                    </Trigger>
-                                    <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter TargetName="arrow" Property="Fill"
-                                                Value="{DynamicResource TextPrimaryBrush}" />
-                                    </Trigger>
-                                </ControlTemplate.Triggers>
-                            </ControlTemplate>
-                        </ToggleButton.Template>
-                        <ToggleButton.Style>
-                            <!-- 平常隐藏、hover 或展开时可见 -->
-                            <Style TargetType="ToggleButton">
-                                <Setter Property="Opacity" Value="0" />
-                                <Style.Triggers>
-                                    <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter Property="Opacity" Value="1" />
-                                    </Trigger>
-                                    <Trigger Property="IsChecked" Value="True">
-                                        <Setter Property="Opacity" Value="1" />
-                                    </Trigger>
-                                </Style.Triggers>
-                            </Style>
-                        </ToggleButton.Style>
-                    </ToggleButton>
                 </StackPanel>
 
                 <TextBlock Text="{Binding DisplayName}" FontSize="17" FontWeight="SemiBold"
@@ -116,20 +60,20 @@
                     <Border VerticalAlignment="Center"
                             Style="{StaticResource SubscriptionPillActiveStyle}"
                             Visibility="{Binding RenderKinds, Converter={StaticResource RenderKindToVisibility}, ConverterParameter=subscriptionTitle}">
-                        <!-- req-088 Phase2：订阅类型 | 档位 并排分别显示 -->
-                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                            <TextBlock Text="{Binding SubscriptionType}"
-                                       FontSize="11" FontWeight="SemiBold"
-                                       Foreground="{DynamicResource AccentBrush}"
-                                       VerticalAlignment="Center" />
-                            <TextBlock Text=" · " FontSize="11" FontWeight="SemiBold"
-                                       Foreground="{DynamicResource AccentBrush}"
-                                       VerticalAlignment="Center" />
-                            <TextBlock Text="{Binding SubscriptionTier}"
-                                       FontSize="11" FontWeight="SemiBold"
-                                       Foreground="{DynamicResource AccentBrush}"
-                                       VerticalAlignment="Center" />
-                        </StackPanel>
+                        <!-- 问题17：订阅类型胶囊（与档位胶囊拆分为两个独立胶囊展示） -->
+                        <TextBlock Text="{Binding SubscriptionType}"
+                                   FontSize="11" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource AccentBrush}"
+                                   VerticalAlignment="Center" />
+                    </Border>
+                    <Border VerticalAlignment="Center" Margin="6,0,0,0"
+                            Style="{StaticResource SubscriptionPillActiveStyle}"
+                            Visibility="{Binding RenderKinds, Converter={StaticResource RenderKindToVisibility}, ConverterParameter=subscriptionTitle}">
+                        <!-- 问题17：订阅档位胶囊（如 TokenPlanMax-年度会员），与类型分开显示 -->
+                        <TextBlock Text="{Binding SubscriptionTier}"
+                                   FontSize="11" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource AccentBrush}"
+                                   VerticalAlignment="Center" />
                     </Border>
 
                     <!-- 刷新本卡片按钮：位于设置按钮左侧，仅刷新当前服务商用量；刷新中图标持续旋转作为进行反馈 -->
@@ -429,7 +373,9 @@
             <ItemsControl ItemsSource="{Binding BarData.Bars}">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
-                        <StackPanel Margin="0,0,0,10" ToolTip="{Binding TooltipText}">
+                        <!-- 问题3：Background=Transparent 保证整行（含空白区）都能命中 tooltip -->
+                        <StackPanel Margin="0,0,0,10" Background="Transparent"
+                                    ToolTip="{Binding TooltipText}">
                             <DockPanel>
                                 <TextBlock Text="{Binding Label}" FontSize="12"
                                            Foreground="{DynamicResource TextSecondaryBrush}"
@@ -453,9 +399,26 @@
                                 </Border>
                             </Grid>
                             <DockPanel Margin="0,3,0,0">
-                                <TextBlock Text="{Binding FooterText}" FontSize="11"
-                                           Foreground="{DynamicResource TextTertiaryBrush}"
-                                           Visibility="{Binding FooterText, Converter={StaticResource StringToVisibility}}" />
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="{Binding FooterText}" FontSize="11"
+                                               Foreground="{DynamicResource TextTertiaryBrush}"
+                                               Visibility="{Binding FooterText, Converter={StaticResource StringToVisibility}}" />
+                                    <!-- 问题4：5h 数据组声明了 five_hour_reset_at 时，展示实时刷新倒计时（每秒由全局 timer 驱动） -->
+                                    <TextBlock FontSize="11" Margin="8,0,0,0"
+                                               Foreground="{DynamicResource TextTertiaryBrush}"
+                                               Text="{Binding DataContext.Owner.FiveHourCountdownText, RelativeSource={RelativeSource AncestorType=ContentControl}, Mode=OneWay, StringFormat=倒计时 {0}}">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding ResetFieldName}" Value="five_hour_reset_at">
+                                                        <Setter Property="Visibility" Value="Visible" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                </StackPanel>
                                 <TextBlock DockPanel.Dock="Right" HorizontalAlignment="Right"
                                            FontSize="11" FontWeight="SemiBold"
                                            Foreground="{DynamicResource TextPrimaryBrush}"
@@ -515,6 +478,7 @@
                 TooltipFields="{Binding Owner.EffectiveHeatMapTooltipFields}"
                 TooltipValueField="{Binding Owner.HeatMapTooltipValueField}"
                 TooltipFieldLabel="{Binding Owner.HeatMapTooltipFieldLabel}"
+                TooltipComparisonField="{Binding Owner.HeatMapTooltipComparisonField}"
                 ProviderId="{Binding Owner.ProviderId}" />
         </DataTemplate>
 
@@ -848,7 +812,9 @@
             </Border>
 
             <!-- 用量卡片列表 -->
-            <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,6,0"
+            <!-- 用量卡片列表：问题16：垂直滚动条固定可见（细滚动条 + 无内容时自动隐藏轨道），
+                 避免滚动条出现/消失导致卡片宽度跳变 -->
+            <ScrollViewer VerticalScrollBarVisibility="Visible" Padding="0,0,4,0"
                           Visibility="{Binding IsEmpty, Converter={StaticResource BoolToVisibility}, ConverterParameter=Invert}">
                 <ItemsControl ItemsSource="{Binding EnabledUsages}">
                 <ItemsControl.ItemTemplate>
@@ -909,6 +875,48 @@
                                         </ContentPresenter.Visibility>
                                     </ContentPresenter>
                                 </StackPanel>
+
+                                <!-- 问题18：折叠按钮常显，位于卡片底部（整宽点击区，箭头随展开状态翻转） -->
+                                <ToggleButton IsChecked="{Binding IsDetailExpanded, Mode=TwoWay}"
+                                              Margin="0,6,0,0" Height="20"
+                                              HorizontalAlignment="Stretch"
+                                              ToolTip="展开/折叠详细信息"
+                                              AutomationProperties.Name="展开折叠详细信息"
+                                              AutomationProperties.HelpText="点击切换卡片的限额/余额/图表区段是否展开"
+                                              Cursor="Hand">
+                                    <ToggleButton.Template>
+                                        <ControlTemplate TargetType="ToggleButton">
+                                            <Border x:Name="border" Background="Transparent"
+                                                    CornerRadius="{DynamicResource RadiusSmall}">
+                                                <Path x:Name="arrow" Data="M0,0 L8,0 L4,5 Z"
+                                                      Fill="{DynamicResource TextTertiaryBrush}"
+                                                      Width="10" Height="6" Stretch="Uniform"
+                                                      HorizontalAlignment="Center"
+                                                      VerticalAlignment="Center"
+                                                      RenderTransformOrigin="0.5,0.5">
+                                                    <Path.RenderTransform>
+                                                        <RotateTransform Angle="0" />
+                                                    </Path.RenderTransform>
+                                                </Path>
+                                            </Border>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsChecked" Value="True">
+                                                    <Setter TargetName="arrow" Property="RenderTransform">
+                                                        <Setter.Value>
+                                                            <RotateTransform Angle="180" />
+                                                        </Setter.Value>
+                                                    </Setter>
+                                                </Trigger>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter TargetName="border" Property="Background"
+                                                            Value="{DynamicResource MutedBrush}" />
+                                                    <Setter TargetName="arrow" Property="Fill"
+                                                            Value="{DynamicResource TextPrimaryBrush}" />
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </ToggleButton.Template>
+                                </ToggleButton>
                             </StackPanel>
                         </Border>
                     </DataTemplate>

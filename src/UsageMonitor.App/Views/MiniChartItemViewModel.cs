@@ -40,6 +40,45 @@ public class MiniChartItemViewModel : INotifyPropertyChanged
     /// <summary>问题8：账号显示名（昵称优先，回退账号 ID；由 TaskbarWindow 构建时解析注入）。</summary>
     public string? AccountName { get; set; }
 
+    /// <summary>问题11/12：用户勾选的可见数据组 ID 列表（含顺序；可含虚拟倒计时组 ID）。
+    /// <para>null = 未配置（全部声明组可见）；由 TaskbarWindow 构建时从 AccountCustomization.VisibleMiniDataGroups 解析注入。</para></summary>
+    public IReadOnlyList<string>? VisibleDataGroupIds { get; set; }
+
+    /// <summary>问题13：是否显示 Provider Logo（来自用户设置/描述符）。</summary>
+    public bool ShowLogo => Descriptor.ShowLogo;
+
+    /// <summary>问题13：Provider Logo 路径（优先关联卡片 VM 的图标，回退按 ProviderId 解析）。</summary>
+    public string? IconPath => UsageVm?.IconPath ?? ViewModels.ProviderUsageViewModel.ResolveIconPath(ProviderId);
+
+    /// <summary>问题11：有效数据组列表——按用户勾选（VisibleDataGroupIds）过滤并排序声明组；未配置时为全部声明组。
+    /// <para>滚轮循环、UsagePercent、tooltip 均基于本列表，保证取消勾选的数据组不再参与展示/切换。</para></summary>
+    public IReadOnlyList<DataGroup> EffectiveDataGroups
+    {
+        get
+        {
+            var declared = Descriptor.DataGroups;
+            if (declared is not { Count: > 0 }) return System.Array.Empty<DataGroup>();
+            var visible = VisibleDataGroupIds;
+            if (visible == null) return declared;
+            // 按用户列表顺序过滤（虚拟 ID 如倒计时组不在声明中，自然跳过）
+            var result = new List<DataGroup>();
+            foreach (var id in visible)
+            {
+                var g = declared.FirstOrDefault(d => string.Equals(d.Id, id, StringComparison.OrdinalIgnoreCase));
+                if (g != null) result.Add(g);
+            }
+            return result;
+        }
+    }
+
+    /// <summary>问题12：文本迷你图是否展示刷新倒计时段（由虚拟倒计时数据组勾选控制；未配置时不显示）。</summary>
+    public bool ShowCountdownInText
+        => VisibleDataGroupIds != null
+           && VisibleDataGroupIds.Contains(MiniTooltipFieldCatalog.RefreshCountdownVirtual, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>问题11：宿主注入 VisibleDataGroupIds 后重新解析初始数据组索引（构造时尚未注入，需二次对齐）。</summary>
+    public void ReinitializeDataGroupIndex() => _currentDataGroupIndex = ResolveInitialDataGroupIndex();
+
     /// <summary>唯一 ProviderId（来自 Descriptor，转发给 XAML 便于调试）。</summary>
     public string ProviderId => Descriptor.ProviderId;
 
@@ -168,15 +207,17 @@ public class MiniChartItemViewModel : INotifyPropertyChanged
     }
 
     /// <summary>
-    /// 问题8：按有效字段构建 tooltip 行列表（按 <see cref="MiniTooltipFieldCatalog"/> 目录顺序，取不到值的字段跳过）。
+    /// 问题8：按有效字段构建 tooltip 行列表（问题9：按用户保存的字段顺序；取不到值的字段跳过）。
+    /// <para>问题11：存在数据组时，百分比值字段仅展示当前滚轮选中数据组的 Value 字段，
+    /// 保证 tooltip 随滚轮切换分别显示 5h 限额 / 周限额。</para>
     /// </summary>
     private List<string> BuildFieldTooltipLines(IReadOnlyList<string> fields)
     {
         var lines = new List<string>();
-        foreach (var option in MiniTooltipFieldCatalog.GetOptions())
+        var currentValueField = CurrentDataGroup?.Fields.FirstOrDefault(f => f.Role == FieldRole.Value)?.FieldName;
+        foreach (var fieldName in fields)
         {
-            if (!fields.Contains(option.FieldName, StringComparer.OrdinalIgnoreCase)) continue;
-            switch (option.FieldName)
+            switch (fieldName)
             {
                 case MiniTooltipFieldCatalog.ProviderNameVirtual:
                     lines.Add(UsageVm?.DisplayName ?? ProviderId);
@@ -186,12 +227,17 @@ public class MiniChartItemViewModel : INotifyPropertyChanged
                     break;
                 case UsageFields.FiveHourUsedPercent:
                 {
+                    // 问题11：当前数据组非 5h 时跳过（无数据组声明时不限制）
+                    if (HasDataGroups && currentValueField != null &&
+                        !string.Equals(currentValueField, UsageFields.FiveHourUsedPercent, StringComparison.OrdinalIgnoreCase)) break;
                     var v = ResolveMiniFieldValue(UsageFields.FiveHourUsedPercent);
                     if (v.HasValue) lines.Add($"5h 已用 {v.Value:0}%");
                     break;
                 }
                 case UsageFields.WeeklyUsedPercent:
                 {
+                    if (HasDataGroups && currentValueField != null &&
+                        !string.Equals(currentValueField, UsageFields.WeeklyUsedPercent, StringComparison.OrdinalIgnoreCase)) break;
                     var v = ResolveMiniFieldValue(UsageFields.WeeklyUsedPercent);
                     if (v.HasValue) lines.Add($"本周已用 {v.Value:0}%");
                     break;
@@ -212,53 +258,49 @@ public class MiniChartItemViewModel : INotifyPropertyChanged
            || EffectiveTooltipFields.Contains(MiniTooltipFieldCatalog.ProviderNameVirtual, StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// 问题8：MiniText 模板的正文片段（Provider 名之外的内容）。
-    /// <para>有字段配置时按目录顺序拼接紧凑片段（账号名 / "5h x%" / "周 x%" / 倒计时）；
-    /// 无字段配置时回退当前数据组百分比（问题7：滚轮切 5h/周）。</para>
+    /// 问题12：MiniText 模板的正文片段（Provider 名之外的内容）。
+    /// <para>改为数据组驱动：仅展示用户勾选的数据组（按勾选顺序，如 "5h 42% 周 30%"），
+    /// 倒计时段由虚拟倒计时数据组勾选控制；未勾选任何数据组时不显示数据段。
+    /// 无数据组声明（旧注册路径）时回退当前百分比。</para>
     /// </summary>
     public string MiniTextBody
     {
         get
         {
-            var fields = EffectiveTooltipFields;
-            if (fields != null)
+            if (Descriptor.DataGroups is { Count: > 0 })
             {
                 var parts = new List<string>();
-                foreach (var option in MiniTooltipFieldCatalog.GetOptions())
+                foreach (var group in EffectiveDataGroups)
                 {
-                    if (!fields.Contains(option.FieldName, StringComparer.OrdinalIgnoreCase)) continue;
-                    switch (option.FieldName)
-                    {
-                        case UsageFields.AccountDisplayName:
-                            if (!string.IsNullOrWhiteSpace(AccountName)) parts.Add(AccountName!);
-                            break;
-                        case UsageFields.FiveHourUsedPercent:
-                        {
-                            var v = ResolveMiniFieldValue(UsageFields.FiveHourUsedPercent);
-                            parts.Add(v.HasValue ? $"5h {v.Value:0}%" : "5h --");
-                            break;
-                        }
-                        case UsageFields.WeeklyUsedPercent:
-                        {
-                            var v = ResolveMiniFieldValue(UsageFields.WeeklyUsedPercent);
-                            parts.Add(v.HasValue ? $"周 {v.Value:0}%" : "周 --");
-                            break;
-                        }
-                        case MiniTooltipFieldCatalog.RefreshCountdownVirtual:
-                        {
-                            var countdown = UsageVm?.FiveHourCountdownText;
-                            if (!string.IsNullOrWhiteSpace(countdown) && countdown != "00:00:00") parts.Add(countdown!);
-                            break;
-                        }
-                    }
+                    var valueField = group.Fields.FirstOrDefault(f => f.Role == FieldRole.Value)?.FieldName;
+                    if (valueField == null) continue;
+                    var v = ResolveMiniFieldValue(valueField);
+                    var shortLabel = ResolveFieldShortLabel(valueField, group);
+                    parts.Add(v.HasValue ? $"{shortLabel} {v.Value:0}%" : $"{shortLabel} --");
+                }
+                // 问题12：倒计时段由虚拟数据组勾选控制
+                if (ShowCountdownInText)
+                {
+                    var countdown = UsageVm?.FiveHourCountdownText;
+                    if (!string.IsNullOrWhiteSpace(countdown) && countdown != "00:00:00") parts.Add(countdown!);
                 }
                 return string.Join(" ", parts);
             }
-            // 回退：当前数据组百分比（与旧模板 StringFormat 行为一致）
+            // 回退：无数据组声明时显示当前百分比（与旧模板 StringFormat 行为一致）
             var val = UsagePercent;
             return val.HasValue ? $"{val.Value:0}%" : "--";
         }
     }
+
+    /// <summary>问题12：字段短标签（文本迷你图紧凑展示用，如 "5h" / "周"）；未知字段回退数据组显示名。</summary>
+    private static string ResolveFieldShortLabel(string fieldName, DataGroup group) => fieldName switch
+    {
+        UsageFields.FiveHourUsedPercent => "5h",
+        UsageFields.WeeklyUsedPercent => "周",
+        UsageFields.VideoQuota => "视频",
+        UsageFields.RemainingCredits => "积分",
+        _ => group.Display ?? group.Id
+    };
 
     /// <summary>
     /// req-088 B9：当前 descriptor 是否启用 Tooltip（ShowDelayMs ≥ 0 时显示）。
@@ -277,20 +319,20 @@ public class MiniChartItemViewModel : INotifyPropertyChanged
     public int CurrentDataGroupIndex => _currentDataGroupIndex;
 
     /// <summary>
-    /// req-107 B4：是否声明了数据组（至少 1 组）。
+    /// req-107 B4：是否存在可用数据组（问题11：按用户勾选过滤后至少 1 组）。
     /// <para>有数据组时 UsagePercent / TooltipBody 走组解析路径；无则回退原有单值逻辑。</para>
     /// </summary>
-    public bool HasDataGroups => Descriptor.DataGroups is { Count: > 0 };
+    public bool HasDataGroups => EffectiveDataGroups.Count > 0;
 
     /// <summary>
-    /// req-107 B4：当前选中的数据组（索引越界时自动钳位）；无数据组声明时返回 null。
+    /// req-107 B4：当前选中的数据组（问题11：基于有效数据组列表，索引越界时自动钳位）；无可用组时返回 null。
     /// </summary>
     public DataGroup? CurrentDataGroup
     {
         get
         {
-            var groups = Descriptor.DataGroups;
-            if (groups is not { Count: > 0 }) return null;
+            var groups = EffectiveDataGroups;
+            if (groups.Count == 0) return null;
             return groups[Math.Clamp(_currentDataGroupIndex, 0, groups.Count - 1)];
         }
     }
@@ -319,10 +361,12 @@ public class MiniChartItemViewModel : INotifyPropertyChanged
     /// <returns>是否实际发生了切换。</returns>
     public bool CycleDataGroup(int delta)
     {
-        var groups = Descriptor.DataGroups;
-        if (groups is not { Count: > 1 }) return false;
-        // 循环索引（支持负数 delta）
-        var newIndex = ((_currentDataGroupIndex + delta) % groups.Count + groups.Count) % groups.Count;
+        // 问题11：仅在用户勾选的有效数据组内循环，取消勾选的组不再参与滚轮切换。
+        var groups = EffectiveDataGroups;
+        if (groups.Count <= 1) return false;
+        // 循环索引（支持负数 delta；先钳位再循环，避免过滤后列表变短导致越界）
+        var current = Math.Clamp(_currentDataGroupIndex, 0, groups.Count - 1);
+        var newIndex = ((current + delta) % groups.Count + groups.Count) % groups.Count;
         if (newIndex == _currentDataGroupIndex) return false;
         _currentDataGroupIndex = newIndex;
         // 切组后全量通知：环 Percent、色阶画刷、tooltip 均随当前组重算
@@ -370,12 +414,12 @@ public class MiniChartItemViewModel : INotifyPropertyChanged
     };
 
     /// <summary>
-    /// req-107 B4：解析初始数据组索引——优先定位 Slicer.Default 声明的组 Id，未匹配时默认第 0 组。
+    /// req-107 B4：解析初始数据组索引——优先定位 Slicer.Default 声明的组 Id（在有效数据组内查找），未匹配时默认第 0 组。
     /// </summary>
     private int ResolveInitialDataGroupIndex()
     {
-        var groups = Descriptor.DataGroups;
-        if (groups is not { Count: > 0 }) return 0;
+        var groups = EffectiveDataGroups;
+        if (groups.Count == 0) return 0;
         var defaultId = Descriptor.Slicer?.Default;
         if (!string.IsNullOrEmpty(defaultId))
         {
@@ -427,8 +471,8 @@ public class MiniChartItemViewModel : INotifyPropertyChanged
         _countdownTimer.Tick += (_, _) =>
         {
             OnPropertyChanged(nameof(RefreshCountdownText));
-            // 问题8：倒计时字段可能参与 tooltip/文本渲染，每秒同步刷新。
-            if (EffectiveTooltipFields != null)
+            // 问题8/12：倒计时可能参与 tooltip/文本渲染（字段勾选或虚拟倒计时数据组），每秒同步刷新。
+            if (EffectiveTooltipFields != null || ShowCountdownInText)
             {
                 OnPropertyChanged(nameof(CompositeTooltipText));
                 OnPropertyChanged(nameof(MiniTextBody));

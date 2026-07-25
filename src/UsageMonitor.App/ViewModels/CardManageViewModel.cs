@@ -468,8 +468,17 @@ public class ChartNode : CardChartListItem
         }
 
         // 初始化 tooltip 字段（按图表声明的数据组派生可选项，避免列出当前图表不涉及的字段；实例级配置优先，回退图表级，再回退声明）
+        // 问题9：按用户保存的字段顺序排列（已勾选字段在前且保持保存顺序，未勾选按目录顺序追加），拖拽排序重进页面后不丢失。
         var savedFields = ResolveTooltipFields(eff, instanceId, declaration.ChartId);
-        foreach (var option in TooltipFieldCatalog.GetFieldsForChart(declaration))
+        var catalogOptions = TooltipFieldCatalog.GetFieldsForChart(declaration);
+        var orderedOptions = savedFields == null
+            ? (IEnumerable<TooltipFieldCatalog.TooltipFieldOption>)catalogOptions
+            : catalogOptions.OrderBy(o =>
+            {
+                var idx = savedFields.FindIndex(f => string.Equals(f, o.FieldName, StringComparison.OrdinalIgnoreCase));
+                return idx >= 0 ? idx : int.MaxValue;
+            });
+        foreach (var option in orderedOptions)
         {
             bool isChecked = savedFields == null
                 ? declaration.Tooltip?.Fields?.Contains(option.FieldName) == true

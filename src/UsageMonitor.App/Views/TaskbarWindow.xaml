@@ -22,15 +22,33 @@
         教训见 devdoc/20260721223000_项目开发说明文档-XAML资源顺序踩坑.md
     -->
     <Window.Resources>
+        <!-- 问题12/19：内容为空时隐藏 tooltip 气泡（避免绑定值为 null 时弹出空白框） -->
+        <Style x:Key="NullCollapsedToolTipStyle" TargetType="ToolTip" BasedOn="{StaticResource {x:Type ToolTip}}">
+            <Style.Triggers>
+                <Trigger Property="Content" Value="{x:Null}">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
         <!-- req-088 B5：文字模式模板
              req-079 U-33：IsDataReady=false（数据尚未就绪 / 刷新中且无缓存）时显示骨架屏占位，避免空白闪烁
-             问题7/8：正文改绑 MiniTextBody（字段驱动/当前数据组百分比）；挂滚轮切数据组；tooltip 改绑 CompositeTooltipText -->
+             问题12/13：正文改为数据组驱动（MiniTextBody）；勾选 logo 时文本左侧显示 Provider logo；
+             tooltip 改用 ToolTip 元素 + Content 绑定（问题19：打开期间内容随倒计时每秒刷新） -->
         <DataTemplate x:Key="MiniChartTextTemplate" DataType="{x:Type views:MiniChartItemViewModel}">
             <Grid VerticalAlignment="Center" Margin="0,0,16,0" Background="Transparent"
-                  PreviewMouseWheel="OnRingChartPreviewMouseWheel">
-                <StackPanel Orientation="Horizontal" VerticalAlignment="Center"
-                            ToolTip="{Binding CompositeTooltipText, Mode=OneWay}"
-                            ToolTipService.InitialShowDelay="{Binding TooltipShowDelayMs}">
+                  PreviewMouseWheel="OnRingChartPreviewMouseWheel"
+                  ToolTipService.InitialShowDelay="{Binding TooltipShowDelayMs}">
+                <Grid.ToolTip>
+                    <ToolTip Content="{Binding CompositeTooltipText, Mode=OneWay}"
+                             Style="{StaticResource NullCollapsedToolTipStyle}" />
+                </Grid.ToolTip>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <!-- 问题13：Provider logo（勾选 logo 时显示在文本左侧） -->
+                    <Image Source="{Binding IconPath, Mode=OneWay}" Width="16" Height="16"
+                           VerticalAlignment="Center" Margin="0,0,4,0"
+                           RenderOptions.BitmapScalingMode="HighQuality"
+                           Visibility="{Binding ShowLogo, Converter={StaticResource BoolToVisibility}}" />
                     <TextBlock Text="{Binding ProviderId, Mode=OneWay}" FontSize="12" FontWeight="SemiBold"
                                Foreground="{DynamicResource TextPrimaryBrush}"
                                VerticalAlignment="Center" Margin="0,0,4,0"
@@ -54,13 +72,17 @@
             req-107 B4：Grid 挂 PreviewMouseWheel 滚轮切数据组；ToolTip 改绑 CompositeTooltipText（标题+正文）。
         -->
         <DataTemplate x:Key="MiniChartRingChartTemplate" DataType="{x:Type views:MiniChartItemViewModel}">
-            <!-- 问题8：tooltip 改挂在透明 Grid 上（整个 38x38 区域可命中），避免半环中心空白区悬停不弹 tooltip -->
+            <!-- 问题8：tooltip 挂在透明 Grid 上（整个 38x38 区域可命中）；问题19：改用 ToolTip 元素 + Content 绑定，
+                 保证 tooltip 打开期间倒计时每秒刷新（字符串 ToolTip 打开后不会重新取值） -->
             <Grid Width="38" Height="38" Margin="0,0,6,0" Background="Transparent"
                   PreviewMouseWheel="OnRingChartPreviewMouseWheel"
-                  ToolTip="{Binding CompositeTooltipText, Mode=OneWay}"
                   ToolTipService.Placement="Top"
                   ToolTipService.VerticalOffset="-8"
                   ToolTipService.InitialShowDelay="{Binding TooltipShowDelayMs}">
+                <Grid.ToolTip>
+                    <ToolTip Content="{Binding CompositeTooltipText, Mode=OneWay}"
+                             Style="{StaticResource NullCollapsedToolTipStyle}" />
+                </Grid.ToolTip>
                 <controls:RingChartControl Width="38" Height="38"
                                             Percent="{Binding UsagePercent, Mode=OneWay, FallbackValue=0, TargetNullValue=0}"
                                             Size="38" StrokeThickness="3.5"

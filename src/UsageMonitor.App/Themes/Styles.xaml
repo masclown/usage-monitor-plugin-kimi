@@ -445,16 +445,18 @@
     </Style>
 
     <!-- ============ 滚动条 ============ -->
+    <!-- 问题15/16：宽度 10→6 缩窄；不可滚动（IsEnabled=False）时隐藏轨道，
+         配合 ScrollViewer 固定 Visible 实现宽度稳定且无内容时不显示滚动条 -->
     <Style TargetType="ScrollBar">
         <Setter Property="Background" Value="Transparent" />
-        <Setter Property="Width" Value="10" />
+        <Setter Property="Width" Value="6" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="ScrollBar">
                     <Grid Background="Transparent">
                         <Track x:Name="PART_Track" IsDirectionReversed="True">
                             <Track.Thumb>
-                                <Thumb Style="{StaticResource ScrollThumbStyle}" Margin="2,0" />
+                                <Thumb Style="{StaticResource ScrollThumbStyle}" Margin="1,0" />
                             </Track.Thumb>
                             <Track.IncreaseRepeatButton>
                                 <RepeatButton Style="{StaticResource ScrollPageButtonStyle}" Command="ScrollBar.PageDownCommand" />
@@ -464,20 +466,26 @@
                             </Track.DecreaseRepeatButton>
                         </Track>
                     </Grid>
+                    <ControlTemplate.Triggers>
+                        <!-- 内容无需滚动时隐藏轨道（保留占位宽度，卡片宽度不变） -->
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="PART_Track" Property="Visibility" Value="Hidden" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
         <Style.Triggers>
             <Trigger Property="Orientation" Value="Horizontal">
                 <Setter Property="Width" Value="Auto" />
-                <Setter Property="Height" Value="10" />
+                <Setter Property="Height" Value="6" />
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="ScrollBar">
                             <Grid Background="Transparent">
                                 <Track x:Name="PART_Track">
                                     <Track.Thumb>
-                                        <Thumb Style="{StaticResource ScrollThumbStyle}" Margin="0,2" />
+                                        <Thumb Style="{StaticResource ScrollThumbStyle}" Margin="0,1" />
                                     </Track.Thumb>
                                     <Track.IncreaseRepeatButton>
                                         <RepeatButton Style="{StaticResource ScrollPageButtonStyle}" Command="ScrollBar.PageRightCommand" />
@@ -487,6 +495,11 @@
                                     </Track.DecreaseRepeatButton>
                                 </Track>
                             </Grid>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter TargetName="PART_Track" Property="Visibility" Value="Hidden" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
                         </ControlTemplate>
                     </Setter.Value>
                 </Setter>

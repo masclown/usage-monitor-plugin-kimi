@@ -202,10 +202,37 @@ public partial class TaskbarWindow : Window
             {
                 // 问题8：解析本 mini 图表的有效 Tooltip/文本字段（用户配置优先，回退声明；null = 沿用旧渲染）
                 EffectiveTooltipFields = ResolveMiniTooltipFields(descriptor, usageVm),
+                // 问题11/12：解析本 mini 图表的可见数据组（用户勾选；null = 全部声明组可见）
+                VisibleDataGroupIds = ResolveMiniVisibleDataGroups(descriptor, usageVm),
                 AccountName = ResolveAccountName(descriptor.ProviderId, usageVm.AccountIdSafe)
             });
         }
+        // 问题11：注入可见数据组后重新对齐初始数据组索引（构造时尚未注入）。
+        foreach (var item in result)
+            item.ReinitializeDataGroupIndex();
         return result;
+    }
+
+    /// <summary>
+    /// 问题11/12：解析指定 mini 图表的可见数据组 ID 列表（AccountCustomization.VisibleMiniDataGroups）。
+    /// <para>null = 未配置（全部声明组可见）；非 null 时列表顺序即展示/滚轮切换顺序，可含虚拟倒计时组 ID。</para>
+    /// </summary>
+    private IReadOnlyList<string>? ResolveMiniVisibleDataGroups(MiniChartDescriptor descriptor, ProviderUsageViewModel usageVm)
+    {
+        try
+        {
+            if (descriptor.ChartId != null)
+            {
+                var eff = _configService.GetEffectiveAccountCustomization(descriptor.ProviderId, usageVm.AccountIdSafe, usageVm.CardIdSafe);
+                if (eff.VisibleMiniDataGroups.TryGetValue(descriptor.ChartId, out var groups) && groups != null)
+                    return groups;
+            }
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Warn("TaskbarWindow", $"ResolveMiniVisibleDataGroups({descriptor.ProviderId}:{descriptor.ChartId}) failed: {ex.Message}");
+        }
+        return null;
     }
 
     /// <summary>
@@ -248,12 +275,12 @@ public partial class TaskbarWindow : Window
     }
 
     /// <summary>
-    /// S4：计算迷你图列表签名（ProviderId:ChartId:有效字段 按序拼接），用于守卫比较。
-    /// <para>问题8：签名包含有效 Tooltip 字段，保证设置页仅改字段勾选时也能触发重建。</para>
+    /// S4：计算迷你图列表签名（ProviderId:ChartId:有效字段:可见数据组 按序拼接），用于守卫比较。
+    /// <para>问题8/11：签名包含有效 Tooltip 字段与可见数据组，保证设置页仅改勾选时也能触发重建。</para>
     /// </summary>
     private static string ComputeMiniChartSignature(IEnumerable<MiniChartItemViewModel> items)
         => string.Join("|", items.Select(i =>
-            $"{i.ProviderId}:{i.Descriptor.ChartId ?? string.Empty}:{(i.EffectiveTooltipFields == null ? "~" : string.Join(",", i.EffectiveTooltipFields))}"));
+            $"{i.ProviderId}:{i.Descriptor.ChartId ?? string.Empty}:{(i.EffectiveTooltipFields == null ? "~" : string.Join(",", i.EffectiveTooltipFields))}:{(i.VisibleDataGroupIds == null ? "~" : string.Join(",", i.VisibleDataGroupIds))}"));
 
     /// <summary>
     /// S4：用新列表替换 VisibleMiniCharts（停旧 timer → 清空 → 写入 → 启新 timer → 重算窗口宽度）。
@@ -420,6 +447,9 @@ public partial class TaskbarWindow : Window
     {
         base.OnPreviewMouseLeftButtonDown(e);
         if (e.Handled || e.ChangedButton != MouseButton.Left) return;
+        // 问题14：记录按下时的命中元素，供 Up 时判断“原地点击”触发迷你环刷新
+        //（窗口拖拽占用 Preview 事件链并 e.Handled=true，冒泡到 RingChartControl 的 CenterClick 永远不会触发）。
+        _pressOriginalSource = e.OriginalSource as DependencyObject;
         var mode = HitTestEdge(e.GetPosition(this).X);
         if (e.ClickCount == 2 && mode != DragMode.Move)
         {
@@ -478,8 +508,42 @@ public partial class TaskbarWindow : Window
         base.OnPreviewMouseLeftButtonUp(e);
         if (e.Handled || e.ChangedButton != MouseButton.Left || !_isDragging) return;
         if (_dragMode == DragMode.ResizeLeft || _dragMode == DragMode.ResizeRight) SaveWidthToConfig();
+        // 问题14：未发生明显位移的“原地点击”→ 命中迷你半圆环时触发该 Provider 刷新。
+        var cur = System.Windows.Forms.Cursor.Position;
+        var isClick = Math.Abs(cur.X - _dragStartCursorScreen.X) <= 3 &&
+                      Math.Abs(cur.Y - _dragStartCursorScreen.Y) <= 3;
+        var wasMoveMode = _dragMode == DragMode.Move; // EndDrag 会重置 _dragMode，先行留存
         EndDrag();
         e.Handled = true;
+        if (isClick && wasMoveMode) TryHandleMiniRingClick();
+    }
+
+    /// <summary>问题14：按下时的原始命中元素（用于原地点击定位被点中的迷你图项）。</summary>
+    private DependencyObject? _pressOriginalSource;
+
+    /// <summary>
+    /// 问题14：原地点击命中迷你半圆环（MiniRingChart）时触发对应 Provider 刷新。
+    /// <para>从按下时的原始命中元素向上查找 MiniChartItemViewModel（DataContext），
+    /// Kind 为 MiniRingChart 时异步刷新（fire-and-forget，失败仅记日志）。</para>
+    /// </summary>
+    private void TryHandleMiniRingClick()
+    {
+        var element = _pressOriginalSource;
+        _pressOriginalSource = null;
+        while (element != null)
+        {
+            if (element is FrameworkElement fe && fe.DataContext is MiniChartItemViewModel item)
+            {
+                if (item.Kind == UsageMonitor.Core.Plugins.MiniChart.MiniChartKind.MiniRingChart &&
+                    !string.IsNullOrEmpty(item.ProviderId))
+                {
+                    FileLogger.Info("TaskbarWindow", $"问题14：迷你环点击刷新 {item.ProviderId}");
+                    _ = TryRefreshAsync(item.ProviderId);
+                }
+                return;
+            }
+            element = System.Windows.Media.VisualTreeHelper.GetParent(element);
+        }
     }
 
     private void EndDrag()
@@ -590,13 +654,15 @@ public partial class TaskbarWindow : Window
     }
 
     /// <summary>
-    /// 测量 MiniText 模板的实际宽度（DIP）。问题8：按 ShowProviderInText + MiniTextBody 字面估算，避免 FormattedText 在 Loaded 前 NRE。
+    /// 测量 MiniText 模板的实际宽度（DIP）。问题8：按 ShowProviderInText + MiniTextBody 字面估算，避免 FormattedText 在 Loaded 前 NRE；
+    /// 问题13：勾选 logo 时额外预留 logo 宽度。
     /// </summary>
     private double MeasureMiniTextWidth(MiniChartItemViewModel item)
     {
         var displayId = item.ShowProviderInText ? (item.ProviderId ?? "") : "";
         var bodyText = item.MiniTextBody ?? "";
-        return displayId.Length * 8.0 + bodyText.Length * 7.5 + 24;
+        var logoWidth = item.ShowLogo ? 20.0 : 0.0;
+        return displayId.Length * 8.0 + bodyText.Length * 7.5 + 24 + logoWidth;
     }
 
     public void RecalculateSize()

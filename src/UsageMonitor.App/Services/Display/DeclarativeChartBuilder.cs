@@ -24,6 +24,7 @@ public static class DeclarativeChartBuilder
     /// <param name="visibleDataGroupIds">可见数据组 ID 过滤（可空 = 全部）。</param>
     /// <param name="tooltipBuilder">按数据组构建悬停提示文本（可空 = 不设置 ToolTip）：每个进度条的 tooltip 由其所属数据组决定，
     /// 避免全部进度条共享同一 tooltip 导致跨数据组字段串扰（如本周限额进度条显示 5h 已用百分比）。</param>
+    /// <param name="resetTextResolver">问题4：Reset 角色字段文本解析器（字段名 → 重置剩余文案），填入 FooterText；可空。</param>
     /// <returns>进度条数据；无 Bar 声明时返回 null（宿主回退旧渲染）。</returns>
     public static MetricBarData? BuildMetricBars(
         CardDeclaration? card,
@@ -32,7 +33,8 @@ public static class DeclarativeChartBuilder
         Func<string, string>? labelResolver = null,
         IReadOnlyCollection<string>? visibleChartIds = null,
         IReadOnlyDictionary<string, IReadOnlyCollection<string>>? visibleDataGroupIds = null,
-        Func<DataGroup, string?>? tooltipBuilder = null)
+        Func<DataGroup, string?>? tooltipBuilder = null,
+        Func<string, string?>? resetTextResolver = null)
     {
         if (card == null) return null;
         var charts = card.Charts.Where(c => c.Kind == DeclarativeChartKind.Bar);
@@ -53,7 +55,15 @@ public static class DeclarativeChartBuilder
                 string? rightText = null;
                 if (upperField != null && textResolver != null)
                     rightText = textResolver(upperField);
-                var bar = new MetricBarItem(label, Math.Max(0, Math.Min(100, percent)), rightText, FooterText: null);
+                // 问题4：解析 Reset 角色字段 → FooterText（重置剩余文案）+ ResetFieldName（实时倒计时渲染键）
+                var resetField = group.Fields.FirstOrDefault(f => f.Role == FieldRole.Reset)?.FieldName;
+                string? footerText = null;
+                if (resetField != null && resetTextResolver != null)
+                    footerText = resetTextResolver(resetField);
+                var bar = new MetricBarItem(label, Math.Max(0, Math.Min(100, percent)), rightText, FooterText: footerText)
+                {
+                    ResetFieldName = resetField
+                };
                 if (tooltipBuilder != null)
                     bar = bar with { TooltipText = tooltipBuilder(group) };
                 bars.Add(bar);

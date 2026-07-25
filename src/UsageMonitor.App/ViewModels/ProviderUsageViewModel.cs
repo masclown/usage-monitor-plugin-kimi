@@ -66,6 +66,7 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
     private double _numberPeakToken = -1;                  // most_active_token（原始数值）
     private long _numberActiveDays;                        // active_days
     private long _numberTotalDays;                         // total_days
+    private string _numberMostActiveDay = string.Empty;    // most_active_day（如 "2026-07-01 (552.49M)"，数据概览备注行）
     private double _videoIntervalPercent;
     private double _videoWeeklyPercent;
     private IReadOnlyList<string> _renderKinds = Array.Empty<string>();
@@ -719,6 +720,18 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
     public string? HeatMapTooltipFieldLabel
         => HeatMapTooltipValueField != null ? TooltipFieldCatalog.GetDisplay(HeatMapTooltipValueField) : null;
 
+    /// <summary>问题10：热力图对比行字段名（声明中第二个 Value 角色字段，如 daily_token_value）。
+    /// <para>对比行（每日 Token 用量）仅在该字段被勾选时显示，不再无条件跟随主值字段。</para></summary>
+    public string? HeatMapTooltipComparisonField
+    {
+        get
+        {
+            var heatMap = Provider?.Card?.Charts.FirstOrDefault(c => c.Kind == DeclarativeChartKind.HeatMap);
+            var valueFields = heatMap?.DataGroups.SelectMany(g => g.Fields).Where(f => f.Role == FieldRole.Value).Select(f => f.FieldName).ToList();
+            return valueFields is { Count: > 1 } ? valueFields[1] : null;
+        }
+    }
+
     /// <summary>req-105：更新折线图 tooltip 扩展行（勾选的非原生字段 → “标签 当前值”行，原生字段 daily_token_value/daily_cache_hit_value 由控件自处理）。
     /// <para>同时通知 <see cref="EffectiveLineTooltipFields"/> 变更，保证设置页勾选变更后控件的 TooltipFields 绑定即时刷新（修复“关闭字段 tooltip 不变”问题）。</para>
     /// </summary>
@@ -730,6 +743,7 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(EffectiveHeatMapTooltipFields));
         OnPropertyChanged(nameof(HeatMapTooltipValueField));
         OnPropertyChanged(nameof(HeatMapTooltipFieldLabel));
+        OnPropertyChanged(nameof(HeatMapTooltipComparisonField));
     }
 
     /// <summary>req-105：将勾选的 tooltip 字段（排除折线图原生字段）转为扩展文本行。
@@ -1000,18 +1014,21 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         return idx > 0 ? instanceId.Substring(0, idx) : instanceId;
     }
 
-    /// <summary>原位刷新指定槽位的 Bar/Number 数据（结构不变时调用，避免控件重建）；所有数据组未勾选时置空数据并给出提示。</summary>
+    /// <summary>原位刷新指定槽位的 Bar/Number 数据（结构不变时调用，避免控件重建）。
+    /// <para>问题8：空态提示区分两种原因——数据组全部未勾选 vs 数据尚未到达（刷新后自动恢复）。</para></summary>
     private void RefreshSlotData(CardChartSlotViewModel slot, CardDeclaration card, AccountCustomization eff)
     {
         if (slot.Kind == DeclarativeChartKind.Bar)
         {
             slot.BarData = BuildInstanceBars(slot.ChartId, slot.InstanceId, card, eff);
-            slot.EmptyHint = slot.BarData == null ? "未配置数据组，请在卡片管理中勾选" : null;
+            slot.EmptyHint = slot.BarData != null ? null
+                : (HasVisibleGroups(slot.ChartId, slot.InstanceId, card, eff) ? "暂无数据，等待刷新…" : "未配置数据组，请在卡片管理中勾选");
         }
         else if (slot.Kind == DeclarativeChartKind.Number)
         {
             slot.NumberData = BuildInstanceNumber(slot.ChartId, slot.InstanceId, card, eff);
-            slot.EmptyHint = slot.NumberData == null ? "未配置数据组，请在卡片管理中勾选" : null;
+            slot.EmptyHint = slot.NumberData != null ? null
+                : (HasVisibleGroups(slot.ChartId, slot.InstanceId, card, eff) ? "暂无数据，等待刷新…" : "未配置数据组，请在卡片管理中勾选");
         }
     }
 
@@ -1027,9 +1044,18 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         var barData = UsageMonitor.App.Services.Display.DeclarativeChartBuilder.BuildMetricBars(
             card, ResolveFieldValue, labelResolver: DeclarativeFieldLabel,
             visibleChartIds: new[] { chartId }, visibleDataGroupIds: dgFilter,
-            tooltipBuilder: group => BuildBarTooltipForGroup(chartId, group));
+            tooltipBuilder: group => BuildBarTooltipForGroup(chartId, group),
+            resetTextResolver: ResolveResetText);
         return barData;
     }
+
+    /// <summary>问题4：Reset 角色字段 → 重置剩余文案（如 "2 小时 21 分钟后重置"），供进度条 FooterText 展示。</summary>
+    private string? ResolveResetText(string fieldName) => fieldName switch
+    {
+        UsageMonitor.Core.Models.UsageFields.FiveHourResetAt => string.IsNullOrWhiteSpace(PrimaryResetText) || PrimaryResetText == "--" ? null : PrimaryResetText,
+        UsageMonitor.Core.Models.UsageFields.WeeklyResetAt => string.IsNullOrWhiteSpace(WeeklyResetText) || WeeklyResetText == "--" ? null : WeeklyResetText,
+        _ => null
+    };
 
     /// <summary>req-105：构建单个进度条（数据组）的悬停提示文本。
     /// <para>仅包含该数据组自己的 Value 字段（被勾选时）与虚拟字段（字段名称/日期），
@@ -1038,8 +1064,17 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
     private string? BuildBarTooltipForGroup(string chartId, DataGroup group)
     {
         var fields = GetEffectiveTooltipFieldsForChart(chartId);
-        if (fields == null || fields.Count == 0) return null;
         var valueField = group.Fields.FirstOrDefault(f => f.Role == FieldRole.Value)?.FieldName;
+        // 问题3：无任何字段配置（用户未配置且声明缺失）时回退默认 tooltip（字段名 + 当前值），
+        // 保证进度条悬停始终有提示；空集合 = 用户主动全取消，不显示 tooltip。
+        if (fields == null)
+        {
+            if (valueField == null) return null;
+            var v = BuildTooltipFieldValue(valueField);
+            var name = TooltipFieldCatalog.GetDisplay(valueField);
+            return v == null ? name : $"{name}\n{v}";
+        }
+        if (fields.Count == 0) return null;
         var lines = BuildTooltipLines(fields, valueField, dateText: null);
         return lines.Count > 0 ? string.Join("\n", lines) : null;
     }
@@ -1054,17 +1089,25 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
     private List<string> BuildTooltipLines(IReadOnlyList<string> checkedFields, string? contextValueField, string? dateText)
     {
         var lines = new List<string>();
-        // 字段名称虚拟字段：显示当前上下文字段的中文显示名（独立行）。
-        if (contextValueField != null && checkedFields.Contains(TooltipFieldCatalog.FieldNameVirtual))
-            lines.Add(TooltipFieldCatalog.GetDisplay(contextValueField));
-        // 日期虚拟字段：显示日期行。
-        if (checkedFields.Contains(TooltipFieldCatalog.DateVirtual) && !string.IsNullOrEmpty(dateText))
-            lines.Add(dateText!);
-        // 值行：仅当上下文字段被勾选时显示。
-        if (contextValueField != null && checkedFields.Contains(contextValueField))
+        // 问题9：按用户保存的字段顺序逐一生成行（卡片管理页拖拽排序后顺序即时生效）。
+        foreach (var f in checkedFields)
         {
-            var value = BuildTooltipFieldValue(contextValueField);
-            if (value != null) lines.Add(value);
+            if (string.Equals(f, TooltipFieldCatalog.FieldNameVirtual, StringComparison.OrdinalIgnoreCase))
+            {
+                // 字段名称虚拟字段：显示当前上下文字段的中文显示名（独立行）。
+                if (contextValueField != null) lines.Add(TooltipFieldCatalog.GetDisplay(contextValueField));
+            }
+            else if (string.Equals(f, TooltipFieldCatalog.DateVirtual, StringComparison.OrdinalIgnoreCase))
+            {
+                // 日期虚拟字段：显示日期行。
+                if (!string.IsNullOrEmpty(dateText)) lines.Add(dateText!);
+            }
+            else if (contextValueField != null && string.Equals(f, contextValueField, StringComparison.OrdinalIgnoreCase))
+            {
+                // 值行：仅当上下文字段被勾选时显示。
+                var value = BuildTooltipFieldValue(contextValueField);
+                if (value != null) lines.Add(value);
+            }
         }
         return lines;
     }
@@ -1080,7 +1123,10 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         _ => ResolveFieldValue(fieldName)?.ToString("0")
     };
 
-    /// <summary>按指定 Number 图表实例的数据组构建数字网格数据。</summary>
+    /// <summary>按指定 Number 图表实例的数据组构建数字网格数据。
+    /// <para>问题6/7：三行均由声明字段驱动——第一行 = Value 字段的 SDK 显示名（回退组 display）；
+    /// 第二行 = Value 字段值，若组声明 Upper 角色字段则渲染为 "分子/分母"；
+    /// 第三行 = Meta 角色字段文本（备注，可缺省）。</para></summary>
     private MetricGridData? BuildInstanceNumber(string chartId, string instanceId, CardDeclaration card, AccountCustomization eff)
     {
         var decl = card.Charts.FirstOrDefault(c => c.ChartId == chartId && c.Kind == DeclarativeChartKind.Number);
@@ -1095,10 +1141,42 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
             if (valueField == null) continue;
             var display = ResolveFieldDisplay(valueField);
             if (display == null) continue;
-            var label = !string.IsNullOrWhiteSpace(g.Display) ? g.Display! : DeclarativeFieldLabel(valueField);
-            items.Add(new MetricGridItem(label, display));
+            // 问题6：组内声明 Upper 角色字段时拼接 "分子/分母"；未声明则仅显示单值。
+            var upperField = g.Fields.FirstOrDefault(f => f.Role == FieldRole.Upper)?.FieldName;
+            if (upperField != null)
+            {
+                var upperDisplay = ResolveFieldDisplay(upperField);
+                if (upperDisplay != null) display = $"{display}/{upperDisplay}";
+            }
+            // 问题7：第一行数据名称优先取 Value 字段的 SDK 显示名，无映射时回退组 display / 内置标签。
+            var fieldDisplay = TooltipFieldCatalog.GetDisplay(valueField);
+            var label = !string.Equals(fieldDisplay, valueField, StringComparison.Ordinal)
+                ? fieldDisplay
+                : (!string.IsNullOrWhiteSpace(g.Display) ? g.Display! : DeclarativeFieldLabel(valueField));
+            // 问题7：第三行备注 = Meta 角色字段文本（取不到时不显示）。
+            var metaField = g.Fields.FirstOrDefault(f => f.Role == FieldRole.Meta)?.FieldName;
+            var detail = metaField != null ? ResolveFieldNoteText(metaField) : null;
+            items.Add(new MetricGridItem(label, display, detail));
         }
         return items.Count > 0 ? new MetricGridData(items) : null;
+    }
+
+    /// <summary>问题7：Meta 角色备注字段文本解析（数据概览第三行）；取不到返回 null。</summary>
+    private string? ResolveFieldNoteText(string fieldName) => fieldName switch
+    {
+        UsageMonitor.Core.Models.UsageFields.MostActiveDate => string.IsNullOrWhiteSpace(_numberMostActiveDay) ? null : _numberMostActiveDay,
+        UsageMonitor.Core.Models.UsageFields.TotalDays => _numberTotalDays > 0 ? $"共 {_numberTotalDays} 天" : null,
+        _ => null
+    };
+
+    /// <summary>问题8：判断指定图表实例是否至少有一个可见数据组（区分 "未配置数据组" 与 "数据未到达" 两种空态）。</summary>
+    private static bool HasVisibleGroups(string chartId, string instanceId, CardDeclaration card, AccountCustomization eff)
+    {
+        var decl = card.Charts.FirstOrDefault(c => c.ChartId == chartId);
+        if (decl == null || decl.DataGroups.Count == 0) return false;
+        var groups = ResolveInstanceDataGroups(chartId, instanceId, eff);
+        if (groups == null) return true; // 未配置 = 全部可见
+        return decl.DataGroups.Any(g => groups.Contains(g.Id));
     }
 
     /// <summary>解析图表实例的可见数据组 ID 列表（实例级配置优先，回退图表级，再回退 null=全部可见）。</summary>
@@ -1135,12 +1213,14 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         _ => fieldName
     };
 
-    /// <summary>Number 图表字段显示值解析器：标准字段名 → 格式化显示文本（数据概览多数据组，取不到返回 null 跳过）。</summary>
+    /// <summary>Number 图表字段显示值解析器：标准字段名 → 格式化显示文本（数据概览多数据组，取不到返回 null 跳过）。
+    /// <para>问题6：ActiveDays 仅返回单值（如 "40"），不再硬拼 "40/45"；分母由声明的 Upper 角色字段（total_days）驱动。</para></summary>
     private string? ResolveFieldDisplay(string fieldName) => fieldName switch
     {
         UsageMonitor.Core.Models.UsageFields.UsedTokens => string.IsNullOrWhiteSpace(_numberCumulativeText) ? null : _numberCumulativeText,
         UsageMonitor.Core.Models.UsageFields.MostActiveToken => _numberPeakToken >= 0 ? FormatTokenNumber(_numberPeakToken) : null,
-        UsageMonitor.Core.Models.UsageFields.ActiveDays => _numberTotalDays > 0 ? $"{_numberActiveDays}/{_numberTotalDays}" : (_numberActiveDays > 0 ? _numberActiveDays.ToString() : null),
+        UsageMonitor.Core.Models.UsageFields.ActiveDays => _numberActiveDays > 0 ? _numberActiveDays.ToString() : null,
+        UsageMonitor.Core.Models.UsageFields.TotalDays => _numberTotalDays > 0 ? _numberTotalDays.ToString() : null,
         UsageMonitor.Core.Models.UsageFields.RemainingCredits => _remainingCredits >= 0 ? _remainingCredits.ToString("0") : null,
         _ => ResolveFieldValue(fieldName)?.ToString("0")
     };
@@ -1674,6 +1754,7 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         _numberPeakToken = D("most_active_token");
         _numberActiveDays = activeDays;
         _numberTotalDays = totalDays;
+        _numberMostActiveDay = mostActive; // 问题7：数据概览备注行（Meta 角色字段 most_active_date）取值缓存
         // req-047：提取排名百分比（usage_ranking_percent），用于显示"前X%"
         double? rankingPercent = null;
         if (extra.TryGetValue("usage_ranking_percent", out var rp) && rp is double rpVal && rpVal > 0)
@@ -1857,9 +1938,11 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
                 Percent = percent,
                 Token = token,
                 Background = bgBrush,
-                ValueText = token > 0 ? FormatTokens(token) : "--",
+                // 问题10：主值行 = 声明的主 Value 字段（缓存命中百分比）；对比行 = 第二 Value 字段（每日 Token 用量），
+                // 仅在对应字段被勾选时展示（YearHeatMapControl.TooltipComparisonField 控制）。
+                ValueText = dayCacheHit >= 0 ? $"{dayCacheHit:0.00}%" : "--",
                 Unit = "",
-                ComparisonText = dayCacheHit >= 0 ? $"缓存命中 {dayCacheHit:0.00}%" : string.Empty
+                ComparisonText = token > 0 ? $"用量 {FormatTokens(token)}" : string.Empty
             });
         }
         OnPropertyChanged(nameof(EffectiveHeatMapCells));

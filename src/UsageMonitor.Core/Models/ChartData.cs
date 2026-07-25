@@ -211,6 +211,10 @@ public sealed record MetricBarItem(
 {
     /// <summary>req-105：悬停提示文本（卡片管理 tooltip 字段配置驱动；null 表示不显示 ToolTip）。</summary>
     public string? TooltipText { get; init; }
+
+    /// <summary>问题4：本进度条数据组声明的 Reset 角色字段名（如 five_hour_reset_at）。
+    /// <para>null = 未声明重置字段；非 null 时宿主可据此在进度条底部渲染实时刷新倒计时。</para></summary>
+    public string? ResetFieldName { get; init; }
 }
 
 /// <summary>

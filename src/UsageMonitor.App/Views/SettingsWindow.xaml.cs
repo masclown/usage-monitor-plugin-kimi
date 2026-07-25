@@ -320,85 +320,133 @@ public partial class SettingsWindow : Window
     private ViewModels.MiniChartNode? _miniChartDragSource;
     private System.Windows.Point _miniChartDragStartPos;
 
-    /// <summary>S4：Mini 图表拖拽开始（记录拖拽源）。</summary>
+    /// <summary>S4：Mini 图表拖拽开始（记录拖拽源并捕获鼠标，保证移动事件持续路由到手柄）。</summary>
     private void OnMiniChartDragStart(object sender, MouseButtonEventArgs e)
     {
         if ((sender as FrameworkElement)?.Tag is ViewModels.MiniChartNode node)
         {
             _miniChartDragSource = node;
             _miniChartDragStartPos = e.GetPosition(null);
+            if (sender is IInputElement input) input.CaptureMouse();
         }
     }
 
-    /// <summary>S4：Mini 图表拖拽移动（达到阈值后执行拖放并保存）。</summary>
+    /// <summary>S4：Mini 图表拖拽结束（释放捕获 + 清空拖拽源）。</summary>
+    private void OnMiniChartDragEnd(object sender, MouseButtonEventArgs e)
+    {
+        ReleaseDragCapture(sender);
+        _miniChartDragSource = null;
+    }
+
+    /// <summary>S4：Mini 图表拖拽移动（命中测试定位目标行，达到阈值后执行拖放并保存）。</summary>
     private void OnMiniChartDragMove(object sender, System.Windows.Input.MouseEventArgs e)
     {
-        if (DragReorderCore(sender, _miniChartDragSource, _miniChartDragStartPos, e,
-            el => FindAncestorDataContext<ViewModels.MiniChartNode>(el),
-            el => FindAncestorDataContext<ViewModels.MiniAccountNode>(el)?.Save()))
-        {
-            _miniChartDragSource = null;
-        }
+        if (_miniChartDragSource == null) return;
+        if (e.LeftButton != MouseButtonState.Pressed) { ReleaseDragCapture(sender); _miniChartDragSource = null; return; }
+        if (!ExceedsDragThreshold(_miniChartDragStartPos, e)) return;
+        PerformDragReorder(sender, _miniChartDragSource, e,
+            el => FindAncestorDataContext<ViewModels.MiniAccountNode>(el)?.Save());
     }
 
     // --- S4：Mini 数据组拖拽排序 ---
     private ViewModels.MiniDataGroupNode? _miniDataGroupDragSource;
     private System.Windows.Point _miniDataGroupDragStartPos;
 
-    /// <summary>S4：Mini 数据组拖拽开始。</summary>
+    /// <summary>S4：Mini 数据组拖拽开始（记录拖拽源并捕获鼠标）。</summary>
     private void OnMiniDataGroupDragStart(object sender, MouseButtonEventArgs e)
     {
         if ((sender as FrameworkElement)?.Tag is ViewModels.MiniDataGroupNode node)
         {
             _miniDataGroupDragSource = node;
             _miniDataGroupDragStartPos = e.GetPosition(null);
+            if (sender is IInputElement input) input.CaptureMouse();
         }
     }
 
-    /// <summary>S4：Mini 数据组拖拽移动。</summary>
+    /// <summary>S4：Mini 数据组拖拽结束。</summary>
+    private void OnMiniDataGroupDragEnd(object sender, MouseButtonEventArgs e)
+    {
+        ReleaseDragCapture(sender);
+        _miniDataGroupDragSource = null;
+    }
+
+    /// <summary>S4：Mini 数据组拖拽移动（问题5：命中测试 + 持续拖拽，不再依赖 OriginalSource 恰好悬停在目标手柄上）。</summary>
     private void OnMiniDataGroupDragMove(object sender, System.Windows.Input.MouseEventArgs e)
     {
-        if (DragReorderCore(sender, _miniDataGroupDragSource, _miniDataGroupDragStartPos, e,
-            el => FindAncestorDataContext<ViewModels.MiniDataGroupNode>(el),
-            el => FindAncestorDataContext<ViewModels.MiniAccountNode>(el)?.Save()))
+        if (_miniDataGroupDragSource == null) return;
+        if (e.LeftButton != MouseButtonState.Pressed) { ReleaseDragCapture(sender); _miniDataGroupDragSource = null; return; }
+        if (!ExceedsDragThreshold(_miniDataGroupDragStartPos, e)) return;
+        PerformDragReorder(sender, _miniDataGroupDragSource, e,
+            el => FindAncestorDataContext<ViewModels.MiniAccountNode>(el)?.Save());
+    }
+
+    // --- 问题9：Mini Tooltip 字段拖拽排序 ---
+    private ViewModels.MiniTooltipFieldItem? _miniTooltipFieldDragSource;
+    private System.Windows.Point _miniTooltipFieldDragStartPos;
+
+    /// <summary>问题9：Mini Tooltip 字段拖拽开始。</summary>
+    private void OnMiniTooltipFieldDragStart(object sender, MouseButtonEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is ViewModels.MiniTooltipFieldItem item)
         {
-            _miniDataGroupDragSource = null;
+            _miniTooltipFieldDragSource = item;
+            _miniTooltipFieldDragStartPos = e.GetPosition(null);
+            if (sender is IInputElement input) input.CaptureMouse();
         }
+    }
+
+    /// <summary>问题9：Mini Tooltip 字段拖拽结束（释放捕获并保存顺序）。</summary>
+    private void OnMiniTooltipFieldDragEnd(object sender, MouseButtonEventArgs e)
+    {
+        ReleaseDragCapture(sender);
+        _miniTooltipFieldDragSource = null;
+    }
+
+    /// <summary>问题9：Mini Tooltip 字段拖拽移动（同一 WrapPanel 内拖放排序，顺序即 tooltip 行顺序）。</summary>
+    private void OnMiniTooltipFieldDragMove(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        if (_miniTooltipFieldDragSource == null) return;
+        if (e.LeftButton != MouseButtonState.Pressed) { ReleaseDragCapture(sender); _miniTooltipFieldDragSource = null; return; }
+        if (!ExceedsDragThreshold(_miniTooltipFieldDragStartPos, e)) return;
+        PerformDragReorder(sender, _miniTooltipFieldDragSource, e,
+            el => FindAncestorDataContext<ViewModels.MiniAccountNode>(el)?.Save());
+    }
+
+    /// <summary>拖拽公共：释放鼠标捕获（已捕获时）。</summary>
+    private static void ReleaseDragCapture(object sender)
+    {
+        if (sender is IInputElement input && input.IsMouseCaptured) input.ReleaseMouseCapture();
+    }
+
+    /// <summary>拖拽公共：判断鼠标移动是否超过系统拖拽阈值。</summary>
+    private static bool ExceedsDragThreshold(System.Windows.Point startPos, System.Windows.Input.MouseEventArgs e)
+    {
+        var pos = e.GetPosition(null);
+        return Math.Abs(pos.X - startPos.X) >= SystemParameters.MinimumHorizontalDragDistance ||
+               Math.Abs(pos.Y - startPos.Y) >= SystemParameters.MinimumVerticalDragDistance;
     }
 
     /// <summary>
-    /// S4：泛型拖拽重排核心逻辑（Mini 图表 / 数据组共用）。
-    /// <para>达到系统拖拽阈值后，在同一个 ItemsControl 内将拖拽源移动到目标位置，
-    /// 并调用 saveAfterMove 持久化。返回 true 表示拖拽已结束（已移动或已中止），调用方应清空拖拽源。</para>
+    /// 拖拽公共（问题5）：在拖拽源所属 ItemsControl 内按鼠标位置命中目标项并执行 Move，随后持久化。
+    /// <para>使用 VisualTreeHelper.HitTest 而非 e.OriginalSource：手柄捕获鼠标后 OriginalSource 始终是手柄自身，
+    /// 必须按坐标命中才能找到目标行；拖拽源不清空，支持一次按住连续跨多行拖动。</para>
     /// </summary>
-    private bool DragReorderCore<TNode>(object sender, TNode? source, System.Windows.Point dragStartPos,
-        System.Windows.Input.MouseEventArgs e,
-        Func<DependencyObject?, TNode?> findTarget,
-        Action<DependencyObject?> saveAfterMove) where TNode : class
+    private static void PerformDragReorder<TNode>(object sender, TNode source,
+        System.Windows.Input.MouseEventArgs e, Action<DependencyObject?> saveAfterMove) where TNode : class
     {
-        if (source == null || e.LeftButton != MouseButtonState.Pressed) return true;
-        var pos = e.GetPosition(null);
-        if (Math.Abs(pos.X - dragStartPos.X) < SystemParameters.MinimumHorizontalDragDistance &&
-            Math.Abs(pos.Y - dragStartPos.Y) < SystemParameters.MinimumVerticalDragDistance)
-            return false; // 未达阈值，拖拽仍在进行
-
-        var target = findTarget(e.OriginalSource as DependencyObject);
-        if (target != null && !ReferenceEquals(target, source))
+        var sourceElement = sender as FrameworkElement;
+        var itemsControl = FindVisualParent<ItemsControl>(sourceElement);
+        if (itemsControl?.ItemsSource is not System.Collections.ObjectModel.ObservableCollection<TNode> coll) return;
+        var hit = VisualTreeHelper.HitTest(itemsControl, e.GetPosition(itemsControl));
+        var target = hit?.VisualHit == null ? null : FindAncestorDataContext<TNode>(hit.VisualHit);
+        if (target == null || ReferenceEquals(target, source)) return;
+        var fromIdx = coll.IndexOf(source);
+        var toIdx = coll.IndexOf(target);
+        if (fromIdx >= 0 && toIdx >= 0 && fromIdx != toIdx)
         {
-            var sourceElement = sender as FrameworkElement;
-            var itemsControl = FindVisualParent<ItemsControl>(sourceElement);
-            if (itemsControl?.ItemsSource is System.Collections.ObjectModel.ObservableCollection<TNode> coll)
-            {
-                var fromIdx = coll.IndexOf(source);
-                var toIdx = coll.IndexOf(target);
-                if (fromIdx >= 0 && toIdx >= 0)
-                {
-                    coll.Move(fromIdx, toIdx);
-                    saveAfterMove(sourceElement);
-                }
-            }
+            coll.Move(fromIdx, toIdx);
+            saveAfterMove(sourceElement);
         }
-        return true;
     }
 
     /// <summary>
@@ -612,43 +660,64 @@ public partial class SettingsWindow : Window
     private ViewModels.DataGroupNode? _dataGroupDragSource;
     private System.Windows.Point _dataGroupDragStartPos;
 
-    /// <summary>S2：数据组拖拽开始。</summary>
+    /// <summary>S2：数据组拖拽开始（问题5：记录拖拽源并捕获鼠标，保证移动事件持续路由到手柄）。</summary>
     private void OnDataGroupDragStart(object sender, MouseButtonEventArgs e)
     {
         if ((sender as FrameworkElement)?.Tag is ViewModels.DataGroupNode node)
         {
             _dataGroupDragSource = node;
             _dataGroupDragStartPos = e.GetPosition(null);
+            if (sender is IInputElement input) input.CaptureMouse();
         }
     }
 
-    /// <summary>S2：数据组拖拽移动。</summary>
+    /// <summary>S2：数据组拖拽结束（释放捕获 + 清空拖拽源）。</summary>
+    private void OnDataGroupDragEnd(object sender, MouseButtonEventArgs e)
+    {
+        ReleaseDragCapture(sender);
+        _dataGroupDragSource = null;
+    }
+
+    /// <summary>S2：数据组拖拽移动（问题5：命中测试定位目标行 + 持续拖拽，修复无法拖拽调整顺序）。</summary>
     private void OnDataGroupDragMove(object sender, System.Windows.Input.MouseEventArgs e)
     {
-        if (_dataGroupDragSource == null || e.LeftButton != MouseButtonState.Pressed) return;
-        var pos = e.GetPosition(null);
-        if (Math.Abs(pos.X - _dataGroupDragStartPos.X) < SystemParameters.MinimumHorizontalDragDistance &&
-            Math.Abs(pos.Y - _dataGroupDragStartPos.Y) < SystemParameters.MinimumVerticalDragDistance) return;
+        if (_dataGroupDragSource == null) return;
+        if (e.LeftButton != MouseButtonState.Pressed) { ReleaseDragCapture(sender); _dataGroupDragSource = null; return; }
+        if (!ExceedsDragThreshold(_dataGroupDragStartPos, e)) return;
+        PerformDragReorder(sender, _dataGroupDragSource, e,
+            el => FindAncestorDataContext<ViewModels.AccountNode>(el)?.Save());
+    }
 
-        var target = FindAncestorDataContext<ViewModels.DataGroupNode>(e.OriginalSource as DependencyObject);
-        if (target != null && !ReferenceEquals(target, _dataGroupDragSource))
+    // --- 问题9：卡片图表 Tooltip 字段拖拽排序 ---
+    private ViewModels.TooltipFieldItem? _tooltipFieldDragSource;
+    private System.Windows.Point _tooltipFieldDragStartPos;
+
+    /// <summary>问题9：Tooltip 字段拖拽开始。</summary>
+    private void OnTooltipFieldDragStart(object sender, MouseButtonEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is ViewModels.TooltipFieldItem item)
         {
-            var sourceElement = sender as FrameworkElement;
-            var itemsControl = FindVisualParent<ItemsControl>(sourceElement);
-            if (itemsControl?.ItemsSource is System.Collections.ObjectModel.ObservableCollection<ViewModels.DataGroupNode> groups)
-            {
-                var fromIdx = groups.IndexOf(_dataGroupDragSource);
-                var toIdx = groups.IndexOf(target);
-                if (fromIdx >= 0 && toIdx >= 0)
-                {
-                    groups.Move(fromIdx, toIdx);
-                    // 拖拽后保存顺序
-                    var accountNode = FindAncestorDataContext<ViewModels.AccountNode>(sourceElement);
-                    accountNode?.Save();
-                }
-            }
+            _tooltipFieldDragSource = item;
+            _tooltipFieldDragStartPos = e.GetPosition(null);
+            if (sender is IInputElement input) input.CaptureMouse();
         }
-        _dataGroupDragSource = null;
+    }
+
+    /// <summary>问题9：Tooltip 字段拖拽结束。</summary>
+    private void OnTooltipFieldDragEnd(object sender, MouseButtonEventArgs e)
+    {
+        ReleaseDragCapture(sender);
+        _tooltipFieldDragSource = null;
+    }
+
+    /// <summary>问题9：Tooltip 字段拖拽移动（同一 WrapPanel 内拖放排序，顺序即 tooltip 行顺序并即时持久化）。</summary>
+    private void OnTooltipFieldDragMove(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        if (_tooltipFieldDragSource == null) return;
+        if (e.LeftButton != MouseButtonState.Pressed) { ReleaseDragCapture(sender); _tooltipFieldDragSource = null; return; }
+        if (!ExceedsDragThreshold(_tooltipFieldDragStartPos, e)) return;
+        PerformDragReorder(sender, _tooltipFieldDragSource, e,
+            el => FindAncestorDataContext<ViewModels.AccountNode>(el)?.Save());
     }
 
     /// <summary>S2：向上查找可视化树中指定类型的 DataContext。</summary>

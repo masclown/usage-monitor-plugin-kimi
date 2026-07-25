@@ -100,6 +100,11 @@ public class YearHeatMapControl : FrameworkElement, IHoverTooltipProvider
         nameof(TooltipFieldLabel), typeof(string), typeof(YearHeatMapControl),
         new FrameworkPropertyMetadata(null));
 
+    /// <summary>问题10：对比行字段名（如 daily_token_value）。非 null 时，ComparisonText 行仅在该字段被勾选（或无过滤）时展示。</summary>
+    public static readonly DependencyProperty TooltipComparisonFieldProperty = DependencyProperty.Register(
+        nameof(TooltipComparisonField), typeof(string), typeof(YearHeatMapControl),
+        new FrameworkPropertyMetadata(null));
+
     public IEnumerable Cells
     {
         get => (IEnumerable)GetValue(CellsProperty);
@@ -149,6 +154,13 @@ public class YearHeatMapControl : FrameworkElement, IHoverTooltipProvider
     {
         get => (string?)GetValue(TooltipFieldLabelProperty);
         set => SetValue(TooltipFieldLabelProperty, value);
+    }
+
+    /// <summary>问题10：对比行字段名（null = 对比行跟随主值字段，旧行为）。</summary>
+    public string? TooltipComparisonField
+    {
+        get => (string?)GetValue(TooltipComparisonFieldProperty);
+        set => SetValue(TooltipComparisonFieldProperty, value);
     }
 
     private readonly List<(Rect Bounds, YearHeatMapCell Cell)> _hitCells = new();
@@ -458,9 +470,9 @@ public class YearHeatMapControl : FrameworkElement, IHoverTooltipProvider
             _hoverIndex = i;
 
             // req-105 三态语义（问题3）：TooltipFields == null → 不过滤（全部展示，向后兼容）；
-            // 非 null（含空集合）→ 白名单过滤：主值字段（TooltipValueField，如 daily_cache_hit_value）控制
-            // 数值行与对比行；「字段名称」虚拟字段控制标签行；「日期」虚拟字段控制日期标题；
-            // 全部未勾选时不弹 tooltip。
+            // 非 null（含空集合）→ 白名单过滤：主值字段（TooltipValueField）控制数值行；
+            // 对比行（ComparisonText）由 TooltipComparisonField 控制（问题10）；
+            // 「字段名称」虚拟字段控制标签行；「日期」虚拟字段控制日期标题；全部未勾选时不弹 tooltip。
             var fields = TooltipFields;
             bool hasFilter = fields != null;
             bool showValue = !hasFilter
@@ -469,23 +481,27 @@ public class YearHeatMapControl : FrameworkElement, IHoverTooltipProvider
             bool showName = hasFilter && fields!.Contains(UsageMonitor.App.Helpers.TooltipFieldCatalog.FieldNameVirtual)
                 && !string.IsNullOrEmpty(TooltipFieldLabel);
             bool showDate = !hasFilter || fields!.Contains(UsageMonitor.App.Helpers.TooltipFieldCatalog.DateVirtual);
+            // 问题10：对比行独立受控——声明了对比字段时按其勾选状态；未声明时保持旧行为（跟随主值）。
+            bool showComparison = string.IsNullOrEmpty(TooltipComparisonField)
+                ? showValue
+                : (!hasFilter || fields!.Contains(TooltipComparisonField));
 
             // 问题3：启用过滤且无任何可展示内容时直接不弹 tooltip。
-            if (hasFilter && !showValue && !showName && !showDate) return false;
+            if (hasFilter && !showValue && !showName && !showDate && !showComparison) return false;
 
             var value = string.IsNullOrWhiteSpace(hit.Cell.ValueText)
                 ? $"{hit.Cell.Percent:0.##}"
                 : hit.Cell.ValueText;
             var unit = string.IsNullOrWhiteSpace(hit.Cell.Unit) ? string.Empty : $" {hit.Cell.Unit}";
 
-            // 标题：仅在「日期」字段启用时显示日期；未勾选时不再回退显示日期（问题3），
-            // 改为回退主值字段标签（仅当字段名称勾选）或空。
+            // 标题：日期勾选时显示日期；否则字段名称勾选时回退主值字段标签（此时不再重复追加标签行，问题10 去重）。
             var title = showDate ? hit.Cell.Day : (showName ? TooltipFieldLabel! : string.Empty);
+            bool nameUsedAsTitle = !showDate && showName;
             // 数值行：主值字段未勾选时不展示数值。
             var valueText = showValue ? $"{value}{unit}" : string.Empty;
-            // 详情：对比文本（与主值字段同源，受主值字段控制） + 字段名称行（独立行）。
-            string? detail = showValue ? hit.Cell.ComparisonText : null;
-            if (showName)
+            // 详情：对比行（受 TooltipComparisonField 控制） + 字段名称行（仅在未充当标题时追加，避免显示两次）。
+            string? detail = showComparison && !string.IsNullOrEmpty(hit.Cell.ComparisonText) ? hit.Cell.ComparisonText : null;
+            if (showName && !nameUsedAsTitle)
                 detail = string.IsNullOrEmpty(detail) ? TooltipFieldLabel : $"{TooltipFieldLabel}\n{detail}";
 
             // 无任何内容时不弹 tooltip（保险）。

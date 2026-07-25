@@ -16,7 +16,8 @@
         <!-- req-073：分区模板选择器 -->
         <helpers:SettingsSectionSelector x:Key="SectionSelector" />
 
-        <!-- req-073：导航项选中态样式（VS Code 风格左侧导航） -->
+        <!-- req-073：导航项选中态样式（VS Code 风格左侧导航）
+             问题1：分组标题（IsGroupHeader=True）禁用命中测试与焦点，不可点击选中 -->
         <Style x:Key="NavItemStyle" TargetType="ListBoxItem">
             <Setter Property="Padding" Value="10,8" />
             <Setter Property="Margin" Value="2,1" />
@@ -44,14 +45,24 @@
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
+            <Style.Triggers>
+                <!-- 问题1：分组标题行不可点击/不可选中/无手形光标，仅作普通文本展示 -->
+                <DataTrigger Binding="{Binding IsGroupHeader}" Value="True">
+                    <Setter Property="IsHitTestVisible" Value="False" />
+                    <Setter Property="Focusable" Value="False" />
+                    <Setter Property="Cursor" Value="Arrow" />
+                    <Setter Property="Padding" Value="10,4" />
+                </DataTrigger>
+            </Style.Triggers>
         </Style>
 
-        <!-- req-073：导航分组标题样式 -->
+        <!-- req-073：导航分组标题样式。问题1：字体/字号与导航按钮一致（FontSize=13），
+             去掉额外左边距使其与按钮文本左对齐（左侧缩进统一由 ListBoxItem Padding 提供） -->
         <Style x:Key="NavGroupHeaderStyle" TargetType="TextBlock">
-            <Setter Property="FontSize" Value="11" />
+            <Setter Property="FontSize" Value="13" />
             <Setter Property="FontWeight" Value="SemiBold" />
             <Setter Property="Foreground" Value="{DynamicResource TextTertiaryBrush}" />
-            <Setter Property="Margin" Value="10,14,0,4" />
+            <Setter Property="Margin" Value="0,8,0,0" />
         </Style>
 
         <!-- req-073：导航项模板选择器（分组标题 vs 可点击项）
@@ -508,25 +519,28 @@
                                         <StackPanel>
                                             <ItemsControl ItemsSource="{Binding ChartItems}">
                                                 <ItemsControl.Resources>
-                                                    <!-- 折叠分界线节点（可拖拽，其上图表折叠时保留可见；样式与图表行一致，不含复选框） -->
+                                                    <!-- 折叠分界线节点（问题2：与图表行完全同构——拖拽仅挂在手柄上、光标与图表行一致，
+                                                         并用隐藏展开按钮占位保证行高与图表行一致） -->
                                                     <DataTemplate DataType="{x:Type vm:DividerNode}">
                                                         <Border Padding="6,8" Margin="0,0,0,6"
                                                                 Background="{DynamicResource SurfaceBrush}"
-                                                                CornerRadius="{DynamicResource RadiusButton}"
-                                                                Tag="{Binding}" Cursor="SizeNS"
-                                                                PreviewMouseLeftButtonDown="OnChartDragStart"
-                                                                PreviewMouseLeftButtonUp="OnChartDragEnd"
-                                                                MouseMove="OnChartDragMove">
-                                                            <!-- 与图表行同构的三列 Grid：拖拽手柄 + 隐藏复选框占位 + 文本，
-                                                                 使分界线文字与图表名称左对齐 -->
+                                                                CornerRadius="{DynamicResource RadiusButton}">
+                                                            <!-- 与图表行同构的四列 Grid：拖拽手柄 + 隐藏复选框占位 + 文本 + 隐藏展开按钮占位 -->
                                                             <Grid>
                                                                 <Grid.ColumnDefinitions>
                                                                     <ColumnDefinition Width="Auto" />
                                                                     <ColumnDefinition Width="Auto" />
                                                                     <ColumnDefinition Width="*" />
+                                                                    <ColumnDefinition Width="Auto" />
                                                                 </Grid.ColumnDefinitions>
+                                                                <!-- 拖拽手柄：与图表行同样式同交互（SizeAll 光标 + 手柄拖拽） -->
                                                                 <TextBlock Grid.Column="0" Text="☰" FontSize="13" VerticalAlignment="Center"
-                                                                           Foreground="{DynamicResource TextTertiaryBrush}" Margin="0,0,8,0" />
+                                                                           Foreground="{DynamicResource TextTertiaryBrush}" Margin="0,0,8,0"
+                                                                           Cursor="SizeAll"
+                                                                           Tag="{Binding}"
+                                                                           PreviewMouseLeftButtonDown="OnChartDragStart"
+                                                                           PreviewMouseLeftButtonUp="OnChartDragEnd"
+                                                                           MouseMove="OnChartDragMove" />
                                                                 <!-- 隐藏复选框占位：宽度与图表行复选框一致，保证文字对齐 -->
                                                                 <CheckBox Grid.Column="1" Margin="0,0,10,0" Visibility="Hidden"
                                                                           IsHitTestVisible="False" Focusable="False" />
@@ -538,6 +552,10 @@
                                                                                VerticalAlignment="Center" Margin="8,0,0,0"
                                                                                Foreground="{DynamicResource TextTertiaryBrush}" />
                                                                 </StackPanel>
+                                                                <!-- 隐藏展开按钮占位：与图表行展开按钮同尺寸，保证分界线行高与图表行一致 -->
+                                                                <Button Grid.Column="3" Content="▸" Visibility="Hidden"
+                                                                        IsHitTestVisible="False" Focusable="False"
+                                                                        Style="{StaticResource GhostButtonStyle}" Padding="7,3" />
                                                             </Grid>
                                                         </Border>
                                                     </DataTemplate>
@@ -610,13 +628,14 @@
                                                                                         <ColumnDefinition Width="*" />
                                                                                     </Grid.ColumnDefinitions>
 
-                                                                                    <!-- 拖拽手柄 -->
+                                                                                    <!-- 拖拽手柄（问题5：挂 Up 事件 + 鼠标捕获，保证拖拽过程事件持续路由到手柄） -->
                                                                                     <TextBlock Grid.Column="0" Text="☰" FontSize="11"
                                                                                                VerticalAlignment="Center" Margin="0,0,6,0"
                                                                                                Foreground="{DynamicResource TextTertiaryBrush}"
                                                                                                Cursor="SizeAll"
                                                                                                Tag="{Binding}"
                                                                                                PreviewMouseLeftButtonDown="OnDataGroupDragStart"
+                                                                                               PreviewMouseLeftButtonUp="OnDataGroupDragEnd"
                                                                                                MouseMove="OnDataGroupDragMove" />
 
                                                                                     <!-- 启用 CheckBox -->
@@ -649,7 +668,7 @@
                                                                         </ItemsControl.ItemTemplate>
                                                                     </ItemsControl>
 
-                                                                    <!-- S5：Tooltip 字段多选 -->
+                                                                    <!-- S5：Tooltip 字段多选（问题9：带拖拽手柄，支持排序，顺序即 tooltip 行顺序） -->
                                                                     <TextBlock Text="Tooltip 字段" FontSize="12" FontWeight="SemiBold"
                                                                                Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,10,0,6" />
                                                                     <ItemsControl ItemsSource="{Binding TooltipFields}">
@@ -660,8 +679,17 @@
                                                                         </ItemsControl.ItemsPanel>
                                                                         <ItemsControl.ItemTemplate>
                                                                             <DataTemplate>
-                                                                                <CheckBox Content="{Binding Display}" IsChecked="{Binding IsChecked}"
-                                                                                          Margin="0,0,12,4" FontSize="12" />
+                                                                                <StackPanel Orientation="Horizontal" Margin="0,0,12,4">
+                                                                                    <TextBlock Text="☰" FontSize="10" VerticalAlignment="Center" Margin="0,0,4,0"
+                                                                                               Foreground="{DynamicResource TextTertiaryBrush}"
+                                                                                               Cursor="SizeAll"
+                                                                                               Tag="{Binding}"
+                                                                                               PreviewMouseLeftButtonDown="OnTooltipFieldDragStart"
+                                                                                               PreviewMouseLeftButtonUp="OnTooltipFieldDragEnd"
+                                                                                               MouseMove="OnTooltipFieldDragMove" />
+                                                                                    <CheckBox Content="{Binding Display}" IsChecked="{Binding IsChecked}"
+                                                                                              FontSize="12" VerticalAlignment="Center" />
+                                                                                </StackPanel>
                                                                             </DataTemplate>
                                                                         </ItemsControl.ItemTemplate>
                                                                     </ItemsControl>
@@ -1088,13 +1116,14 @@
                                                                         <ColumnDefinition Width="Auto" />
                                                                     </Grid.ColumnDefinitions>
 
-                                                                    <!-- 拖拽手柄 -->
+                                                                    <!-- 拖拽手柄（问题5：挂 Up 事件 + 鼠标捕获） -->
                                                                     <TextBlock Grid.Column="0" Text="☰" FontSize="13"
                                                                                VerticalAlignment="Center" Margin="0,0,8,0"
                                                                                Foreground="{DynamicResource TextTertiaryBrush}"
                                                                                Cursor="SizeAll"
                                                                                Tag="{Binding}"
                                                                                PreviewMouseLeftButtonDown="OnMiniChartDragStart"
+                                                                               PreviewMouseLeftButtonUp="OnMiniChartDragEnd"
                                                                                MouseMove="OnMiniChartDragMove" />
 
                                                                     <!-- 启用 CheckBox -->
@@ -1132,13 +1161,14 @@
                                                                                         <ColumnDefinition Width="*" />
                                                                                     </Grid.ColumnDefinitions>
 
-                                                                                    <!-- 拖拽手柄 -->
+                                                                                    <!-- 拖拽手柄（问题5：挂 Up 事件 + 鼠标捕获） -->
                                                                                     <TextBlock Grid.Column="0" Text="☰" FontSize="11"
                                                                                                VerticalAlignment="Center" Margin="0,0,6,0"
                                                                                                Foreground="{DynamicResource TextTertiaryBrush}"
                                                                                                Cursor="SizeAll"
                                                                                                Tag="{Binding}"
                                                                                                PreviewMouseLeftButtonDown="OnMiniDataGroupDragStart"
+                                                                                               PreviewMouseLeftButtonUp="OnMiniDataGroupDragEnd"
                                                                                                MouseMove="OnMiniDataGroupDragMove" />
 
                                                                                     <!-- 启用 CheckBox -->
@@ -1171,7 +1201,7 @@
                                                                         </ItemsControl.ItemTemplate>
                                                                     </ItemsControl>
 
-                                                                    <!-- 问题8：Tooltip/文本显示字段多选（与卡片管理页 S5 同构，勾选即保存） -->
+                                                                    <!-- 问题8：Tooltip/文本显示字段多选（问题9：带拖拽手柄支持排序，勾选即保存） -->
                                                                     <TextBlock Text="Tooltip 字段" FontSize="12" FontWeight="SemiBold"
                                                                                Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,10,0,6" />
                                                                     <ItemsControl ItemsSource="{Binding TooltipFields}">
@@ -1182,8 +1212,17 @@
                                                                         </ItemsControl.ItemsPanel>
                                                                         <ItemsControl.ItemTemplate>
                                                                             <DataTemplate>
-                                                                                <CheckBox Content="{Binding Display}" IsChecked="{Binding IsChecked}"
-                                                                                          Margin="0,0,12,4" FontSize="12" />
+                                                                                <StackPanel Orientation="Horizontal" Margin="0,0,12,4">
+                                                                                    <TextBlock Text="☰" FontSize="10" VerticalAlignment="Center" Margin="0,0,4,0"
+                                                                                               Foreground="{DynamicResource TextTertiaryBrush}"
+                                                                                               Cursor="SizeAll"
+                                                                                               Tag="{Binding}"
+                                                                                               PreviewMouseLeftButtonDown="OnMiniTooltipFieldDragStart"
+                                                                                               PreviewMouseLeftButtonUp="OnMiniTooltipFieldDragEnd"
+                                                                                               MouseMove="OnMiniTooltipFieldDragMove" />
+                                                                                    <CheckBox Content="{Binding Display}" IsChecked="{Binding IsChecked}"
+                                                                                              FontSize="12" VerticalAlignment="Center" />
+                                                                                </StackPanel>
                                                                             </DataTemplate>
                                                                         </ItemsControl.ItemTemplate>
                                                                     </ItemsControl>

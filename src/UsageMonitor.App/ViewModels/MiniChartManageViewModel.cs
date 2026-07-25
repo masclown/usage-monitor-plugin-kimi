@@ -303,9 +303,35 @@ public class MiniChartNode : INotifyPropertyChanged
             DataGroups.Add(new MiniDataGroupNode(this, dg, groupVisible));
         }
 
+        // 问题12：迷你文本图表追加「刷新倒计时」虚拟数据组（非插件声明字段，仅控制文本段显示）。
+        if (declaration.Kind == DeclarativeChartKind.MiniText)
+        {
+            var countdownGroup = new DataGroup
+            {
+                Id = UsageMonitor.App.Helpers.MiniTooltipFieldCatalog.RefreshCountdownVirtual,
+                Display = "刷新倒计时",
+            };
+            bool countdownVisible = visibleGroups == null || visibleGroups.Contains(countdownGroup.Id);
+            var countdownNode = new MiniDataGroupNode(this, countdownGroup, countdownVisible);
+            // 按已保存排序插入（无排序时追加到末尾）
+            if (groupOrders != null && groupOrders.TryGetValue(countdownGroup.Id, out var co) && co >= 0 && co < DataGroups.Count)
+                DataGroups.Insert(co, countdownNode);
+            else
+                DataGroups.Add(countdownNode);
+        }
+
         // 问题8：初始化 Tooltip/文本字段多选（用户配置优先，回退声明的 tooltip.fields）
+        // 问题9：按用户保存的字段顺序排列（已勾选在前保持保存顺序，未勾选按目录顺序追加）。
         var savedFields = eff.MiniTooltipFields.TryGetValue(ChartId, out var sf) ? sf : null;
-        foreach (var option in UsageMonitor.App.Helpers.MiniTooltipFieldCatalog.GetOptions())
+        var catalogOptions = UsageMonitor.App.Helpers.MiniTooltipFieldCatalog.GetOptions();
+        var orderedOptions = savedFields == null
+            ? (IEnumerable<UsageMonitor.App.Helpers.MiniTooltipFieldCatalog.MiniTooltipFieldOption>)catalogOptions
+            : catalogOptions.OrderBy(o =>
+            {
+                var idx = savedFields.FindIndex(f => string.Equals(f, o.FieldName, StringComparison.OrdinalIgnoreCase));
+                return idx >= 0 ? idx : int.MaxValue;
+            });
+        foreach (var option in orderedOptions)
         {
             bool isChecked = savedFields == null
                 ? declaration.Tooltip?.Fields?.Contains(option.FieldName) == true

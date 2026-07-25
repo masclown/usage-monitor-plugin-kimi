@@ -47,9 +47,20 @@ public partial class MainViewModel : INotifyPropertyChanged
             var dispatcher = System.Windows.Application.Current?.Dispatcher;
             if (dispatcher == null) return;
             if (dispatcher.CheckAccess())
+            {
                 _displayModule.SyncCardsWithAccounts();
+                // 问题8：卡片重建后新 VM 字段缓存为空，回填持久化字段快照，避免数据概览等图表在下次刷新前长时间空白
+                //（RestoreFromFieldSnapshot 内部会跳过已收到实时数据的 VM，重复调用安全）。
+                _ = RestorePersistedFieldSnapshotsAsync();
+            }
             else
-                _ = dispatcher.BeginInvoke(new Action(() => _displayModule.SyncCardsWithAccounts()));
+            {
+                _ = dispatcher.BeginInvoke(new Action(() =>
+                {
+                    _displayModule.SyncCardsWithAccounts();
+                    _ = RestorePersistedFieldSnapshotsAsync();
+                }));
+            }
         };
 
                 // req-072 U-18：RefreshCommand 执行时更新 LastRefreshTime / RefreshProgress / ErrorCount
