@@ -1,5 +1,7 @@
+using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.ComponentModel;
+using System.Linq;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Interop;
@@ -170,7 +172,9 @@ public partial class TaskbarWindow : Window
     /// </summary>
     private List<MiniChartItemViewModel> BuildVisibleMiniChartList()
     {
-        var result = new List<MiniChartItemViewModel>();
+        // req-107 B4 修复：采用 (MiniChartItemViewModel, ChartOrderIdx?) 记录每个 item
+        // 在其所属账号 VisibleMiniCharts 中的位置，供末尾二级排序应用用户拖拽顺序。
+        var indexed = new List<(MiniChartItemViewModel Item, int? ChartOrderIdx)>();
         // req-110 兼容：多账号/多卡片后同一 Provider 可能存在多个卡片 VM，ToDictionary 会因重复键崩溃；
         // 改用 GroupBy 取首个（任务栏迷你图仍以 Provider 为粒度，取第一张启用卡片的数据源）。
         var usages = _viewModel.EnabledUsages
@@ -198,32 +202,48 @@ public partial class TaskbarWindow : Window
                     continue;
                 }
             }
-            result.Add(new MiniChartItemViewModel(descriptor, usageVm)
+
+            // 记录图表级顺序索引：VisibleMiniCharts 中 ChartId 出现的位置。null = 未配置（保持声明顺序）。
+            int? chartOrderIdx = null;
+            if (visibleMiniCharts != null && !string.IsNullOrEmpty(descriptor.ChartId))
             {
-                // 问题8：解析本 mini 图表的有效 Tooltip/文本字段（用户配置优先，回退声明；null = 沿用旧渲染）
-                EffectiveTooltipFields = ResolveMiniTooltipFields(descriptor, usageVm),
-                // 问题11/12：解析本 mini 图表的可见数据组（用户勾选；null = 全部声明组可见）
-                VisibleDataGroupIds = ResolveMiniVisibleDataGroups(descriptor, usageVm),
-                AccountName = ResolveAccountName(descriptor.ProviderId, usageVm.AccountIdSafe),
-                // 迷你时序图表：注入用户覆盖宽度（TaskbarMiniChartConfig.Width；null = 用声明值/默认）
-                UserWidth = ResolveUserMiniChartWidth(descriptor.ProviderId)
+                var idx = visibleMiniCharts.FindIndex(id =>
+                    string.Equals(id, descriptor.ChartId, StringComparison.OrdinalIgnoreCase));
+                if (idx >= 0) chartOrderIdx = idx;
+            }
+
+            indexed.Add((
+                new MiniChartItemViewModel(descriptor, usageVm)
+                {
+                    // 问题8：解析本 mini 图表的有效 Tooltip/文本字段（用户配置优先，回退声明；null = 沿用旧渲染）
+                    EffectiveTooltipFields = ResolveMiniTooltipFields(descriptor, usageVm),
+                    // 问题11/12：解析本 mini 图表的可见数据组（用户勾选；null = 全部声明组可见）
+                    VisibleDataGroupIds = ResolveMiniVisibleDataGroups(descriptor, usageVm),
+                    AccountName = ResolveAccountName(descriptor.ProviderId, usageVm.AccountIdSafe),
+                    // 迷你时序图表：注入用户覆盖宽度（TaskbarMiniChartConfig.Width；null = 用声明值/默认）
+                    UserWidth = ResolveUserMiniChartWidth(descriptor.ProviderId)
+                },
+                chartOrderIdx));
+        }
+        // 问题13：按用户配置排序——一级 Provider 顺序（TaskbarMiniChartOrder），
+        // 二级 账号级图表顺序（VisibleMiniCharts）。
+        // 未配置的项追加到末尾；OrderBy 稳定排序保证未配置项保留声明原序。
+        var providerOrder = _configService.Settings.TaskbarMiniChartOrder;
+        IOrderedEnumerable<(MiniChartItemViewModel Item, int? ChartOrderIdx)> sorted = System.Linq.Enumerable.OrderBy(indexed, x => 0);
+        if (providerOrder is { Count: > 0 })
+        {
+            sorted = sorted.OrderBy(x =>
+            {
+                var idx = providerOrder.FindIndex(p => string.Equals(p, x.Item.ProviderId, StringComparison.OrdinalIgnoreCase));
+                return idx < 0 ? int.MaxValue : idx;
             });
         }
+        sorted = sorted.ThenBy(x => x.ChartOrderIdx ?? int.MaxValue);
+
+        var result = sorted.Select(x => x.Item).ToList();
         // 问题11：注入可见数据组后重新对齐初始数据组索引（构造时尚未注入）。
         foreach (var item in result)
             item.ReinitializeDataGroupIndex();
-        // 问题13：按用户配置的任务栏迷你图表顺序排序（未配置的追加到末尾，保持注册顺序）。
-        var order = _configService.Settings.TaskbarMiniChartOrder;
-        if (order is { Count: > 0 })
-        {
-            result = result
-                .OrderBy(item =>
-                {
-                    var idx = order.FindIndex(p => string.Equals(p, item.ProviderId, StringComparison.OrdinalIgnoreCase));
-                    return idx < 0 ? int.MaxValue : idx;
-                })
-                .ToList();
-        }
         return result;
     }
 

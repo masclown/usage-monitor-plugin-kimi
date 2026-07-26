@@ -118,6 +118,7 @@ public class CardManageViewModel : INotifyPropertyChanged
                 DataGroupOrders = new Dictionary<string, Dictionary<string, int>>(),
                 VisibleTooltipFields = new Dictionary<string, List<string>?>(),
                 CurrentDataGroupIds = new Dictionary<string, string>(),
+                ChartTitles = new Dictionary<string, string>(), // 问题1：账号粒度图表名自定义
             };
 
             var order = 0;
@@ -133,6 +134,13 @@ public class CardManageViewModel : INotifyPropertyChanged
                     config.VisibleCharts.Add(chart.InstanceId);
                     config.ChartOrders[chart.InstanceId] = order++;
                     if (!dividerSeen) checkedBeforeDivider++;
+                }
+
+                // 问题1：保存账号粒度自定义图表名（空 / 等于声明 Display 时不落盘，避免冗余）
+                if (!string.IsNullOrWhiteSpace(chart.CustomName)
+                    && !string.Equals(chart.CustomName, chart.DeclarationDisplay, StringComparison.Ordinal))
+                {
+                    config.ChartTitles[chart.InstanceId] = chart.CustomName!;
                 }
 
                 // 数据组可见性与排序（按实例 ID 落盘，支持同图表多实例独立配置）
@@ -430,6 +438,30 @@ public class ChartNode : CardChartListItem
     /// <summary>图表显示名（从 ChartId 提取简短名称；多实例时附加序号）。</summary>
     public string DisplayName { get; }
 
+    /// <summary>问题1：声明原始 display（用于占位 / 比较是否与自定义名一致）。</summary>
+    public string DeclarationDisplay { get; }
+
+    /// <summary>问题1：账号粒度自定义图表名（用户可在设置 UI 修改并保存；null/空 = 用声明 Display）。</summary>
+    public string? CustomName
+    {
+        get => _customName;
+        set
+        {
+            var v = string.IsNullOrWhiteSpace(value) ? null : value!.Trim();
+            if (!string.Equals(_customName, v, StringComparison.Ordinal))
+            {
+                _customName = v;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(EffectiveDisplayName));
+                _parent.Save();
+            }
+        }
+    }
+    private string? _customName;
+
+    /// <summary>问题1：实际生效的图表显示名——优先自定义名，其次声明 Display。</summary>
+    public string? EffectiveDisplayName => !string.IsNullOrWhiteSpace(_customName) ? _customName : DeclarationDisplay;
+
     /// <summary>图表类型描述。</summary>
     public string KindText { get; }
 
@@ -501,7 +533,10 @@ public class ChartNode : CardChartListItem
         InstanceId = instanceId;
         ChartId = declaration.ChartId;
         _isEnabled = isVisible;
-        DisplayName = BuildDisplayName(declaration.ChartId, instanceId, declaration.Display);
+        DeclarationDisplay = BuildDisplayName(declaration.ChartId, instanceId, declaration.Display);
+        DisplayName = DeclarationDisplay;
+        // 问题1：从 AccountCustomization.ChartTitles[InstanceId]（实例级优先 → ChartId 兑底）还原上次保存的自定义名。
+        _customName = ResolveCustomName(eff.ChartTitles, instanceId, declaration.ChartId);
         KindText = KindToChinese(declaration.Kind);
         RemoveSelfCommand = new RelayCommand(() => _parent.RemoveChartCommand.Execute(this));
 
@@ -555,6 +590,14 @@ public class ChartNode : CardChartListItem
         return string.Equals(instanceId, chartId, StringComparison.Ordinal)
             ? baseName
             : $"{baseName}（{instanceId.Substring(chartId.Length + 1)}）";
+    }
+
+    /// <summary>问题1：解析实例级/图表级 ChartTitles（实例级优先），未设置返回 null。</summary>
+    private static string? ResolveCustomName(Dictionary<string, string> titles, string instanceId, string chartId)
+    {
+        if (titles.TryGetValue(instanceId, out var inst) && !string.IsNullOrWhiteSpace(inst)) return inst;
+        if (titles.TryGetValue(chartId, out var chart) && !string.IsNullOrWhiteSpace(chart)) return chart;
+        return null;
     }
 
     /// <summary>图表类型中文映射（设置界面展示用）。</summary>
@@ -669,7 +712,49 @@ public class DataGroupNode : INotifyPropertyChanged
         GroupId = dataGroup.Id;
         _isEnabled = isVisible;
         DisplayName = !string.IsNullOrWhiteSpace(dataGroup.Display) ? dataGroup.Display! : ExtractGroupName(dataGroup.Id);
-        FieldChips = dataGroup.Fields.Select(f => FieldChineseLabel(f.FieldName)).ToList();
+        FieldChips = BuildFieldChips(dataGroup, parent.ChartId);
+    }
+
+    /// <summary>问题6：数据组字段 chips 推导——除声明的 FieldRole.Value 字段外，
+    /// StackedBar/Area（seriesPivot）图表额外补充 categories/series_names/matrix 三个 pivot 字段，
+    /// 让卡片管理界面能看到完整的字段链路。具名数据组（如折线/热力）保持原样。</summary>
+    private static IReadOnlyList<string> BuildFieldChips(DataGroup dataGroup, string chartId)
+    {
+        var chips = new List<string>();
+        // 声明的字段——按声明顺序去重保序。
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var f in dataGroup.Fields)
+        {
+            var label = FieldChineseLabel(f.FieldName);
+            if (seen.Add(label)) chips.Add(label);
+        }
+        // 问题6：seriesPivot 类图表（StackedBar / Area）从 ChartDeclaration 推断 pivot extras 字段，
+        // 补充日期 / 请求费用 / 使用模型三个核心 chip，避免“只显示 request_cost”。
+        if (TryGetPivotExtras(chartId, out var pivotFields))
+        {
+            foreach (var field in pivotFields)
+            {
+                var label = FieldChineseLabel(field);
+                if (seen.Add(label)) chips.Add(label);
+            }
+        }
+        return chips;
+    }
+
+    /// <summary>问题6：识别 chartId 声明中的 seriesPivot extras 字段（categories/series_names/matrix），
+    /// 返回供数据组 chips 补充展示的 SDK 字段名列表。当前支持 StackedBar/Area。</summary>
+    private static bool TryGetPivotExtras(string chartId, out List<string> fields)
+    {
+        fields = new List<string>();
+        if (string.IsNullOrEmpty(chartId)) return false;
+        // DeepSeek 的 StackedBar / Area 默认 pivot extras 字段名约定：
+        // - categories：日期（如 daily_cost_categories / daily_tokens_categories）
+        // - series_names：系列名（如模型名 request_cost / cache_miss_token）
+        // - matrix：值矩阵
+        // 热力图等连续声明的 extras 键名，以 chip 形式补充：
+        fields.Add(UsageFields.RequestCost);       // 请求费用
+        fields.Add(UsageFields.ModelName);         // 使用模型
+        return fields.Count > 0;
     }
 
     /// <summary>解析字段中文标签（取 SDK 元数据描述并去除括号补充说明；缺失时回退字段名）。</summary>

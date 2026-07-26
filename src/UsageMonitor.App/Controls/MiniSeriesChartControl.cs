@@ -278,7 +278,9 @@ public class MiniSeriesChartControl : FrameworkElement
         }
     }
 
-    /// <summary>绘制柱状图模式：等宽圆角柱体，hover/HighlightIndex 柱高亮。</summary>
+    /// <summary>绘制柱状图模式：等宽圆角柱体，hover/HighlightIndex 柱高亮。
+    /// <para>不再画独立 hover 气泡，由迷你图自身 ToolTip（XAML 绑定 CompositeTooltipText）统一承载；
+    /// 仅保留高亮反馈指明当前指向。</para></summary>
     private void DrawBars(DrawingContext dc, IReadOnlyList<double> values, Brush brush,
         double padLeft, double padTop, double plotW, double plotH, double baseline, double max)
     {
@@ -300,13 +302,7 @@ public class MiniSeriesChartControl : FrameworkElement
             bool emphasized = i == _hoverIndex || i == HighlightIndex;
             dc.DrawRoundedRectangle(emphasized ? brush : dimFill, null, rect, radius, radius);
         }
-
-        // hover 气泡
-        if (_hoverIndex >= 0 && _hoverIndex < count)
-        {
-            var cx = padLeft + slot * _hoverIndex + slot / 2.0;
-            DrawHoverBubble(dc, _hoverIndex, cx, padTop, padLeft + plotW);
-        }
+        // 注：柱状图不调用 DrawHoverBubble——hover 信息由迷你图模板里的 ToolTip 元素统一显示。
     }
 
     /// <summary>绘制折线/面积图模式：折线路径 + 可选渐变填充 + 最新点发光 + hover 高亮。</summary>

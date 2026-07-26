@@ -9,7 +9,7 @@
   "plugin.DeepSeek.chart.daily_cost": "Daily Cost",
   "plugin.DeepSeek.chart.daily_requests": "API Requests",
   "plugin.DeepSeek.chart.daily_tokens": "Token Usage",
-  "plugin.DeepSeek.group.numberBalance": "Balance",
+  "plugin.DeepSeek.group.numberBalance": "Wallet Balance",
   "plugin.DeepSeek.group.numberMonthlyCost": "Monthly Cost",
   "plugin.DeepSeek.group.numberTotalCost": "Total Cost",
   "plugin.DeepSeek.group.numberMonthlyTokens": "Monthly Tokens",
@@ -18,5 +18,6 @@
   "plugin.DeepSeek.group.dailyCostAll": "Daily Cost (by model)",
   "plugin.DeepSeek.group.dailyRequestsAll": "API Requests (by model)",
   "plugin.DeepSeek.group.dailyTokensAll": "Token Usage (by model)",
-  "plugin.DeepSeek.mini.text": "Balance Text"
+  "plugin.DeepSeek.mini.text": "Balance Text",
+  "plugin.DeepSeek.tooltip.hint": "Hover for field details"
 }

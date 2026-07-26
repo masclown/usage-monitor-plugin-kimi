@@ -118,6 +118,14 @@
         "display": "i18n:plugin.DeepSeek.chart.balance_number",
         "kind": "Number",
         "defaultOrder": 1,
+        "tooltip": {
+          "fields": [
+            "balance_amount",
+            "monthly_cost",
+            "total_cost",
+            "monthly_token_usage"
+          ]
+        },
         "dataGroups": [
           { "id": "ds.number.balance", "display": "i18n:plugin.DeepSeek.group.numberBalance", "fields": [{ "fieldName": "balance_amount", "role": "Value" }] },
           { "id": "ds.number.monthly_cost", "display": "i18n:plugin.DeepSeek.group.numberMonthlyCost", "fields": [{ "fieldName": "monthly_cost", "role": "Value" }] },
@@ -134,8 +142,11 @@
         "seriesNamesField": "daily_cost_series_names",
         "valuesMatrixField": "daily_cost_matrix",
         "unit": "¥",
+        "colors": ["#0C70F3"],
         "dataGroups": [
-          { "id": "ds.daily_cost.all", "display": "i18n:plugin.DeepSeek.group.dailyCostAll", "fields": [{ "fieldName": "request_cost", "role": "Value" }] }
+          { "id": "ds.daily_cost.all", "display": "i18n:plugin.DeepSeek.group.dailyCostAll", "fields": [
+            { "fieldName": "request_cost", "role": "Value" }
+          ] }
         ]
       },
       {
@@ -147,8 +158,11 @@
         "seriesNamesField": "daily_requests_series_names",
         "valuesMatrixField": "daily_requests_matrix",
         "unit": "次",
+        "colors": ["#0C70F3"],
         "dataGroups": [
-          { "id": "ds.daily_requests.all", "display": "i18n:plugin.DeepSeek.group.dailyRequestsAll", "fields": [{ "fieldName": "request_count", "role": "Value" }] }
+          { "id": "ds.daily_requests.all", "display": "i18n:plugin.DeepSeek.group.dailyRequestsAll", "fields": [
+            { "fieldName": "request_count", "role": "Value" }
+          ] }
         ]
       },
       {
@@ -160,6 +174,7 @@
         "seriesNamesField": "daily_tokens_series_names",
         "valuesMatrixField": "daily_tokens_matrix",
         "unit": "tokens",
+        "colors": ["#0C70F3", "#60B3FE", "#A0DCFD"],
         "dataGroups": [
           { "id": "ds.daily_tokens.all", "display": "i18n:plugin.DeepSeek.group.dailyTokensAll", "fields": [
             { "fieldName": "cache_miss_token", "role": "Value" },

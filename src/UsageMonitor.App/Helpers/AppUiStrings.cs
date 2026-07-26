@@ -67,6 +67,8 @@ public static class AppUiStrings
         // 问题8：图表 tooltip / 空态硬编码中文迁移至 i18n
         ["chart.tooltip.usage"] = "用量",
         ["chart.tooltip.cacheHit"] = "缓存命中",
+        // 问题7：堆叠柱状图 / 面积图 tooltip / 空态硬编码中英文走 i18n
+        ["chart.tooltip.value"] = "数值",
         ["chart.empty"] = "暂无数据",
         // 历史窗口（req-069-005/006 i18n）
         ["history.window.title"] = "UsageMonitor - 历史用量",
@@ -142,6 +144,8 @@ public static class AppUiStrings
         // 问题8：图表 tooltip / 空态硬编码中文迁移至 i18n
         ["chart.tooltip.usage"] = "Usage",
         ["chart.tooltip.cacheHit"] = "Cache hit",
+        // 问题7：堆叠柱状图 / 面积图 tooltip / 空态硬编码中英文走 i18n
+        ["chart.tooltip.value"] = "Value",
         ["chart.empty"] = "No data",
         // History window (req-069-005/006)
         ["history.window.title"] = "UsageMonitor - Usage History",

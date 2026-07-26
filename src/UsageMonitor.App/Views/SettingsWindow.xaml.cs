@@ -741,6 +741,49 @@ public partial class SettingsWindow : Window
             node.IsExpanded = !node.IsExpanded;
     }
 
+    /// <summary>问题1：图表自定义名称输入框获得焦点——占位文字「未设置则使用：{声明原始名}」作为 Watermark 提示。</summary>
+    private void OnChartCustomNameGotFocus(object sender, RoutedEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.TextBox tb) return;
+        if (tb.Tag is string declarationDisplay && string.IsNullOrWhiteSpace(tb.Text))
+            tb.Text = declarationDisplay; // 填入声明原始名便于编辑
+        tb.SelectAll();
+    }
+
+    /// <summary>问题1：图表自定义名称输入框失去焦点——回填占位/还原默认值并即时保存。</summary>
+    private void OnChartCustomNameLostFocus(object sender, RoutedEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.TextBox tb) return;
+        if (tb.DataContext is not ViewModels.ChartNode chart) return;
+        var declarationDisplay = tb.Tag as string;
+        var newName = tb.Text?.Trim();
+        // 用户未修改或输入与声明名一致 → 清空自定义（兑底为声明原始名）
+        if (string.IsNullOrEmpty(newName) || string.Equals(newName, declarationDisplay, StringComparison.Ordinal))
+            newName = null;
+        chart.CustomName = newName;
+        tb.Text = chart.CustomName ?? string.Empty; // 即时刷新（兑底时清空输入框）
+    }
+
+    /// <summary>问题1：图表自定义名称输入框 Enter/Esc 快捷键处理——Enter 提交，Esc 取消。</summary>
+    private void OnChartCustomNameKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.TextBox tb) return;
+        if (e.Key == System.Windows.Input.Key.Enter)
+        {
+            // 提交修改（触发 LostFocus 保存逻辑）
+            tb.MoveFocus(new System.Windows.Input.TraversalRequest(System.Windows.Input.FocusNavigationDirection.Next));
+            e.Handled = true;
+        }
+        else if (e.Key == System.Windows.Input.Key.Escape)
+        {
+            // 取消修改：还原为 CustomName 原值，焦点移走（不触发 TextChanged 保存）
+            if (tb.DataContext is ViewModels.ChartNode chart)
+                tb.Text = chart.CustomName ?? string.Empty;
+            tb.MoveFocus(new System.Windows.Input.TraversalRequest(System.Windows.Input.FocusNavigationDirection.Next));
+            e.Handled = true;
+        }
+    }
+
     /// <summary>S2：添加图表按钮——弹出 ContextMenu 显示可添加的图表列表。</summary>
     private void OnAddChartClick(object sender, RoutedEventArgs e)
     {

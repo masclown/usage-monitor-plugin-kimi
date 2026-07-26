@@ -45,9 +45,16 @@ public static class TooltipFieldCatalog
         [UsageFields.WeeklyResetAt] = "周重置时间",
     };
 
-    /// <summary>获取字段中文显示名（无映射时回退字段名本身）。</summary>
+    /// <summary>获取字段中文显示名（未映射时优先回退 <see cref="UsageFieldFormatter"/> 提供的本地化标签，否则返回字段名本身）。</summary>
+    /// <remarks>
+    /// 解析顺序：① 本表硬编码（与 MiniMax 最贴合的子集）；② <see cref="UsageFieldFormatter.GetLabel"/>
+    /// （基于 <c>UsageFieldMetadata.LabelKey</c> i18n + Description，未注册字段返回 snake_case 转 Humanize），
+    /// 使 DeepSeek/Kimi/Qoder 等插件的字段也能被识别（避免 "balance_amount" 这种英文直接露出）。
+    /// </remarks>
     public static string GetDisplay(string fieldName)
-        => DisplayMap.TryGetValue(fieldName, out var display) ? display : fieldName;
+        => DisplayMap.TryGetValue(fieldName, out var display)
+            ? display
+            : UsageFieldFormatter.GetLabel(fieldName);
 
     /// <summary>
     /// 按图表声明派生 Tooltip 字段选项（虚拟字段 + 数据组 Value 字段，去重保序）。

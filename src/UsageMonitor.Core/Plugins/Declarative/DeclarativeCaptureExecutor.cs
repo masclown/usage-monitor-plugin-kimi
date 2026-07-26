@@ -482,12 +482,27 @@ public static class DeclarativeCaptureExecutor
             if (categories == null) { categories = cats; catCount = idx; }
         }
 
+        // 问题：不等长 series 安全网——后续 series 可能有更多桶，遍历完所有 series 后按矩阵实际宽度
+        // 重新同步 categories / catCount，避免 colSums 只按首个 series 长度初始化导致末尾列丢失。
+        if (categories != null && matrix.Count > 0)
+        {
+            var actualCatCount = matrix[0].Count;
+            if (actualCatCount > categories.Count)
+            {
+                // 后续 series 桶数超出首个 series——扩展 categories 补足缺失列（以序号占位）。
+                while (categories.Count < actualCatCount)
+                    categories.Add($"#{categories.Count + 1}");
+            }
+            catCount = actualCatCount;
+        }
+
         if (categories == null || catCount == 0) return;
         extras[$"{arr.Target}_categories"] = categories;
         extras[$"{arr.Target}_series_names"] = seriesNames;
         extras[$"{arr.Target}_matrix"] = matrix;
 
         // 列和（每日跨模型合计）写入标准字段数组，供历史存储 / tooltip 消费。
+        // 问题：colSums 按最终 catCount 初始化，确保矩阵末尾列不被丢弃。
         for (int f = 0; f < fieldCount; f++)
         {
             var target = arr.ItemFields[f].Target;

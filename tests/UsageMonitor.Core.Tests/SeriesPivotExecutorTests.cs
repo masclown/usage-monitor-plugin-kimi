@@ -198,6 +198,75 @@ public class SeriesPivotExecutorTests
         matrix[0].Should().BeEquivalentTo(new double[] { 6, 10 });
     }
 
+    /// <summary>问题：不等长 series 安全网——后续 series 桶数超出首个 series 时，
+    /// 矩阵、列和（colSums）以及 categories 都应同步扩展到完整宽度，避免末尾列丢失。
+    /// <para>重现路径：series[0] 有 2 个 buckets、series[1] 有 3 个 buckets（多一个）；
+    /// 修复前 colSums 只分配 2 个元素，series[1] 的第 3 列会被截断；修复后扩展到 3。</para></summary>
+    [Fact]
+    public void FieldPivot_UnevenSeries_ExtendsCategoriesAndColSumsToMaxWidth()
+    {
+        // Arrange：手写一个 series[0]=2 buckets、series[1]=3 buckets 的 JSON。
+        var unevenJson = """
+        {
+          "bucket": 86400,
+          "series": [
+            { "model": "m1", "buckets": [
+              { "time": 1782172800, "usage": { "REQUEST": 5 } },
+              { "time": 1782259200, "usage": { "REQUEST": 8 } }
+            ] },
+            { "model": "m2", "buckets": [
+              { "time": 1782172800, "usage": { "REQUEST": 1 } },
+              { "time": 1782259200, "usage": { "REQUEST": 2 } },
+              { "time": 1782345600, "usage": { "REQUEST": 4 } }
+            ] }
+          ]
+        }
+        """;
+        var decl = new FetchDeclaration
+        {
+            Endpoints = new[]
+            {
+                new FetchEndpoint
+                {
+                    UrlMatch = "by_api_key/amount",
+                    Arrays = new[]
+                    {
+                        new FetchArray
+                        {
+                            ItemsPath = "$.series",
+                            Mode = "seriesPivot",
+                            NestedItems = "buckets",
+                            Target = "daily_requests",
+                            ItemFields = new[]
+                            {
+                                new FetchField { Path = "$.usage.REQUEST", Target = "request_count", Transform = "parseNumber", ElementType = "double" }
+                            }
+                        }
+                    }
+                }
+            }
+        };
+        var captured = new Dictionary<string, string>
+        {
+            ["https://platform.deepseek.com/api/v0/usage/by_api_key/amount?start=1&end=2"] = unevenJson
+        };
+
+        // Act
+        var result = DeclarativeCaptureExecutor.Execute(decl, captured);
+
+        // Assert
+        var categories = result.Extras["daily_requests_categories"].Should().BeAssignableTo<List<string>>().Subject;
+        var matrix = result.Extras["daily_requests_matrix"].Should().BeAssignableTo<List<List<double>>>().Subject;
+        var colSums = result.Extras["request_count"].Should().BeAssignableTo<List<double>>().Subject;
+
+        // 类别从 2 扩展到 3（最后一个以序号占位，避免数据语义不清）
+        categories.Should().HaveCount(3);
+        colSums.Should().Equal(new double[] { 6, 10, 4 });
+        // matrix 单行（字段枢轴每 ItemField 一行），但宽度随最长 series 扩展到 3
+        matrix.Should().HaveCount(1);
+        matrix[0].Should().Equal(new double[] { 6, 10, 4 });
+    }
+
     /// <summary>时间占位符展开：{now:unix} 与 {now:unix-30d}。</summary>
     [Fact]
     public void ExpandPlaceholders_TimePlaceholders_ProduceUnixSeconds()
@@ -282,8 +351,10 @@ public class SeriesPivotExecutorTests
         var stacked = manifest.Card.Charts.First(c => c.Kind == DeclarativeChartKind.StackedBar);
         stacked.CategoriesField.Should().Be("daily_cost_categories");
         stacked.ValuesMatrixField.Should().Be("daily_cost_matrix");
-        // 问题7：移除自定义颜色声明，堆叠柱状图统一走宿主默认蓝色色板，保证同卡片多图颜色风格一致。
-        stacked.Colors.Should().BeEmpty();
+        // 问题8：DeepSeek 2 个堆叠柱状图色彩协调——单系列采用品牌主色（深蓝），
+        // 多系列采用蓝→黄渐变（与用量页面积图风格一致）。颜色由声明驱动。
+        stacked.Colors.Should().NotBeEmpty();
+        stacked.Colors[0].Should().Be("#0C70F3");
         // 问题12：时序图表声明泛化数据组（供卡片管理页展示/勾选）。
         stacked.DataGroups.Should().NotBeEmpty();
     }
@@ -313,6 +384,33 @@ public class SeriesPivotExecutorTests
 
         // Assert：无错误（警告可接受）。
         result.Errors.Should().BeEmpty($"声明包应通过完整校验，实际错误：{string.Join("; ", result.Errors)}");
+    }
+
+    /// <summary>MiniMax 声明包通过 PluginValidator 完整校验（确保 JSON 修复后未引入字段白名单 / ChartKindSpec / 切片器错误）。</summary>
+    [Fact]
+    public void MiniMaxManifest_PassesPluginValidator()
+    {
+        // Arrange
+        var manifestPath = FindMiniMaxDefaults();
+        if (manifestPath == null) return; // CI 无声明包时跳过
+        var json = File.ReadAllText(manifestPath);
+
+        // Act
+        var result = UsageMonitor.Core.Plugins.PluginValidator.Validate(json, new Version(0, 24, 3));
+
+        // Assert：无错误（警告可接受）。
+        result.Errors.Should().BeEmpty($"声明包应通过完整校验，实际错误：{string.Join("; ", result.Errors)}");
+    }
+
+    /// <summary>定位 MiniMax 声明包路径（输出目录或源码目录）。</summary>
+    private static string? FindMiniMaxDefaults()
+    {
+        var candidates = new[]
+        {
+            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "plugins", "UsageMonitor.Plugin.MiniMax", "defaults.json"),
+            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "..", "src", "Plugins", "UsageMonitor.Plugin.MiniMax", "defaults.json")
+        };
+        return candidates.FirstOrDefault(File.Exists);
     }
 
     /// <summary>CredentialProbe 泛化：Password 型配置字段（如 DeepSeek UserToken）非空即视为已配凭据。</summary>

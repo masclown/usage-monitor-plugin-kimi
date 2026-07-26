@@ -9,13 +9,13 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
 
-    <!-- 项目版本号（0.39.0-beta）：TooltipDisplaySettings新增(+13行) / AreaChartControl大幅增强(+88行) / MiniLineChartControl增强(+47行) / SettingsWindow.xaml.cs增强(+69行) / MiniChartItemViewModel增强(+48行) / MainViewModel增强(+38行) / ProviderUsageViewModel增强(+40行) / StackedBarChartControl增强(+28行) / 核心数据模型(CardDeclaration/ChartData/UsageFields)更新 / csproj图标资源分发策略调整；用于程序集元数据 + 文件属性。 -->
+    <!-- 项目版本号（0.40.0-beta）：UsageFieldFormatter用量字段格式化器新增(+212行) / ProviderIconService大幅增强(+238行) / ProviderUsageViewModel大幅增强(+92行) / MiniChartItemViewModel增强(+91行) / CardManageViewModel增强(+89行) / TaskbarWindow增强(+62行) / MiniMax插件配置大幅增强(+57行) / SettingsWindow增强 / 图表控件增强 / 插件语言包更新；用于程序集元数据 + 文件属性。 -->
     <!-- 显式设置 5 个属性，避免被 SDK 衍生规则变动影响。 -->
-    <Version>0.39.0-beta</Version>
-    <AssemblyVersion>0.39.0.0</AssemblyVersion>
-    <FileVersion>0.39.0.0</FileVersion>
-    <InformationalVersion>0.39.0-beta</InformationalVersion>
-    <ProductVersion>0.39.0-beta</ProductVersion>
+    <Version>0.40.0-beta</Version>
+    <AssemblyVersion>0.40.0.0</AssemblyVersion>
+    <FileVersion>0.40.0.0</FileVersion>
+    <InformationalVersion>0.40.0-beta</InformationalVersion>
+    <ProductVersion>0.40.0-beta</ProductVersion>
     <AssemblyTitle>UsageMonitor</AssemblyTitle>
     <Product>UsageMonitor</Product>
     <Company>UsageMonitor</Company>

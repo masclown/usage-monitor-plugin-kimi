@@ -193,10 +193,10 @@ public class StackedBarChartControl : FrameworkElement, IHoverTooltipProvider
         var textBrush = TextBrush ?? Brushes.Gray;
         var gridBrush = GridLineBrush ?? Brushes.DimGray;
 
-        // 无数据时显示空态提示。
+        // 无数据时显示空态提示（问题7：硬编码走 i18n）。
         if (categories == null || categories.Count == 0 || series == null || series.Count == 0)
         {
-            var empty = MakeText("暂无数据", textBrush, 13);
+            var empty = MakeText(UsageMonitor.Core.Services.I18n.T("chart.empty"), textBrush, 13);
             dc.DrawText(empty, new Point((width - empty.Width) / 2, (height - empty.Height) / 2));
             _categoryCount = 0;
             return;
@@ -363,24 +363,40 @@ public class StackedBarChartControl : FrameworkElement, IHoverTooltipProvider
         int index = Math.Clamp((int)((position.X - _plotLeft) / (_plotW / categories.Count)), 0, categories.Count - 1);
         var unit = string.IsNullOrWhiteSpace(Unit) ? string.Empty : $" {Unit}";
 
-        // 构建各系列分项文本。问题9/10：系列名（模型名）前缀是否显示由全局 tooltip 设置控制，
-        // 关闭后仅显示数值（避免模型名等英文标识占据 tooltip）。
+        // 问题9/10：系列名（模型名）前缀是否显示由全局 tooltip 设置控制，
+        // 关闭后仅显示数值（避免模型名等英文标识占据 tooltip）。问题7：兜底系列名走 i18n。
         double total = 0;
         var parts = new List<string>();
         var showName = UsageMonitor.App.Helpers.TooltipDisplaySettings.ShowFieldName;
+        var defaultSeriesName = UsageMonitor.Core.Services.I18n.T("chart.tooltip.value");
         foreach (var s in series)
         {
             double v = s.Values != null && index < s.Values.Count ? Math.Max(0, s.Values[index]) : 0;
             total += v;
             if (v > 0)
-                parts.Add(showName ? $"{s.Name} {FormatValue(v)}{unit}" : $"{FormatValue(v)}{unit}");
+            {
+                var name = string.IsNullOrWhiteSpace(s.Name) ? defaultSeriesName : s.Name!;
+                // 问题9：金额字段单位前缀化（unit="$" → "$1.23"；unit="¥" → "¥1.23"）。
+                parts.Add(FormatSeriesLine(name, v, Unit, showName));
+            }
         }
 
         var title = categories[index];
-        var value = $"{FormatValue(total)}{unit}";
+        // 问题9：金额单位作为前缀拼到值前（"$1.23" / "¥1.23"），与其他图表后缀形式统一。
+        var totalText = FormatSeriesLine(null, total, Unit, showName: false);
         var detail = parts.Count > 0 ? string.Join("\n", parts) : null;
-        data = new HoverTooltipData(title, value, detail);
+        data = new HoverTooltipData(title, totalText, detail);
         return true;
+    }
+
+    /// <summary>问题9：堆叠柱状图系列行文本拼接——单位作为前缀（如 "$1.23" / "¥1.23"），
+    /// seriesName 非空时与 showName=true 拼接成 "{name} {prefix}{value}"，否则仅返回 "{prefix}{value}"。</summary>
+    private static string FormatSeriesLine(string? seriesName, double value, string? unit, bool showName)
+    {
+        var prefix = !string.IsNullOrWhiteSpace(unit) ? unit! : string.Empty;
+        var valueText = $"{prefix}{FormatValue(value)}";
+        if (!showName || string.IsNullOrWhiteSpace(seriesName)) return valueText;
+        return $"{seriesName} {valueText}";
     }
 
     /// <summary>数值格式化（大数用 K/M 简写）。</summary>

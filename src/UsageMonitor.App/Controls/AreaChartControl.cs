@@ -322,11 +322,15 @@ public class AreaChartControl : FrameworkElement, IHoverTooltipProvider
         int index = (int)Math.Round((position.X - _plotLeft) / (_plotW / Math.Max(1, count - 1)));
         index = Math.Max(0, Math.Min(count - 1, index));
 
-        var unit = string.IsNullOrWhiteSpace(Unit) ? string.Empty : $" {Unit}";
-        var name = string.IsNullOrWhiteSpace(SeriesName) ? "数值" : SeriesName;
+        // 问题9：金额字段单位作为前缀拼装（"$1.23" / "¥1.23"），未声明单位时仅拼数值。
+        var unit = string.IsNullOrWhiteSpace(Unit) ? string.Empty : Unit!;
+        var prefix = unit;
+        var name = string.IsNullOrWhiteSpace(SeriesName) ? UsageMonitor.Core.Services.I18n.T("chart.tooltip.value") : SeriesName!;
         var categories = Categories;
         var title = categories != null && index < categories.Count ? categories[index] : $"#{index + 1}";
-        data = new HoverTooltipData(title, $"{FormatValue(values[index])}{unit}", name);
+        // 主体值 = 前缀 + 数字；seriesName 作为详情行（之前 HoverTooltipData 第 3 个参数为 detail）
+        var mainValue = $"{prefix}{FormatValue(values[index])}";
+        data = new HoverTooltipData(title, mainValue, name);
         return true;
     }
 

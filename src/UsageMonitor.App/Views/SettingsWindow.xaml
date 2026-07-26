@@ -637,12 +637,13 @@
                                                                 Background="{DynamicResource SurfaceBrush}"
                                                                 CornerRadius="{DynamicResource RadiusButton}">
                                                             <StackPanel>
-                                                                <!-- 图表行：拖拽手柄 + 启用 + 图表名 + 展开 + 删除 -->
+                                                                <!-- 问题1：图表行：拖拽手柄 + 启用 + 图表名 + 类型 + 自定义名输入框 + 展开 + 删除 -->
                                                                 <Grid>
                                                                     <Grid.ColumnDefinitions>
                                                                         <ColumnDefinition Width="Auto" />
                                                                         <ColumnDefinition Width="Auto" />
                                                                         <ColumnDefinition Width="*" />
+                                                                        <ColumnDefinition Width="Auto" />
                                                                         <ColumnDefinition Width="Auto" />
                                                                         <ColumnDefinition Width="Auto" />
                                                                     </Grid.ColumnDefinitions>
@@ -661,22 +662,33 @@
                                                                     <CheckBox Grid.Column="1" IsChecked="{Binding IsEnabled}"
                                                                               VerticalAlignment="Center" Margin="0,0,10,0" />
 
-                                                                    <!-- 图表名 + 类型 -->
+                                                                    <!-- 问题1：图表名 + 类型 -->
                                                                     <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                                                                        <TextBlock Text="{Binding DisplayName}" FontSize="13"
-                                                                                   Foreground="{DynamicResource TextPrimaryBrush}" />
+                                                                        <TextBlock Text="{Binding EffectiveDisplayName}" FontSize="13"
+                                                                                   Foreground="{DynamicResource TextPrimaryBrush}"
+                                                                                   ToolTip="账号粒度自定义名（未设置时显示声明原始名）" />
                                                                         <TextBlock Text="{Binding KindText}" FontSize="11" Margin="8,0,0,0"
                                                                                    VerticalAlignment="Center"
                                                                                    Foreground="{DynamicResource TextTertiaryBrush}" />
                                                                     </StackPanel>
 
+                                                                    <!-- 问题1：账号粒度自定义名称输入框（占位为声明名；输入后即时保存到 AccountCustomization.ChartTitles） -->
+                                                                    <TextBox Grid.Column="3" Width="160"
+                                                                             VerticalAlignment="Center" Margin="8,0,0,0"
+                                                                             FontSize="12"
+                                                                             ToolTip="账号粒度图表名自定义（留空则用声明原始名）"
+                                                                             Tag="{Binding DeclarationDisplay}"
+                                                                             GotFocus="OnChartCustomNameGotFocus"
+                                                                             LostFocus="OnChartCustomNameLostFocus"
+                                                                             KeyDown="OnChartCustomNameKeyDown" />
+
                                                                     <!-- 展开按钮 -->
-                                                                    <Button Grid.Column="3" Content="{Binding ExpandArrow}"
+                                                                    <Button Grid.Column="4" Content="{Binding ExpandArrow}"
                                                                             Style="{StaticResource GhostButtonStyle}" Padding="7,3"
                                                                             Click="OnChartNodeToggleClick" />
 
                                                                     <!-- 删除按钮（×）：移除该图表实例 -->
-                                                                    <Button Grid.Column="4" Content="×" Padding="8,3" Margin="4,0,0,0"
+                                                                    <Button Grid.Column="5" Content="×" Padding="8,3" Margin="4,0,0,0"
                                                                             Style="{StaticResource GhostButtonStyle}"
                                                                             Foreground="{DynamicResource TextTertiaryBrush}"
                                                                             ToolTip="删除该图表"

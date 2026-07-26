@@ -214,7 +214,8 @@
             "display": "i18n:plugin.MiniMax.group.barVideo",
             "fields": [
               { "fieldName": "video_quota", "role": "Value" },
-              { "fieldName": "video_quota_limit", "role": "Upper" }
+              { "fieldName": "video_quota_limit", "role": "Upper" },
+              { "fieldName": "five_hour_reset_at", "role": "Reset" }
             ],
             "colorTiers": {
               "thresholds": [0, 1, 2, 3],
@@ -248,12 +249,32 @@
           }
         ]
       },
-      {
-        "chartId": "mm.chart.cache_heatmap",
-        "display": "i18n:plugin.MiniMax.chart.cache_heatmap",
-        "kind": "HeatMap",
+        {
+          "chartId": "mm.chart.daily_tokens_stacked",
+          "display": "i18n:plugin.MiniMax.chart.daily_tokens_stacked",
+          "kind": "StackedBar",
+          "defaultOrder": 5,
+          "categoriesField": "model_daily_categories",
+          "seriesNamesField": "model_daily_series_names",
+          "valuesMatrixField": "model_daily_matrix",
+          "unit": "tokens",
+          "colors": ["#0C70F3", "#60B3FE", "#A0DCFD"],
+          "dataGroups": [
+            { "id": "mm.stacked.tokens", "display": "i18n:plugin.MiniMax.group.stackedTokens", "fields": [
+              { "fieldName": "input_token", "role": "Value" },
+              { "fieldName": "output_token", "role": "Value" },
+              { "fieldName": "cache_read_token", "role": "Value" },
+              { "fieldName": "model_daily_categories", "role": "Meta" },
+              { "fieldName": "model", "role": "Meta" }
+            ] }
+          ]
+        },
+        {
+          "chartId": "mm.chart.cache_heatmap",
+          "display": "i18n:plugin.MiniMax.chart.cache_heatmap",
+          "kind": "HeatMap",
         "defaultOrder": 4,
-        "tooltip": { "fields": ["__date__", "daily_cache_hit_value"] },
+        "tooltip": { "fields": ["__date__", "daily_cache_hit_value", "daily_token_value"] },
         "colorTiers": {
           "thresholds": [0, 30, 60, 80, 100],
           "colors": ["#F5F5F5", "#FFE082", "#FFB74D", "#E64A19", "#B71C1C"]
@@ -265,8 +286,8 @@
             "queryRange": { "type": "LastDays", "days": 90 },
             "fields": [
               { "fieldName": "daily_cache_hit_date", "role": "Meta" },
-              { "fieldName": "daily_cache_hit_value", "role": "Value" },
-              { "fieldName": "daily_token_value", "role": "Value" }
+              { "fieldName": "daily_token_value", "role": "Value" },
+              { "fieldName": "daily_cache_hit_value", "role": "Value" }
             ]
           }
         ]
@@ -277,12 +298,14 @@
         "kind": "Number",
         "defaultOrder": 2,
         "dataGroups": [
-          { "id": "mm.number.cumulative", "display": "i18n:plugin.MiniMax.group.numberCumulative", "fields": [{ "fieldName": "used_tokens", "role": "Value" }] },
+          { "id": "mm.number.cumulative", "display": "i18n:plugin.MiniMax.group.numberCumulative", "fields": [
+            { "fieldName": "used_tokens", "role": "Value" },
+            { "fieldName": "usage_ranking_percent", "role": "Meta" }
+          ] },
           { "id": "mm.number.peak", "display": "i18n:plugin.MiniMax.group.numberPeak", "fields": [{ "fieldName": "most_active_token", "role": "Value" }] },
           { "id": "mm.number.active_days", "display": "i18n:plugin.MiniMax.group.numberActiveDays", "fields": [
             { "fieldName": "active_days", "role": "Value" },
-            { "fieldName": "total_days", "role": "Upper" },
-            { "fieldName": "total_days", "role": "Meta" }
+            { "fieldName": "total_days", "role": "Upper" }
           ] },
           { "id": "mm.number.remaining", "display": "i18n:plugin.MiniMax.group.numberRemaining", "fields": [{ "fieldName": "remaining_credits", "role": "Value" }] }
         ]

@@ -499,8 +499,13 @@ public class YearHeatMapControl : FrameworkElement, IHoverTooltipProvider
             var fields = TooltipFields;
             if (fields == null)
             {
+                // 问题4：tooltip 字段名前缀泛化——主值行加“缓存命中”/字段名（全局开关控制），
+                // 对比行走默认模板（已含字段名前缀）。保持与折线图主值逻辑对齐。
+                var valWithPrefix = !string.IsNullOrEmpty(TooltipValueField) && UsageMonitor.App.Helpers.TooltipDisplaySettings.ShowFieldName
+                    ? $"{UsageMonitor.App.Helpers.TooltipFieldCatalog.GetDisplay(TooltipValueField!)} {valueLine}".Trim()
+                    : valueLine;
                 string? d = !string.IsNullOrEmpty(hit.Cell.ComparisonText) ? hit.Cell.ComparisonText : null;
-                data = new HoverTooltipData(hit.Cell.Day, valueLine, d);
+                data = new HoverTooltipData(hit.Cell.Day, valWithPrefix, d);
                 return true;
             }
 
@@ -523,10 +528,13 @@ public class YearHeatMapControl : FrameworkElement, IHoverTooltipProvider
                     if (showValue && !string.IsNullOrEmpty(TooltipFieldLabel))
                         lines.Add(TooltipFieldLabel!);
                 }
+                // 主值行：按全局开关决定是否拼接字段名前缀（与折线图主值逻辑一致，问题4）。
                 else if (!string.IsNullOrEmpty(TooltipValueField) &&
                          string.Equals(f, TooltipValueField, StringComparison.OrdinalIgnoreCase))
                 {
-                    lines.Add(valueLine);
+                    lines.Add(UsageMonitor.App.Helpers.TooltipDisplaySettings.ShowFieldName && !string.IsNullOrEmpty(TooltipFieldLabel)
+                        ? $"{TooltipFieldLabel} {valueLine}".Trim()
+                        : valueLine);
                 }
                 else if (!string.IsNullOrEmpty(TooltipComparisonField) &&
                          string.Equals(f, TooltipComparisonField, StringComparison.OrdinalIgnoreCase))

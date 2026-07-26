@@ -315,10 +315,16 @@ public static class PluginValidator
                 result.Errors.Add(error);
 
             // 数据组字段白名单
-            foreach (var group in chart.DataGroups)
+            // 修复16：seriesPivot 绑定图表（StackedBar / Area）的数据组只承担“卡片形态”声明，
+            // 真实数据走 chart.CategoriesField/SeriesNamesField/ValuesMatrixField 三大 pivot 字段，
+            // 不需 SDK 字段白名单（这些字段名为 seriesPivot 产物键，如 daily_cost_categories、model_name）。
+            if (chart.Kind != DeclarativeChartKind.StackedBar && chart.Kind != DeclarativeChartKind.Area)
             {
-                foreach (var field in group.Fields)
-                    EnsureField(field.FieldName, $"chart {chart.ChartId} group {group.Id}", result);
+                foreach (var group in chart.DataGroups)
+                {
+                    foreach (var field in group.Fields)
+                        EnsureField(field.FieldName, $"chart {chart.ChartId} group {group.Id}", result);
+                }
             }
 
             // Tooltip 字段白名单

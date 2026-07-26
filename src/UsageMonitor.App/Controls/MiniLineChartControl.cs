@@ -1001,9 +1001,10 @@ public class MiniLineChartControl : FrameworkElement, IHoverTooltipProvider
                 title = $"{provider} · 第 {index + 1} 点";
         }
         
-        // req-034 修复：格式化数值（如 250.71M）。问题2/10：是否带“用量”字段名前缀由全局 tooltip 设置控制（与热力图对比行逻辑一致）。问题8：前缀走 i18n。
+        // req-034 修复：格式化数值（如 250.71M）。问题4：tooltip 字段名前缀泛化——使用 TooltipFieldCatalog.GetDisplay
+        // 统一获取本字段的中文名（不再依赖硬编码 i18n 键）。showName=false 时仅显示数值。
         var valueText = UsageMonitor.App.Helpers.TooltipDisplaySettings.ShowFieldName
-            ? $"{UsageMonitor.Core.Services.I18n.T("chart.tooltip.usage")} {FormatTokenValue(value)}"
+            ? $"{UsageMonitor.App.Helpers.TooltipFieldCatalog.GetDisplay(UsageMonitor.Core.Models.UsageFields.DailyTokenValue)} {FormatTokenValue(value)}"
             : FormatTokenValue(value);
     
         // 当日独立的缓存命中率（负值 = 无数据）
@@ -1036,7 +1037,7 @@ public class MiniLineChartControl : FrameworkElement, IHoverTooltipProvider
                     continue; // 主值占用 Value 槽位
                 if (string.Equals(f, UsageMonitor.Core.Models.UsageFields.DailyCacheHitValue, StringComparison.OrdinalIgnoreCase))
                 {
-                    if (dayCacheHit >= 0) lines.Add($"{UsageMonitor.Core.Services.I18n.T("chart.tooltip.cacheHit")} {dayCacheHit:0.00}%");
+                    if (dayCacheHit >= 0) lines.Add(UsageMonitor.App.Helpers.TooltipFieldCatalog.GetDisplay(UsageMonitor.Core.Models.UsageFields.DailyCacheHitValue) + $" {dayCacheHit:0.00}%");
                     continue;
                 }
                 // 其余非原生字段（含「字段名称」虚拟字段）：按同序消费 VM 生成的扩展行

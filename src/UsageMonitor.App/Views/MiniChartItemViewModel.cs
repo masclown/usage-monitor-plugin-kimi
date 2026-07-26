@@ -303,6 +303,10 @@ public class MiniChartItemViewModel : INotifyPropertyChanged
     /// 问题8：按有效字段构建 tooltip 行列表（问题9：按用户保存的字段顺序；取不到值的字段跳过）。
     /// <para>问题11：存在数据组时，百分比值字段仅展示当前滚轮选中数据组的 Value 字段，
     /// 保证 tooltip 随滚轮切换分别显示 5h 限额 / 周限额。</para>
+    /// <para>修复16：除原有 3 个特殊字段外，所有已注册 SDK 字段（余额 / 月消费 / Token 等）也能被识别。
+    /// 字段取值统一调用 <see cref="ProviderUsageViewModel.ResolveFieldValue"/>
+    /// （该函数已泛化从 _latestExtras 取任意数值）；字段标签走 <see cref="UsageFieldFormatter.GetLabel"/>，
+    /// 使 DeepSeek 等插件的 tooltip 能正常以中文 + 货币/Token 格式展示。</para>
     /// </summary>
     private List<string> BuildFieldTooltipLines(IReadOnlyList<string> fields)
     {
@@ -310,35 +314,35 @@ public class MiniChartItemViewModel : INotifyPropertyChanged
         var currentValueField = CurrentDataGroup?.Fields.FirstOrDefault(f => f.Role == FieldRole.Value)?.FieldName;
         foreach (var fieldName in fields)
         {
+            // 虚拟字段（Provider 名/账号名/倒计时）走原特殊分支
             switch (fieldName)
             {
                 case MiniTooltipFieldCatalog.ProviderNameVirtual:
                     lines.Add(UsageVm?.DisplayName ?? ProviderId);
-                    break;
+                    continue;
                 case UsageFields.AccountDisplayName:
                     if (!string.IsNullOrWhiteSpace(AccountName)) lines.Add($"账号：{AccountName}");
-                    break;
-                case UsageFields.FiveHourUsedPercent:
-                {
-                    // 问题11：当前数据组非 5h 时跳过（无数据组声明时不限制）
-                    if (HasDataGroups && currentValueField != null &&
-                        !string.Equals(currentValueField, UsageFields.FiveHourUsedPercent, StringComparison.OrdinalIgnoreCase)) break;
-                    var v = ResolveMiniFieldValue(UsageFields.FiveHourUsedPercent);
-                    if (v.HasValue) lines.Add($"5h 已用 {v.Value:0}%");
-                    break;
-                }
-                case UsageFields.WeeklyUsedPercent:
-                {
-                    if (HasDataGroups && currentValueField != null &&
-                        !string.Equals(currentValueField, UsageFields.WeeklyUsedPercent, StringComparison.OrdinalIgnoreCase)) break;
-                    var v = ResolveMiniFieldValue(UsageFields.WeeklyUsedPercent);
-                    if (v.HasValue) lines.Add($"本周已用 {v.Value:0}%");
-                    break;
-                }
+                    continue;
                 case MiniTooltipFieldCatalog.RefreshCountdownVirtual:
                     if (!string.IsNullOrEmpty(RefreshCountdownText)) lines.Add(RefreshCountdownText);
-                    break;
+                    continue;
             }
+
+            // 问题11：存在数据组时，仅展示当前滚轮选中数据组的 Value 字段，避免多组不分上下文。
+            if (HasDataGroups && currentValueField != null &&
+                !string.Equals(currentValueField, fieldName, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            // 取值：优先 UsageVm.ResolveFieldValue（已泛化从 _latestExtras 取任意 SDK 字段）。
+            var v = UsageVm?.ResolveFieldValue(fieldName)
+                    ?? ResolveMiniFieldValue(fieldName);
+            if (!v.HasValue) continue;
+
+            // 标签：统一走 UsageFieldFormatter（含 i18n + Description + Humanize 三级兑底）。
+            var label = UsageFieldFormatter.GetLabel(fieldName);
+            // 数值：按字段 UsageFieldDataType 选格式（Currency → "¥12.67"；Token → "298.92M"；Percent → "42%"）。
+            var formatted = UsageFieldFormatter.FormatValue(fieldName, v.Value);
+            lines.Add($"{label} {formatted}");
         }
         return lines;
     }
@@ -377,7 +381,13 @@ public class MiniChartItemViewModel : INotifyPropertyChanged
                     {
                         var v = ResolveMiniFieldValue(valueField);
                         var shortLabel = ResolveFieldShortLabel(valueField, group);
-                        return v.HasValue ? $"{shortLabel} {v.Value:0}%" : $"{shortLabel} --";
+                        if (v.HasValue)
+                        {
+                            // 修复16：按字段 UsageFieldDataType 动态选择格式（Currency→"¥12.67"；Token→"298.92M"），避免误显示为"42%"。
+                            var formatted = UsageFieldFormatter.FormatValue(valueField, v.Value);
+                            return $"{shortLabel} {formatted}";
+                        }
+                        return $"{shortLabel} --";
                     }
                 }
                 // 无有效数据组（未勾选任何组）时不展示任何内容（与旧行为一致）
@@ -399,15 +409,15 @@ public class MiniChartItemViewModel : INotifyPropertyChanged
         return null;
     }
 
-    /// <summary>问题12：字段短标签（文本迷你图紧凑展示用，如 "5h" / "周"）；未知字段回退数据组显示名。</summary>
-    private static string ResolveFieldShortLabel(string fieldName, DataGroup group) => fieldName switch
+    /// <summary>问题12：字段短标签（文本迷你图紧凑展示用，如 "5h" / "周"）；优先 <see cref="UsageFieldFormatter.GetShortLabel"/>（覆盖 MiniMax/DeepSeek/Kimi 等），未能识别时回退到数据组 Display/Id。</summary>
+    private static string ResolveFieldShortLabel(string fieldName, DataGroup group)
     {
-        UsageFields.FiveHourUsedPercent => "5h",
-        UsageFields.WeeklyUsedPercent => "周",
-        UsageFields.VideoQuota => "视频",
-        UsageFields.RemainingCredits => "积分",
-        _ => group.Display ?? group.Id
-    };
+        var shortLabel = UsageFieldFormatter.GetShortLabel(fieldName);
+        // 对未注册字段（GetShortLabel 返回字段名本身或为空），回退到数据组显示名。
+        if (!string.IsNullOrEmpty(shortLabel) && !string.Equals(shortLabel, fieldName, StringComparison.Ordinal))
+            return shortLabel;
+        return group.Display ?? group.Id;
+    }
 
     /// <summary>
     /// req-088 B9：当前 descriptor 是否启用 Tooltip（ShowDelayMs ≥ 0 时显示）。
@@ -507,30 +517,33 @@ public class MiniChartItemViewModel : INotifyPropertyChanged
     /// <para>参照 <c>ProviderUsageViewModel.ResolveFieldValue</c> 的映射规则（过渡期映射到已刷新的 VM 属性）；
     /// 未知字段回退 <c>UsageVm.UsagePercentage</c>，无 UsageVm 时回退 descriptor.DataSource。</para>
     /// </summary>
+    /// <summary>
+    /// req-107 B4：迷你图字段取值器——SDK 标准字段名 → 当前值。
+    /// <para>参照 <c>ProviderUsageViewModel.ResolveFieldValue</c> 的映射规则（过渡期映射到已刷新的 VM 属性）；
+    /// 未知字段优先 <see cref="ProviderUsageViewModel.ResolveFieldValue"/>（已泛化从 _latestExtras 取任意数值），
+    /// 仍取不到则兑底 <c>UsageVm.UsagePercentage</c>或 <c>Descriptor.DataSource</c>，保证 MiniMax 与 DeepSeek 都能正常显示。</para>
+    /// </summary>
     private double? ResolveMiniFieldValue(string fieldName)
     {
         if (UsageVm == null) return Descriptor.DataSource as double?;
-        return fieldName switch
+        // 修复16：先走现有 VM 映射（MiniMax 的 5h/周/视频/积分），未命中则走泛化 _latestExtras 取值路径（DeepSeek 等）。
+        var value = fieldName switch
         {
             UsageFields.FiveHourUsedPercent => UsageVm.PrimaryBarPercent,
             UsageFields.WeeklyUsedPercent => UsageVm.WeeklyBarPercent,
             UsageFields.VideoQuota => UsageVm.VideoIntervalPercent,
             UsageFields.RemainingCredits => UsageVm.RemainingCredits,
-            _ => UsageVm.UsagePercentage // 未知字段回退 UsagePercent
+            _ => (double?)null
         };
+        if (value.HasValue) return value;
+        return UsageVm.ResolveFieldValue(fieldName) ?? UsageVm.UsagePercentage;
     }
 
     /// <summary>
     /// req-107 B4：字段显示标签解析（与 ProviderUsageViewModel.DeclarativeFieldLabel 保持一致的中文标签）。
+    /// <para>修复16：使用 <see cref="UsageFieldFormatter.GetLabel"/>，使 DeepSeek / Kimi / Qoder 等全部 SDK 字段都能显示中文标签。</para>
     /// </summary>
-    private static string ResolveFieldLabel(string fieldName) => fieldName switch
-    {
-        UsageFields.FiveHourUsedPercent => "5h 限额",
-        UsageFields.WeeklyUsedPercent => "本周限额",
-        UsageFields.VideoQuota => "视频赠送",
-        UsageFields.RemainingCredits => "剩余积分",
-        _ => fieldName
-    };
+    private static string ResolveFieldLabel(string fieldName) => UsageFieldFormatter.GetLabel(fieldName);
 
     /// <summary>
     /// req-107 B4：解析初始数据组索引——优先定位 Slicer.Default 声明的组 Id（在有效数据组内查找），未匹配时默认第 0 组。

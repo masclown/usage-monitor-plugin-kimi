@@ -18,5 +18,6 @@
   "plugin.DeepSeek.group.dailyCostAll": "每日消费（按模型）",
   "plugin.DeepSeek.group.dailyRequestsAll": "API 请求（按模型）",
   "plugin.DeepSeek.group.dailyTokensAll": "Token 用量（按模型）",
-  "plugin.DeepSeek.mini.text": "余额文本"
+  "plugin.DeepSeek.mini.text": "余额文本",
+  "plugin.DeepSeek.tooltip.hint": "悬停可查看字段详情"
 }

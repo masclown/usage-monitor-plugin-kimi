@@ -770,7 +770,8 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         }
     }
 
-    /// <summary>req-105：热力图主值字段名（声明中首个 Value 角色字段，供控件 TooltipFields 白名单匹配）。</summary>
+    /// <summary>问题5：热力图主值字段名（声明中 Value[0]，如 daily_token_value）。
+    /// <para>与折线图保持一致——主值统一为数据组第 1 个 Value 字段，便于宿主与插件对齐语义。</para></summary>
     public string? HeatMapTooltipValueField
     {
         get
@@ -1115,7 +1116,7 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
             if (!declaredById.TryGetValue(baseId, out var decl)) continue;
             var slot = new CardChartSlotViewModel(this, instanceId, baseId, decl.Kind, i, i < dividerIndex);
             // 问题3：图表显示名（i18n 解析后）供槽位标题头展示。
-            slot.ChartDisplayName = decl.Display;
+            slot.ChartDisplayName = ResolveChartDisplayName(decl, instanceId);
             RefreshSlotData(slot, card, eff);
             CardChartSlots.Add(slot);
         }
@@ -1146,6 +1147,23 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
                 result.Add(c.ChartId);
         }
         return result;
+    }
+
+    /// <summary>问题1：解析图表实例的显示名——优先账号级自定义名（<see cref="AccountCustomization.ChartTitles"/>），
+    /// 未设置时回退声明的 <see cref="ChartDeclaration.Display"/>，未声明则从 chartId 提取。</summary>
+    private string ResolveChartDisplayName(ChartDeclaration decl, string instanceId)
+    {
+        var eff = (ConfigService != null && !string.IsNullOrEmpty(_providerId))
+            ? ConfigService.GetEffectiveAccountCustomization(_providerId, AccountIdSafe, CardIdSafe)
+            : null;
+        if (eff?.ChartTitles != null)
+        {
+            if (eff.ChartTitles.TryGetValue(instanceId, out var instTitle) && !string.IsNullOrWhiteSpace(instTitle))
+                return instTitle!;
+            if (eff.ChartTitles.TryGetValue(decl.ChartId, out var baseTitle) && !string.IsNullOrWhiteSpace(baseTitle))
+                return baseTitle!;
+        }
+        return decl.Display ?? decl.ChartId;
     }
 
     /// <summary>去除图表实例 ID 的 <c>#n</c> 后缀，返回基础 chartId。</summary>
@@ -1259,8 +1277,10 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
 
     /// <summary>问题4：构建数据概览单个数据项的悬停提示文本——按用户勾选的 tooltip 字段顺序，
     /// 但仅保留属于本数据组的字段（避免活跃天数项错误展示累计用量等其它组字段）。
-    /// <para>「字段名称」虚拟字段 → 本项标签行；值字段 → “SDK 显示名 值”行（不属于本组/取不到值的字段跳过）；
-    /// 无可展示内容时返回 null（不显示 tooltip）。</para></summary>
+    /// <para>修复16：每个字段渲染为“SDK 显示名 格式化值”单行，不再独立输出「字段名称」行（不再重复 label）。
+    /// 调用 <see cref="UsageMonitor.Core.Models.UsageFieldFormatter.FormatValue"/> 按字段 DataType
+    /// 选格式（Currency → “¥32.67”；Token → “298.92M”；Percent → “42%”），避免 DeepSeek tooltip
+    /// 出现“双行同名 + 无货币符”问题。</para></summary>
     private string? BuildGroupTooltipText(IReadOnlyList<string>? fields, DataGroup group, string itemLabel)
     {
         if (fields == null || fields.Count == 0) return null;
@@ -1268,19 +1288,24 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         var lines = new List<string>();
         foreach (var f in fields)
         {
+            // 日期虚拟字段在 Number 图表中不适用，忽略。
             if (string.Equals(f, TooltipFieldCatalog.DateVirtual, StringComparison.OrdinalIgnoreCase)) continue;
-            if (string.Equals(f, TooltipFieldCatalog.FieldNameVirtual, StringComparison.OrdinalIgnoreCase))
-            {
-                // 字段名称行：本数据项的显示标签（如 "活跃天数"）。
-                lines.Add(itemLabel);
-                continue;
-            }
+            // 修复16：去掉「字段名称」虚拟字段行（Tooltip 不再输出独立 label 行，label 已包含在下面的“SDK标签 + 值”中）。
+            if (string.Equals(f, TooltipFieldCatalog.FieldNameVirtual, StringComparison.OrdinalIgnoreCase)) continue;
             // 问题4：仅展示本数据组声明的字段，其它组的字段不混入。
             if (!groupFieldNames.Contains(f)) continue;
+            // 值：原有 ResolveFieldDisplay（兼容 MiniMax 保留文字）优先；未命中走泛化 GetFieldDisplay → FormatValue。
             var valueText = ResolveFieldDisplay(f);
-            if (valueText != null) lines.Add($"{TooltipFieldCatalog.GetDisplay(f)} {valueText}");
+            if (valueText == null)
+            {
+                if (UsageFieldFormatter.TryGetDouble(f, _latestExtras) is not { } raw) continue;
+                valueText = UsageFieldFormatter.FormatValue(f, raw);
+            }
+            lines.Add($"{UsageFieldFormatter.GetLabel(f)} {valueText}");
         }
-        return lines.Count > 0 ? string.Join("\n", lines) : null;
+        // 无可展示内容时返回 null（不显示 tooltip）；与 BugfixBatchEightV2Tests.GroupTooltip_NoOwnFields_ReturnsNull 约定一致。
+        if (lines.Count == 0) return null;
+        return string.Join("\n", lines);
     }
 
     /// <summary>解析图表实例的 tooltip 字段配置（实例级优先，回退图表级；null = 用户未配置）。</summary>
@@ -1426,13 +1451,23 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         return items.Count > 0 ? new MetricGridData(items) : null;
     }
 
-    /// <summary>问题7：Meta 角色备注字段文本解析（数据概览第三行）；取不到返回 null。</summary>
-    private string? ResolveFieldNoteText(string fieldName) => fieldName switch
+    /// <summary>问题3/4：Meta 角色备注字段文本解析（数据概览第三行）；默认走
+    /// <c>TooltipFieldCatalog.GetDisplay + ResolveFieldDisplay</c> 泛化拼装（字段名前缀 + 字段值），
+    /// 原仅 TotalDays/MostActiveDate 的硬编码兑底仍兼容。取不到返回 null。</summary>
+    private string? ResolveFieldNoteText(string fieldName)
     {
-        UsageMonitor.Core.Models.UsageFields.MostActiveDate => string.IsNullOrWhiteSpace(_numberMostActiveDay) ? null : _numberMostActiveDay,
-        UsageMonitor.Core.Models.UsageFields.TotalDays => _numberTotalDays > 0 ? $"共 {_numberTotalDays} 天" : null,
-        _ => null
-    };
+        var value = fieldName switch
+        {
+            UsageMonitor.Core.Models.UsageFields.MostActiveDate => string.IsNullOrWhiteSpace(_numberMostActiveDay) ? null : _numberMostActiveDay,
+            UsageMonitor.Core.Models.UsageFields.TotalDays => _numberTotalDays > 0 ? _numberTotalDays.ToString() : null,
+            // 问题3：累计用量项的“前X%”走泛化拼装，与「字段名前缀+值」保持一致。
+            UsageMonitor.Core.Models.UsageFields.UsageRankingPercent => ResolveFieldDisplay(fieldName),
+            _ => ResolveFieldDisplay(fieldName)
+        };
+        if (string.IsNullOrEmpty(value)) return null;
+        // 问题3：第三行统一泛化为「字段名 · 值」文本拼装（如“总天数 38”、“单日峰值日期 2026-07-01 (552.49M)”）。
+        return $"{TooltipFieldCatalog.GetDisplay(fieldName)} {value}";
+    }
 
     /// <summary>问题8：判断指定图表实例是否至少有一个可见数据组（区分 "未配置数据组" 与 "数据未到达" 两种空态）。</summary>
     private static bool HasVisibleGroups(string chartId, string instanceId, CardDeclaration card, AccountCustomization eff)
@@ -1471,8 +1506,10 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
 
     /// <summary>req-107 B8：字段取值器——标准字段名 → 当前值。
     /// <para>已知字段映射到已刷新的 VM 属性；其余字段（如 DeepSeek 的 balance_amount/monthly_cost 等
-    /// 声明式插件字段）泛化从 <see cref="_latestExtras"/> 解析，避免为每个 Provider 硬编码。</para></summary>
-    private double? ResolveFieldValue(string fieldName) => fieldName switch
+    /// 声明式插件字段）泛化从 <see cref="_latestExtras"/> 解析，避免为每个 Provider 硬编码。</para>
+    /// <para>修复16：提升为 internal，供 <c>MiniChartItemViewModel.BuildFieldTooltipLines</c> 调用，
+    /// 使迷你图表 tooltip 能泛化识别全部 SDK 字段（余额 / 月消费等）不仅限于 5h/周 百分比。</para></summary>
+    internal double? ResolveFieldValue(string fieldName) => fieldName switch
     {
         UsageMonitor.Core.Models.UsageFields.FiveHourUsedPercent => PrimaryBarPercent,
         UsageMonitor.Core.Models.UsageFields.WeeklyUsedPercent => WeeklyBarPercent,
@@ -2316,15 +2353,16 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
                 Percent = percent,
                 Token = token,
                 Background = bgBrush,
-                // 问题10：主值行 = 声明的主 Value 字段（缓存命中百分比）；对比行 = 第二 Value 字段（每日 Token 用量），
-                // 仅在对应字段被勾选时展示（YearHeatMapControl.TooltipComparisonField 控制）。
-                ValueText = dayCacheHit >= 0 ? $"{dayCacheHit:0.00}%" : "--",
+                // 问题5：主值行 = 声明的 Value[0]（daily_token_value）的当日 Token，用 UsageFieldFormatter 按 DataType=Token 格式化。
+                // 对比行 = 声明的 Value[1]（daily_cache_hit_value）的当日缓存命中率，统一由 UsageFieldFormatter 走 i18n 前缀。
+                ValueText = token > 0 ? UsageMonitor.Core.Models.UsageFieldFormatter.FormatValue(UsageMonitor.Core.Models.UsageFields.DailyTokenValue, token) : "--",
                 Unit = "",
-                // 问题2/10：对比行（每日 Token 用量）是否带“用量”字段名前缀由全局 tooltip 设置控制，与折线图主值逻辑对齐。问题8：前缀走 i18n。
-                ComparisonText = token > 0
+                // 问题4：tooltip 字段名前缀泛化——使用 TooltipFieldCatalog.GetDisplay 统一获取字段中文名。
+                // showName=false 时仅显示数值（与折线图主值逻辑一致），开关控制同源。
+                ComparisonText = dayCacheHit >= 0
                     ? (UsageMonitor.App.Helpers.TooltipDisplaySettings.ShowFieldName
-                        ? $"{UsageMonitor.Core.Services.I18n.T("chart.tooltip.usage")} {FormatTokens(token)}"
-                        : FormatTokens(token))
+                        ? $"{UsageMonitor.App.Helpers.TooltipFieldCatalog.GetDisplay(UsageMonitor.Core.Models.UsageFields.DailyCacheHitValue)} {dayCacheHit:0.00}%"
+                        : $"{dayCacheHit:0.00}%")
                     : string.Empty
             });
         }
