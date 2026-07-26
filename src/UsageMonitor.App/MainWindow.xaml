@@ -25,16 +25,23 @@
             <DockPanel Margin="0,0,0,10">
                 <!-- Logo：固定在 Left（问题18：折叠按钮已移至卡片底部常显，不再放在头部） -->
                 <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
-                    <!-- Provider Logo 图标 -->
-                    <Image Source="{Binding IconPath}" Width="22" Height="22"
-                           VerticalAlignment="Center" Margin="0,0,6,0"
+                    <!-- Provider Logo 图标（问题1：高度绑定「账号名称 + 刷新倒计时」两行实际高度，上下沿平齐） -->
+                    <Image Source="{Binding IconPath}"
+                           Height="{Binding ActualHeight, ElementName=CardTitleStack}"
+                           VerticalAlignment="Center" Margin="0,0,8,0"
                            RenderOptions.BitmapScalingMode="HighQuality"
                            Visibility="{Binding IconPath, Converter={StaticResource StringToVisibility}}" />
                 </StackPanel>
 
-                <TextBlock Text="{Binding DisplayName}" FontSize="17" FontWeight="SemiBold"
-                           Foreground="{DynamicResource TextPrimaryBrush}"
-                           VerticalAlignment="Center" />
+                <!-- 问题1：账号名称上行 + 刷新倒计时下行（倒计时由进度条区域移入头部，无 5h 重置时间时自动隐藏） -->
+                <StackPanel x:Name="CardTitleStack" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding DisplayName}" FontSize="17" FontWeight="SemiBold"
+                               Foreground="{DynamicResource TextPrimaryBrush}" />
+                    <TextBlock Text="{Binding FiveHourCountdownText, StringFormat=倒计时 {0}}"
+                               FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
+                               Margin="0,1,0,0"
+                               Visibility="{Binding HasResetCountdown, Converter={StaticResource BoolToVisibility}}" />
+                </StackPanel>
 
                 <!-- 右侧区：水平 StackPanel 内子元素严格按声明顺序从左到右排列，末尾（最右）为设置按钮 -->
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
@@ -399,25 +406,11 @@
                                 </Border>
                             </Grid>
                             <DockPanel Margin="0,3,0,0">
+                                <!-- 问题1：刷新倒计时不再在进度条区域展示，已移至卡片头部账号名称下方 -->
                                 <StackPanel Orientation="Horizontal">
                                     <TextBlock Text="{Binding FooterText}" FontSize="11"
                                                Foreground="{DynamicResource TextTertiaryBrush}"
                                                Visibility="{Binding FooterText, Converter={StaticResource StringToVisibility}}" />
-                                    <!-- 问题4：5h 数据组声明了 five_hour_reset_at 时，展示实时刷新倒计时（每秒由全局 timer 驱动） -->
-                                    <TextBlock FontSize="11" Margin="8,0,0,0"
-                                               Foreground="{DynamicResource TextTertiaryBrush}"
-                                               Text="{Binding DataContext.Owner.FiveHourCountdownText, RelativeSource={RelativeSource AncestorType=ContentControl}, Mode=OneWay, StringFormat=倒计时 {0}}">
-                                        <TextBlock.Style>
-                                            <Style TargetType="TextBlock">
-                                                <Setter Property="Visibility" Value="Collapsed" />
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding ResetFieldName}" Value="five_hour_reset_at">
-                                                        <Setter Property="Visibility" Value="Visible" />
-                                                    </DataTrigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </TextBlock.Style>
-                                    </TextBlock>
                                 </StackPanel>
                                 <TextBlock DockPanel.Dock="Right" HorizontalAlignment="Right"
                                            FontSize="11" FontWeight="SemiBold"
@@ -483,13 +476,11 @@
                 ProviderId="{Binding Owner.ProviderId}" />
         </DataTemplate>
 
-        <!-- 声明式图表槽位模板：数字（Number）。问题1：ToolTip 绑定槽位 TooltipText（按用户勾选字段顺序生成；null 时不显示） -->
+        <!-- 声明式图表槽位模板：数字（Number）。问题4：ToolTip 改为数据项级绑定（每项仅显示自身数据组相关字段，null 时不显示） -->
         <DataTemplate x:Key="SlotNumberTemplate">
             <Border Background="{DynamicResource SurfaceAltBrush}"
                     CornerRadius="{DynamicResource RadiusSmall}" Padding="12,8"
-                    Margin="0,0,0,8"
-                    ToolTip="{Binding TooltipText}"
-                    ToolTipService.InitialShowDelay="100">
+                    Margin="0,0,0,8">
                 <Grid>
                 <ItemsControl ItemsSource="{Binding NumberData.Items}">
                     <ItemsControl.ItemsPanel>
@@ -499,7 +490,10 @@
                     </ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <StackPanel Margin="4,0">
+                            <!-- 问题4：Background=Transparent 保证整列命中 tooltip；每项独立 Tooltip 仅展示本数据组字段 -->
+                            <StackPanel Margin="4,0" Background="Transparent"
+                                        ToolTip="{Binding Tooltip}"
+                                        ToolTipService.InitialShowDelay="100">
                                 <TextBlock Text="{Binding Label}" FontSize="11"
                                            Foreground="{DynamicResource TextSecondaryBrush}"
                                            HorizontalAlignment="Center" TextTrimming="CharacterEllipsis" />
@@ -523,6 +517,13 @@
                            Visibility="{Binding EmptyHint, Converter={StaticResource StringToVisibility}}" />
                 </Grid>
             </Border>
+        </DataTemplate>
+
+        <!-- 问题5：折叠分界线槽位模板——浅灰色 1px 横线，标记卡片折叠时的隐藏分界位置（折叠态随下方图表一同隐藏） -->
+        <DataTemplate x:Key="SlotDividerTemplate">
+            <Rectangle Height="1" Fill="{DynamicResource TrackBrush}"
+                       HorizontalAlignment="Stretch" Margin="0,2,0,10"
+                       SnapsToDevicePixels="True" />
         </DataTemplate>
 
         <!-- 声明式图表槽位选择器模板：按 SlotKind 路由到具体图表子模板，
@@ -552,6 +553,10 @@
                             </DataTrigger>
                             <DataTrigger Binding="{Binding SlotKind}" Value="Number">
                                 <Setter Property="ContentTemplate" Value="{StaticResource SlotNumberTemplate}" />
+                            </DataTrigger>
+                            <!-- 问题5：折叠分界线槽位→浅灰色横线模板 -->
+                            <DataTrigger Binding="{Binding SlotKind}" Value="Divider">
+                                <Setter Property="ContentTemplate" Value="{StaticResource SlotDividerTemplate}" />
                             </DataTrigger>
                         </Style.Triggers>
                     </Style>

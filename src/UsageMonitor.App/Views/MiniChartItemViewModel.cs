@@ -378,8 +378,9 @@ public class MiniChartItemViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(TooltipTitle));
         OnPropertyChanged(nameof(TooltipBody));
         OnPropertyChanged(nameof(CompositeTooltipText));
-        // 问题8：MiniText 回退模式下正文随当前组切换
+        // 问题8：MiniText 回退模式下正文随当前组切换；倒计时来源也随当前组（5h/周）切换。
         OnPropertyChanged(nameof(MiniTextBody));
+        OnPropertyChanged(nameof(RefreshCountdownText));
         return true;
     }
 
@@ -440,17 +441,21 @@ public class MiniChartItemViewModel : INotifyPropertyChanged
 
     /// <summary>
     /// req-105：动态刷新倒计时文案（如 "重置倒计时：2 小时 21 分钟"）。
-    /// 优先从 <see cref="UsageVm"/> 提取已有的 <c>FiveHourCountdownText</c>（req-028 全局 timer 每秒刷新）作为 RefreshCountdown 占位符的取值；
-    /// 无 UsageVm / 无 5h 字段时回退为 "上次更新：{LastUpdateText}" 兑底；两者都为空时返回空串。
+    /// <para>问题8：按当前数据组选择倒计时来源——周限额组（weekly_used_percent）取
+    /// <c>WeeklyCountdownText</c>（周限额重置倒计时），其它组取 <c>FiveHourCountdownText</c>（5h 重置倒计时）。
+    /// 无有效倒计时时回退 "上次更新：{LastUpdateText}" 兜底；两者都为空时返回空串。</para>
     /// </summary>
     public string RefreshCountdownText
     {
         get
         {
             if (UsageVm == null) return string.Empty;
-            var countdown = UsageVm.FiveHourCountdownText;
+            // 问题8：当前数据组为周限额时展示周限额重置倒计时（而非 5h 刷新倒计时）。
+            var currentValueField = CurrentDataGroup?.Fields.FirstOrDefault(f => f.Role == FieldRole.Value)?.FieldName;
+            var isWeekly = string.Equals(currentValueField, UsageFields.WeeklyUsedPercent, StringComparison.OrdinalIgnoreCase);
+            var countdown = isWeekly ? UsageVm.WeeklyCountdownText : UsageVm.FiveHourCountdownText;
             if (!string.IsNullOrWhiteSpace(countdown) && countdown != "00:00:00")
-                return $"重置倒计时：{countdown}";
+                return isWeekly ? $"周重置倒计时：{countdown}" : $"重置倒计时：{countdown}";
             if (!string.IsNullOrWhiteSpace(UsageVm.LastUpdateText))
                 return $"上次更新：{UsageVm.LastUpdateText}";
             return string.Empty;

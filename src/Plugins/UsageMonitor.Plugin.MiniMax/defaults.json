@@ -278,7 +278,11 @@
         "dataGroups": [
           { "id": "mm.number.cumulative", "display": "累计用量", "fields": [{ "fieldName": "used_tokens", "role": "Value" }] },
           { "id": "mm.number.peak", "display": "单日峰值", "fields": [{ "fieldName": "most_active_token", "role": "Value" }] },
-          { "id": "mm.number.active_days", "display": "活跃天数", "fields": [{ "fieldName": "active_days", "role": "Value" }] },
+          { "id": "mm.number.active_days", "display": "活跃天数", "fields": [
+            { "fieldName": "active_days", "role": "Value" },
+            { "fieldName": "total_days", "role": "Upper" },
+            { "fieldName": "total_days", "role": "Meta" }
+          ] },
           { "id": "mm.number.remaining", "display": "积分余额", "fields": [{ "fieldName": "remaining_credits", "role": "Value" }] }
         ]
       }

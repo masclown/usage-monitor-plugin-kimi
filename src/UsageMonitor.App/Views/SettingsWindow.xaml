@@ -615,9 +615,16 @@
                                                                 <!-- 三级：数据组 + tooltip 字段（展开时显示） -->
                                                                 <StackPanel Margin="24,8,0,0"
                                                                             Visibility="{Binding IsExpanded, Converter={StaticResource BoolToVisibility}}">
-                                                                    <!-- 数据组列表 -->
+                                                                    <!-- 数据组列表（问题2：包横向 ScrollViewer，字段 chips 过多时可横向滚动/拖拽查看右侧数据名） -->
                                                                     <TextBlock Text="数据组" FontSize="12" FontWeight="SemiBold"
                                                                                Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,6" />
+                                                                    <ScrollViewer HorizontalScrollBarVisibility="Auto"
+                                                                                  VerticalScrollBarVisibility="Disabled"
+                                                                                  PanningMode="HorizontalOnly"
+                                                                                  PreviewMouseWheel="OnDataGroupScrollWheel"
+                                                                                  PreviewMouseLeftButtonDown="OnDataGroupPanStart"
+                                                                                  PreviewMouseMove="OnDataGroupPanMove"
+                                                                                  PreviewMouseLeftButtonUp="OnDataGroupPanEnd">
                                                                     <ItemsControl ItemsSource="{Binding DataGroups}">
                                                                         <ItemsControl.ItemTemplate>
                                                                             <DataTemplate>
@@ -667,6 +674,7 @@
                                                                             </DataTemplate>
                                                                         </ItemsControl.ItemTemplate>
                                                                     </ItemsControl>
+                                                                    </ScrollViewer>
 
                                                                     <!-- S5：Tooltip 字段多选（问题9：带拖拽手柄，支持排序，顺序即 tooltip 行顺序） -->
                                                                     <TextBlock Text="Tooltip 字段" FontSize="12" FontWeight="SemiBold"
@@ -707,9 +715,10 @@
                                                     Style="{StaticResource GhostButtonStyle}" Padding="14,6"
                                                     HorizontalAlignment="Left" Margin="0,4,0,0" />
 
-                                            <!-- 添加图表按钮：置于白色折叠框内（图表列表之后）。问题5：与图表按钮同尺寸（Padding 14,6）、文字居中，保持浅红色 AccentSoft 样式 -->
-                                            <Button Content="+ 添加图表" Padding="14,6" Margin="0,6,0,0"
-                                                    HorizontalAlignment="Left"
+                                            <!-- 添加图表按钮：置于白色折叠框内（图表列表之后）。问题7：宽度撑满、高度与折叠图表行一致（Padding 6,8 + MinHeight 同图表行） -->
+                                            <Button Content="+ 添加图表" Padding="6,8" Margin="0,0,0,0"
+                                                    MinHeight="39"
+                                                    HorizontalAlignment="Stretch"
                                                     HorizontalContentAlignment="Center"
                                                     Style="{StaticResource AccentSoftButtonStyle}"
                                                     ToolTip="添加图表"

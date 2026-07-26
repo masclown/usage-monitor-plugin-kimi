@@ -240,12 +240,14 @@ public sealed record MetricGridData(
 /// <param name="Detail">辅助行（可空，如 "前 12%"）。</param>
 /// <param name="ColorHint">颜色提示（null = 主题 Accent）。</param>
 /// <param name="IsVisible">是否显示（默认 true）。</param>
+/// <param name="Tooltip">问题4：本数据项的独立悬停提示文本（null = 不显示 tooltip；仅含本项数据组相关字段）。</param>
 public sealed record MetricGridItem(
     string Label,
     string Value,
     string? Detail = null,
     string? ColorHint = null,
-    bool IsVisible = true);
+    bool IsVisible = true,
+    string? Tooltip = null);
 
 /// <summary>
 /// 通用图表系列（REQ-082 SDK v2），用于堆叠柱 / 多系列图表。

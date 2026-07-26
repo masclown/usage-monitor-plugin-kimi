@@ -54,6 +54,26 @@ public class CardChartSlotViewModel : INotifyPropertyChanged
         };
     }
 
+    /// <summary>问题5：折叠分界线专用私有构造（SlotKind="Divider"，不对应任何图表声明）。</summary>
+    private CardChartSlotViewModel(ProviderUsageViewModel owner, int ordinal)
+    {
+        _owner = owner;
+        InstanceId = "__divider__";
+        ChartId = "__divider__";
+        Kind = default;
+        _ordinal = ordinal;
+        _isAboveDivider = false; // 折叠态随分界线下方图表一同隐藏
+        IsDivider = true;
+        SlotKind = "Divider";
+    }
+
+    /// <summary>问题5：创建折叠分界线槽位（卡片图表区在分界位置渲染浅灰色横线）。</summary>
+    public static CardChartSlotViewModel CreateDivider(ProviderUsageViewModel owner, int ordinal)
+        => new(owner, ordinal);
+
+    /// <summary>问题5：是否为折叠分界线槽位（分界线不参与 Bar/Number 数据刷新）。</summary>
+    public bool IsDivider { get; }
+
     /// <summary>所属卡片 ViewModel（模板经此绑定卡片级数据，如折线/热力图/圆环）。</summary>
     public ProviderUsageViewModel Owner => _owner;
 

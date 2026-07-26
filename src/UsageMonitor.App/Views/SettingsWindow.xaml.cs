@@ -688,6 +688,61 @@ public partial class SettingsWindow : Window
             el => FindAncestorDataContext<ViewModels.AccountNode>(el)?.Save());
     }
 
+    // --- 问题2：数据组区域横向滚动 / 拖拽平移 ---
+    private System.Windows.Point _dataGroupPanStartPos;
+    private double _dataGroupPanStartOffset;
+    private bool _dataGroupPanCandidate;
+    private bool _dataGroupPanning;
+
+    /// <summary>问题2：数据组区域滚轮转横向滚动（仅当存在横向溢出时拦截，否则透传给外层纵向滚动）。</summary>
+    private void OnDataGroupScrollWheel(object sender, MouseWheelEventArgs e)
+    {
+        if (sender is not ScrollViewer sv || sv.ScrollableWidth <= 0) return;
+        sv.ScrollToHorizontalOffset(sv.HorizontalOffset - e.Delta);
+        e.Handled = true;
+    }
+
+    /// <summary>问题2：数据组区域按下鼠标——记录平移起点（不立即捕获，避免影响勾选与拖拽排序）。</summary>
+    private void OnDataGroupPanStart(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is not ScrollViewer sv || sv.ScrollableWidth <= 0) return;
+        _dataGroupPanCandidate = true;
+        _dataGroupPanning = false;
+        _dataGroupPanStartPos = e.GetPosition(sv);
+        _dataGroupPanStartOffset = sv.HorizontalOffset;
+    }
+
+    /// <summary>问题2：数据组区域拖拽平移（横向位移超过阈值且无其它元素捕获鼠标时接管，横向滚动内容）。</summary>
+    private void OnDataGroupPanMove(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        if (!_dataGroupPanCandidate || sender is not ScrollViewer sv) return;
+        if (e.LeftButton != MouseButtonState.Pressed) { _dataGroupPanCandidate = false; _dataGroupPanning = false; return; }
+        // 排序手柄（☰）按下后自行捕获鼠标，此时不做平移，避免与拖拽排序冲突。
+        if (Mouse.Captured != null && !ReferenceEquals(Mouse.Captured, sv)) return;
+        var pos = e.GetPosition(sv);
+        var dx = pos.X - _dataGroupPanStartPos.X;
+        if (!_dataGroupPanning)
+        {
+            if (Math.Abs(dx) < 6 || Math.Abs(dx) <= Math.Abs(pos.Y - _dataGroupPanStartPos.Y)) return;
+            _dataGroupPanning = true;
+            sv.CaptureMouse();
+        }
+        sv.ScrollToHorizontalOffset(_dataGroupPanStartOffset - dx);
+        e.Handled = true;
+    }
+
+    /// <summary>问题2：数据组区域松开鼠标——结束平移并释放捕获（平移过后不再触发下层点击）。</summary>
+    private void OnDataGroupPanEnd(object sender, MouseButtonEventArgs e)
+    {
+        _dataGroupPanCandidate = false;
+        if (_dataGroupPanning && sender is ScrollViewer sv)
+        {
+            if (sv.IsMouseCaptured) sv.ReleaseMouseCapture();
+            e.Handled = true;
+        }
+        _dataGroupPanning = false;
+    }
+
     // --- 问题9：卡片图表 Tooltip 字段拖拽排序 ---
     private ViewModels.TooltipFieldItem? _tooltipFieldDragSource;
     private System.Windows.Point _tooltipFieldDragStartPos;

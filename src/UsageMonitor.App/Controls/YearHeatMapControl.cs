@@ -491,12 +491,14 @@ public class YearHeatMapControl : FrameworkElement, IHoverTooltipProvider
             bool showValue = string.IsNullOrEmpty(TooltipValueField) || fields.Contains(TooltipValueField);
             var lines = new System.Collections.Generic.List<string>();
             string title = string.Empty;
-            foreach (var f in fields)
+            for (int fi = 0; fi < fields.Count; fi++)
             {
+                var f = fields[fi];
                 if (string.Equals(f, UsageMonitor.App.Helpers.TooltipFieldCatalog.DateVirtual, StringComparison.OrdinalIgnoreCase))
                 {
-                    // 日期虚拟字段 → 标题行（呈现器固定在首行）。
-                    title = hit.Cell.Day;
+                    // 问题6：日期仅在配置首位时作标题行（旧视觉不变）；排在其它字段之后时按配置位置插入内容行，不再强制置顶。
+                    if (fi == 0) title = hit.Cell.Day;
+                    else lines.Add(hit.Cell.Day);
                 }
                 else if (string.Equals(f, UsageMonitor.App.Helpers.TooltipFieldCatalog.FieldNameVirtual, StringComparison.OrdinalIgnoreCase))
                 {

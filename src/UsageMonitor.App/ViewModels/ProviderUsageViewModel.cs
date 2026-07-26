@@ -58,6 +58,9 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
     private DateTime? _next5hResetAt;
     private string _fiveHourCountdownText = "00:00:00";
     private bool _fiveHourAutoRefreshTriggered;
+    // 问题8：周限额重置精确时刻与倒计时文本（任务栏迷你图 tooltip 周数据组展示周限额倒计时）。
+    private DateTime? _nextWeeklyResetAt;
+    private string _weeklyCountdownText = "00:00:00";
     private string _videoQuotaText = "--";
     private string _videoWeeklyText = "--";
     private double _remainingCredits;
@@ -376,6 +379,8 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
     public (TimeSpan remaining, bool isElapsed) RefreshFiveHourCountdownText(DateTime? now = null)
     {
         var current = now ?? DateTime.Now;
+        // 问题8：周限额倒计时随同一全局 timer 每秒刷新。
+        RefreshWeeklyCountdownText(current);
         var target = _next5hResetAt;
         if (target == null)
         {
@@ -433,6 +438,35 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
 
     /// <summary>req-028：是否存在有效 5h 重置时间（用于按需显隐倒计时 UI）。</summary>
     public bool HasResetCountdown => _next5hResetAt.HasValue;
+
+    /// <summary>问题8：周限额重置精确时刻（来自 weekly_reset_at extras；null = 该 Provider 无周限额倒计时）。</summary>
+    public DateTime? NextWeeklyResetAt
+    {
+        get => _nextWeeklyResetAt;
+        set
+        {
+            if (_nextWeeklyResetAt == value) return;
+            _nextWeeklyResetAt = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(WeeklyCountdownText));
+        }
+    }
+
+    /// <summary>问题8：周限额倒计时文本（HH:mm:ss，由 5h 倒计时同一全局 timer 每秒刷新；无周重置时间时为 00:00:00）。</summary>
+    public string WeeklyCountdownText
+    {
+        get => _weeklyCountdownText;
+        set { if (_weeklyCountdownText == value) return; _weeklyCountdownText = value; OnPropertyChanged(); }
+    }
+
+    /// <summary>问题8：根据 <see cref="NextWeeklyResetAt"/> 重算 <see cref="WeeklyCountdownText"/>（由 <see cref="RefreshFiveHourCountdownText"/> 驱动）。</summary>
+    private void RefreshWeeklyCountdownText(DateTime now)
+    {
+        var target = _nextWeeklyResetAt;
+        WeeklyCountdownText = (target == null || target.Value <= now)
+            ? "00:00:00"
+            : UsageMonitor.App.Helpers.CountdownFormatter.Format(target.Value - now);
+    }
 
     /// <summary>周限额重置剩余文案（"5 天 2 小时后重置"）</summary>
     public string WeeklyResetText { get => _weeklyResetText; set { _weeklyResetText = value; OnPropertyChanged(); } }
@@ -963,13 +997,19 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         var dividerIndex = eff.CollapseDividerIndex ?? card.CollapseDividerIndex ?? orderedInstances.Count;
         if (dividerIndex < 0) dividerIndex = 0;
         if (dividerIndex > orderedInstances.Count) dividerIndex = orderedInstances.Count;
+        // 问题5：分界线处于图表列表中部时插入浅灰色横线槽位（首/尾位置无分界意义不渲染）。
+        var showDivider = dividerIndex > 0 && dividerIndex < orderedInstances.Count;
+        var expectedSlotCount = orderedInstances.Count + (showDivider ? 1 : 0);
 
         var structureKey = string.Join("|", orderedInstances) + "@" + dividerIndex;
-        if (structureKey == _lastSlotStructureKey && CardChartSlots.Count == orderedInstances.Count)
+        if (structureKey == _lastSlotStructureKey && CardChartSlots.Count == expectedSlotCount)
         {
-            // 结构未变：仅原位刷新 Bar/Number 数据（折线/热力图经 Owner 级 INPC 自更新）。
+            // 结构未变：仅原位刷新 Bar/Number 数据（折线/热力图经 Owner 级 INPC 自更新；分界线槽位无数据跳过）。
             for (var i = 0; i < CardChartSlots.Count; i++)
+            {
+                if (CardChartSlots[i].IsDivider) continue;
                 RefreshSlotData(CardChartSlots[i], card, eff);
+            }
             return;
         }
 
@@ -978,6 +1018,9 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         var declaredById = card.Charts.ToDictionary(c => c.ChartId, c => c);
         for (var i = 0; i < orderedInstances.Count; i++)
         {
+            // 问题5：到达分界位置时先插入折叠分界线槽位（折叠态随下方图表一同隐藏）。
+            if (showDivider && i == dividerIndex)
+                CardChartSlots.Add(CardChartSlotViewModel.CreateDivider(this, CardChartSlots.Count));
             var instanceId = orderedInstances[i];
             var baseId = StripInstanceSuffix(instanceId);
             if (!declaredById.TryGetValue(baseId, out var decl)) continue;
@@ -1034,32 +1077,33 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         else if (slot.Kind == DeclarativeChartKind.Number)
         {
             slot.NumberData = BuildInstanceNumber(slot.ChartId, slot.InstanceId, card, eff);
-            // 问题1：数据概览（Number）tooltip 按用户勾选字段顺序生成（无勾选/无声明时为 null 不显示）。
-            slot.TooltipText = BuildNumberTooltipText(slot.ChartId, slot.InstanceId, card, eff);
+            // 问题4：数据概览 tooltip 改为数据项级（在 BuildInstanceNumber 内按组生成），槽位级 tooltip 不再使用。
+            slot.TooltipText = null;
             slot.EmptyHint = slot.NumberData != null ? null
                 : (HasVisibleGroups(slot.ChartId, slot.InstanceId, card, eff) ? "暂无数据，等待刷新…" : "未配置数据组，请在卡片管理中勾选");
         }
     }
 
-    /// <summary>问题1：构建数据概览（Number 图表）的悬停提示文本——按用户勾选的 tooltip 字段顺序逐行生成。
-    /// <para>「字段名称」虚拟字段 → 图表显示名行；值字段 → “SDK 显示名 值”行（取不到值的字段跳过）。
-    /// 用户未配置时回退声明的 tooltip.fields；两者均无时返回 null（不显示 tooltip）。</para></summary>
-    private string? BuildNumberTooltipText(string chartId, string instanceId, CardDeclaration card, AccountCustomization eff)
+    /// <summary>问题4：构建数据概览单个数据项的悬停提示文本——按用户勾选的 tooltip 字段顺序，
+    /// 但仅保留属于本数据组的字段（避免活跃天数项错误展示累计用量等其它组字段）。
+    /// <para>「字段名称」虚拟字段 → 本项标签行；值字段 → “SDK 显示名 值”行（不属于本组/取不到值的字段跳过）；
+    /// 无可展示内容时返回 null（不显示 tooltip）。</para></summary>
+    private string? BuildGroupTooltipText(IReadOnlyList<string>? fields, DataGroup group, string itemLabel)
     {
-        var decl = card.Charts.FirstOrDefault(c => c.ChartId == chartId && c.Kind == DeclarativeChartKind.Number);
-        if (decl == null) return null;
-        var fields = ResolveInstanceTooltipFields(chartId, instanceId, eff) ?? decl.Tooltip?.Fields;
         if (fields == null || fields.Count == 0) return null;
+        var groupFieldNames = new HashSet<string>(group.Fields.Select(f => f.FieldName), StringComparer.OrdinalIgnoreCase);
         var lines = new List<string>();
         foreach (var f in fields)
         {
             if (string.Equals(f, TooltipFieldCatalog.DateVirtual, StringComparison.OrdinalIgnoreCase)) continue;
             if (string.Equals(f, TooltipFieldCatalog.FieldNameVirtual, StringComparison.OrdinalIgnoreCase))
             {
-                // 字段名称行：优先声明的图表中文名（如 "数据概览"）。
-                lines.Add(!string.IsNullOrWhiteSpace(decl.Display) ? decl.Display! : chartId);
+                // 字段名称行：本数据项的显示标签（如 "活跃天数"）。
+                lines.Add(itemLabel);
                 continue;
             }
+            // 问题4：仅展示本数据组声明的字段，其它组的字段不混入。
+            if (!groupFieldNames.Contains(f)) continue;
             var valueText = ResolveFieldDisplay(f);
             if (valueText != null) lines.Add($"{TooltipFieldCatalog.GetDisplay(f)} {valueText}");
         }
@@ -1176,6 +1220,8 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         var decl = card.Charts.FirstOrDefault(c => c.ChartId == chartId && c.Kind == DeclarativeChartKind.Number);
         if (decl == null) return null;
         var groups = ResolveInstanceDataGroups(chartId, instanceId, eff);
+        // 问题4：tooltip 字段配置（用户优先，回退声明），按数据组拆分到各数据项。
+        var tooltipFields = ResolveInstanceTooltipFields(chartId, instanceId, eff) ?? decl.Tooltip?.Fields;
         var orderedGroups = decl.DataGroups.AsEnumerable();
         if (groups != null) orderedGroups = orderedGroups.Where(g => groups.Contains(g.Id));
         var items = new List<MetricGridItem>();
@@ -1200,7 +1246,9 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
             // 问题7：第三行备注 = Meta 角色字段文本（取不到时不显示）。
             var metaField = g.Fields.FirstOrDefault(f => f.Role == FieldRole.Meta)?.FieldName;
             var detail = metaField != null ? ResolveFieldNoteText(metaField) : null;
-            items.Add(new MetricGridItem(label, display, detail));
+            // 问题4：每个数据项携带自身数据组的独立 tooltip。
+            var tooltip = BuildGroupTooltipText(tooltipFields, g, label);
+            items.Add(new MetricGridItem(label, display, detail, Tooltip: tooltip));
         }
         return items.Count > 0 ? new MetricGridData(items) : null;
     }
@@ -1820,6 +1868,8 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         var pw = D("weekly_used_percent");
         WeeklyBarPercent = pw >= 0 ? Math.Min(100, pw) : 0;
         WeeklyResetText = BuildRemainText(extra, "weekly_reset_at");
+        // 问题8：保存 weekly_reset_at 原始 DateTime，供任务栏迷你图周限额倒计时。
+        NextWeeklyResetAt = extra.TryGetValue("weekly_reset_at", out var wra) && wra is DateTime wradt ? wradt : null;
 
         // 5. 状态行（保留 StatusText，包含 5h + 周概要）。
         StatusText = (PrimaryBarPercent > 0 || WeeklyBarPercent > 0)
