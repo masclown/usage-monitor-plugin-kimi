@@ -31,6 +31,10 @@ public sealed class ThemeModule : IThemeModule
     private readonly Dictionary<string, ThemeDescriptor> _themes = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<ThemeDescriptor> _order = new();
     private string? _currentThemeId;
+    /// <summary>req-115：外部主题字典工厂（主题 Id → 运行时构造 ResourceDictionary，无 XAML 文件来源）。</summary>
+    private readonly Dictionary<string, Func<ResourceDictionary>> _factories = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>req-115：当前已插入 MergedDictionaries 的主题字典实例（工厂构造的字典无 Source，需按引用移除）。</summary>
+    private ResourceDictionary? _activeThemeDict;
 
     /// <inheritdoc/>
     public IReadOnlyList<ThemeDescriptor> AvailableThemes => _order;
@@ -67,6 +71,33 @@ public sealed class ThemeModule : IThemeModule
         _themes[theme.Id] = theme;
     }
 
+    /// <summary>
+    /// req-115：注册外部主题（themes/ 主题包）——描述符 + 字典工厂。
+    /// <para>工厂在 <see cref="ApplyTheme"/> 时才执行（惰性构造，热重载后重新应用即取最新 token）。</para>
+    /// </summary>
+    /// <param name="theme">主题描述符（ResourceUri 可为占位值，不参与加载）。</param>
+    /// <param name="dictionaryFactory">运行时构造主题字典的工厂（纯代码构造，零 XAML 加载）。</param>
+    public void RegisterExternalTheme(ThemeDescriptor theme, Func<ResourceDictionary> dictionaryFactory)
+    {
+        if (theme == null || string.IsNullOrWhiteSpace(theme.Id) || dictionaryFactory == null) return;
+        RegisterTheme(theme);
+        _factories[theme.Id] = dictionaryFactory;
+    }
+
+    /// <summary>
+    /// req-115：移除全部外部主题（带字典工厂的注册项），供主题包热重载时先清后重注。
+    /// <para>内置 dark/light（无工厂）不受影响。</para>
+    /// </summary>
+    public void ClearExternalThemes()
+    {
+        foreach (var id in _factories.Keys.ToList())
+        {
+            _themes.Remove(id);
+            _order.RemoveAll(t => string.Equals(t.Id, id, StringComparison.OrdinalIgnoreCase));
+        }
+        _factories.Clear();
+    }
+
     /// <inheritdoc/>
     public void ApplyTheme(string themeId)
     {
@@ -89,22 +120,41 @@ public sealed class ThemeModule : IThemeModule
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         // 从后往前遍历，移除现存的主题字典，记录插入位置（保持 Tokens 在前、Styles 在后的层序）。
+        // req-115：工厂构造的外部主题字典无 Source，按 _activeThemeDict 引用识别。
         int insertIndex = -1;
         for (int i = dicts.Count - 1; i >= 0; i--)
         {
             var src = dicts[i].Source?.OriginalString ?? string.Empty;
-            if (themeFileNames.Contains(FileName(src)))
+            if (themeFileNames.Contains(FileName(src)) || ReferenceEquals(dicts[i], _activeThemeDict))
             {
                 insertIndex = i;
                 dicts.RemoveAt(i);
             }
         }
 
-        var themeDict = new ResourceDictionary { Source = new Uri(target.ResourceUri, UriKind.Relative) };
+        // req-115：外部主题走字典工厂（代码构造，零 XAML/零代码执行）；内置主题按 URI 加载。
+        ResourceDictionary themeDict;
+        if (_factories.TryGetValue(target.Id, out var factory))
+        {
+            try
+            {
+                themeDict = factory();
+            }
+            catch (Exception ex)
+            {
+                FileLogger.Error("ThemeModule", $"外部主题 {target.Id} 构造失败，回退内置主题: {ex.Message}", ex);
+                themeDict = new ResourceDictionary { Source = new Uri(target.IsDark ? "Themes/Dark.xaml" : "Themes/Light.xaml", UriKind.Relative) };
+            }
+        }
+        else
+        {
+            themeDict = new ResourceDictionary { Source = new Uri(target.ResourceUri, UriKind.Relative) };
+        }
         if (insertIndex >= 0 && insertIndex <= dicts.Count)
             dicts.Insert(insertIndex, themeDict);
         else
             dicts.Add(themeDict);
+        _activeThemeDict = themeDict;
 
         _currentThemeId = target.Id;
         try

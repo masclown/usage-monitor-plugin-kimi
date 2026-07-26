@@ -88,20 +88,47 @@
                 <TextBlock Text="{helpers:Loc settings.general.title}" FontSize="{DynamicResource FontSizeTitle}" FontWeight="Bold"
                            Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,20" />
 
-                <!-- 外观主题 -->
+                <!-- 外观主题（req-115：深/浅二选改为主题下拉，含外部 themes/ 主题包） -->
                 <TextBlock Text="{helpers:Loc settings.theme.label}" FontSize="13"
                            Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,6" />
-                <Border Background="{DynamicResource MutedBrush}" CornerRadius="{DynamicResource RadiusButton}"
-                        Padding="3" HorizontalAlignment="Left" Margin="0,0,0,18">
-                    <StackPanel Orientation="Horizontal">
-                        <RadioButton Content="{helpers:Loc settings.theme.dark}" GroupName="Theme"
-                                     Style="{StaticResource SegmentRadioStyle}"
-                                     IsChecked="{Binding IsDarkTheme, Mode=TwoWay}" />
-                        <RadioButton Content="{helpers:Loc settings.theme.light}" GroupName="Theme"
-                                     Style="{StaticResource SegmentRadioStyle}"
-                                     IsChecked="{Binding IsLightTheme, Mode=TwoWay}" />
-                    </StackPanel>
-                </Border>
+                <StackPanel Margin="0,0,0,18">
+                    <ComboBox ItemsSource="{Binding AvailableThemeOptions}"
+                              ItemTemplate="{StaticResource DisplayPackOptionTemplate}" SelectedValuePath="Id"
+                              TextSearch.TextPath="DisplayName"
+                              SelectedValue="{Binding SelectedThemeId, Mode=TwoWay}"
+                              Width="180" HorizontalAlignment="Left" />
+                    <TextBlock Text="把主题包放入程序目录 themes/ 文件夹即可出现在列表中（支持热重载）"
+                               FontSize="{DynamicResource FontSizeCaption}"
+                               Foreground="{DynamicResource TextTertiaryBrush}" Margin="0,4,0,0" />
+                </StackPanel>
+
+                <!-- req-115：图表样式包（charts/ 目录，usage 色阶覆盖全局用量色阶） -->
+                <StackPanel Margin="0,0,0,16">
+                    <TextBlock Text="图表样式包" FontSize="13"
+                               Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,4" />
+                    <ComboBox ItemsSource="{Binding AvailableChartStylePacks}"
+                              ItemTemplate="{StaticResource DisplayPackOptionTemplate}" SelectedValuePath="Id"
+                              TextSearch.TextPath="DisplayName"
+                              SelectedValue="{Binding SelectedChartStylePackId, Mode=TwoWay}"
+                              Width="180" HorizontalAlignment="Left" />
+                    <TextBlock Text="选中包时包内 usage 色阶覆盖进度条 / 环形图取色（charts/ 目录，支持热重载）"
+                               FontSize="{DynamicResource FontSizeCaption}"
+                               Foreground="{DynamicResource TextTertiaryBrush}" Margin="0,4,0,0" />
+                </StackPanel>
+
+                <!-- req-116：界面语言（影响插件文案与语言包；切换后自动重载插件重新解析 i18n 键） -->
+                <StackPanel Margin="0,0,0,16">
+                    <TextBlock Text="界面语言 / Language" FontSize="13"
+                               Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,4" />
+                    <ComboBox ItemsSource="{Binding LanguageOptions}"
+                              ItemTemplate="{StaticResource DisplayPackOptionTemplate}" SelectedValuePath="Id"
+                              TextSearch.TextPath="DisplayName"
+                              SelectedValue="{Binding SelectedLanguage, Mode=TwoWay}"
+                              Width="180" HorizontalAlignment="Left" />
+                    <TextBlock Text="当前仅影响插件声明的文案（图表名 / 配置字段 / 错误引导），切换后即时生效"
+                               FontSize="{DynamicResource FontSizeCaption}"
+                               Foreground="{DynamicResource TextTertiaryBrush}" Margin="0,4,0,0" />
+                </StackPanel>
 
                 <!-- S3：全局默认任务栏显示模式（原「任务栏显示」分区删除后迁移至常规分区） -->
                 <StackPanel Margin="0,0,0,16">
@@ -251,10 +278,20 @@
                     </Grid.ColumnDefinitions>
                     <TextBlock Grid.Column="0" Text="{helpers:Loc settings.plugins.title}" FontSize="{DynamicResource FontSizeTitle}" FontWeight="Bold"
                                Foreground="{DynamicResource TextPrimaryBrush}" VerticalAlignment="Center" />
-                    <!-- req-107 B9：设置界面“校验插件”按钮，选文件即校验，与命令行自检共用 PluginValidator -->
-                    <Button Grid.Column="1" Content="校验插件…" Click="OnValidatePluginClick"
-                            Style="{StaticResource GhostButtonStyle}" VerticalAlignment="Center"
-                            ToolTip="选择插件 defaults.json，校验字段名 / 图表约束 / slicer / SDK 版本兼容" />
+                    <!-- req-112/113/114：插件管理操作区——状态提示 + 刷新（热重载）/ 安装 / 直接聚合校验 -->
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock Visibility="Collapsed" VerticalAlignment="Center" Margin="0,0,10,0"
+                                   Foreground="{DynamicResource TextSecondaryBrush}" FontSize="{DynamicResource FontSizeCaption}" />
+                        <Button Content="刷新" Click="OnReloadPluginsClick"
+                                Style="{StaticResource GhostButtonStyle}" VerticalAlignment="Center"
+                                ToolTip="重新扫描 plugins 目录并热重载全部插件" />
+                        <Button Content="安装插件…" Click="OnInstallPluginClick" Margin="8,0,0,0"
+                                Style="{StaticResource GhostButtonStyle}" VerticalAlignment="Center"
+                                ToolTip="从文件夹或 zip 压缩包安装声明包插件到 plugins 目录" />
+                        <Button Content="校验插件" Click="OnValidatePluginClick" Margin="8,0,0,0"
+                                Style="{StaticResource GhostButtonStyle}" VerticalAlignment="Center"
+                                ToolTip="直接校验 plugins 目录下全部声明包（字段名 / 图表约束 / slicer / SDK 版本兼容）" />
+                    </StackPanel>
                 </Grid>
 
                 <ListView Grid.Row="1" ItemsSource="{Binding PluginItems}"
@@ -615,6 +652,18 @@
                                                                 <!-- 三级：数据组 + tooltip 字段（展开时显示） -->
                                                                 <StackPanel Margin="24,8,0,0"
                                                                             Visibility="{Binding IsExpanded, Converter={StaticResource BoolToVisibility}}">
+                                                                    <!-- req-115：色阶来源（仅支持色阶的图表类型显示；全局色阶 / 已装 charts/ 样式包 pack:<packId>） -->
+                                                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8"
+                                                                                Visibility="{Binding SupportsColorTiers, Converter={StaticResource BoolToVisibility}}">
+                                                                        <TextBlock Text="色阶来源" FontSize="12" FontWeight="SemiBold"
+                                                                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                                                                   VerticalAlignment="Center" Margin="0,0,8,0" />
+                                                                        <ComboBox ItemsSource="{Binding TierSourceOptions}"
+                                                                                  ItemTemplate="{StaticResource DisplayPackOptionTemplate}" SelectedValuePath="Id"
+                                                                                  TextSearch.TextPath="DisplayName"
+                                                                                  SelectedValue="{Binding SelectedTierSource, Mode=TwoWay}"
+                                                                                  Width="160" />
+                                                                    </StackPanel>
                                                                     <!-- 数据组列表（问题2：包横向 ScrollViewer，字段 chips 过多时可横向滚动/拖拽查看右侧数据名） -->
                                                                     <TextBlock Text="数据组" FontSize="12" FontWeight="SemiBold"
                                                                                Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,6" />
@@ -740,6 +789,20 @@
                            Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,16" />
 
                 <CheckBox Content="鼠标悬停托盘图标时显示悬浮窗" IsChecked="{Binding ShowTrayTooltip}" Margin="0,0,0,12" />
+
+                <!-- req-115：悬浮窗模板包（traytooltips/ 目录，字段行布局模板） -->
+                <StackPanel Margin="0,0,0,16">
+                    <TextBlock Text="悬浮窗模板" FontSize="13"
+                               Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,4" />
+                    <ComboBox ItemsSource="{Binding AvailableTrayTooltipPacks}"
+                              ItemTemplate="{StaticResource DisplayPackOptionTemplate}" SelectedValuePath="Id"
+                              TextSearch.TextPath="DisplayName"
+                              SelectedValue="{Binding SelectedTrayTooltipPackId, Mode=TwoWay}"
+                              Width="180" HorizontalAlignment="Left" />
+                    <TextBlock Text="选中模板包时，每个卡片的明细区按包内声明的字段行渲染（traytooltips/ 目录，支持热重载）"
+                               FontSize="{DynamicResource FontSizeCaption}"
+                               Foreground="{DynamicResource TextTertiaryBrush}" Margin="0,4,0,0" TextWrapping="Wrap" />
+                </StackPanel>
                 <StackPanel Margin="0,0,0,16">
                     <TextBlock Text="悬浮窗停留时间" FontSize="13"
                                Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,4" />
@@ -1056,6 +1119,20 @@
             <StackPanel Margin="4">
                 <TextBlock Text="任务栏迷你图表" FontSize="{DynamicResource FontSizeTitle}" FontWeight="Bold"
                            Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,16" />
+
+                <!-- req-115：mini 图表样式包（minicharts/ 目录，按 MiniChartKind 覆盖迷你图色阶） -->
+                <StackPanel Margin="0,0,0,16">
+                    <TextBlock Text="mini 图表样式包" FontSize="13"
+                               Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,4" />
+                    <ComboBox ItemsSource="{Binding AvailableMiniChartStylePacks}"
+                              ItemTemplate="{StaticResource DisplayPackOptionTemplate}" SelectedValuePath="Id"
+                              TextSearch.TextPath="DisplayName"
+                              SelectedValue="{Binding SelectedMiniChartStylePackId, Mode=TwoWay}"
+                              Width="180" HorizontalAlignment="Left" />
+                    <TextBlock Text="选中包时按图表类型覆盖任务栏迷你图色阶（minicharts/ 目录，支持热重载）"
+                               FontSize="{DynamicResource FontSizeCaption}"
+                               Foreground="{DynamicResource TextTertiaryBrush}" Margin="0,4,0,0" />
+                </StackPanel>
 
                 <!-- 账号列表 -->
                 <ItemsControl ItemsSource="{Binding MiniChartManage.AccountNodes}">

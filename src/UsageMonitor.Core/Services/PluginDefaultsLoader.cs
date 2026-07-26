@@ -60,13 +60,15 @@ public static class PluginDefaultsLoader
         return merged;
     }
 
-    /// <summary>解析单个清单文件为部分 <see cref="PluginManifest"/>（仅 JSON 语法层，不做语义校验）。</summary>
+    /// <summary>解析单个清单文件为部分 <see cref="PluginManifest"/>（仅 JSON 语法层，不做语义校验）。
+    /// <para>req-116：反序列化前先经 <see cref="PluginTextResolver.ResolveJson"/> 把 i18n: 键替换为当前语言译文，
+    /// 使全部文案消费点零侵入获得多语言能力（语言切换后重载插件即重新解析）。</para></summary>
     /// <param name="path">清单文件绝对路径。</param>
     private static PluginManifest? ParseManifestFile(string path)
     {
         try
         {
-            return PluginManifest.Load(File.ReadAllText(path));
+            return PluginManifest.Load(PluginTextResolver.ResolveJson(File.ReadAllText(path)));
         }
         catch (Exception ex)
         {

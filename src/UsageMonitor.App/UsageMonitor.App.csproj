@@ -9,13 +9,13 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
 
-    <!-- 项目版本号（0.35.0-beta）：ProviderUsageViewModel增强(+78行) / MainWindow.xaml UI重构(+57行) / SettingsWindow.xaml.cs增强(+55行) / CardChartSlotViewModel/MiniChartItemViewModel增强 / BugfixBatchEightV2Tests(+249行)；用于程序集元数据 + 文件属性。 -->
+    <!-- 项目版本号（0.36.0-beta）：PluginInstaller插件安装器(+234行) / CredentialDomainGuard凭据安全域守卫(+157行) / DisplayPack显示资源包体系(+443行) / PluginLanguagePackLoader插件语言包(+137行) / ExternalThemeLoader外部主题加载器(+82行) / DebouncedDirectoryWatcher防抖目录监视器(+155行) / App.xaml.cs大幅增强(+302行) / ProviderUsageViewModel大幅增强(+168行) / SettingsWindow大幅增强(+289行) / MainViewModel.DisplayPacks(+183行) / 大量测试新增(+904行)；用于程序集元数据 + 文件属性。 -->
     <!-- 显式设置 5 个属性，避免被 SDK 衍生规则变动影响。 -->
-    <Version>0.35.0-beta</Version>
-    <AssemblyVersion>0.35.0.0</AssemblyVersion>
-    <FileVersion>0.35.0.0</FileVersion>
-    <InformationalVersion>0.35.0-beta</InformationalVersion>
-    <ProductVersion>0.35.0-beta</ProductVersion>
+    <Version>0.36.0-beta</Version>
+    <AssemblyVersion>0.36.0.0</AssemblyVersion>
+    <FileVersion>0.36.0.0</FileVersion>
+    <InformationalVersion>0.36.0-beta</InformationalVersion>
+    <ProductVersion>0.36.0-beta</ProductVersion>
     <AssemblyTitle>UsageMonitor</AssemblyTitle>
     <Product>UsageMonitor</Product>
     <Company>UsageMonitor</Company>
@@ -41,6 +41,10 @@
   <ItemGroup>
     <Content Include="..\Plugins\UsageMonitor.Plugin.MiniMax\defaults.json"
              Link="plugins\UsageMonitor.Plugin.MiniMax\defaults.json"
+             CopyToOutputDirectory="PreserveNewest" />
+    <!-- req-116：插件语言包（i18n/<lang>.json）随声明包一起复制 -->
+    <Content Include="..\Plugins\UsageMonitor.Plugin.MiniMax\i18n\*.json"
+             Link="plugins\UsageMonitor.Plugin.MiniMax\i18n\%(Filename)%(Extension)"
              CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 

@@ -21,6 +21,10 @@
     <Content Include="..\Plugins\UsageMonitor.Plugin.MiniMax\defaults.json"
              Link="plugins\UsageMonitor.Plugin.MiniMax\defaults.json"
              CopyToOutputDirectory="PreserveNewest" />
+    <!-- req-116：插件语言包（i18n/<lang>.json）随声明包一起复制 -->
+    <Content Include="..\Plugins\UsageMonitor.Plugin.MiniMax\i18n\*.json"
+             Link="plugins\UsageMonitor.Plugin.MiniMax\i18n\%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

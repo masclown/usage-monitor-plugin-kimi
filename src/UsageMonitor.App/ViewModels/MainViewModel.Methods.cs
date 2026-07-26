@@ -407,6 +407,17 @@ public partial class MainViewModel : INotifyPropertyChanged
     }
 
     /// <summary>
+    /// req-111：插件热重载后全量重建卡片 / 插件项集合（必须在 UI 线程调用）。
+    /// <para>重建后同步全局 metric 启用状态，并回填持久化字段快照避免新卡片在下次刷新前长时间空白。</para>
+    /// </summary>
+    public void RebuildAllFromPlugins()
+    {
+        _displayModule.RebuildAll();
+        SyncGlobalEnabledMetricsToAllProviders();
+        _ = RestorePersistedFieldSnapshotsAsync();
+    }
+
+    /// <summary>
     /// 更新所有用量数据
     /// </summary>
     public void UpdateUsages(IReadOnlyList<UsageInfo> usages)

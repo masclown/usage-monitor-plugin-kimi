@@ -301,21 +301,37 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
 
     /// <summary>
     /// Stage B：按插件 errorGuidance 声明解析失败态引导文案。
-    /// <para>规则按声明顺序匹配：错误消息包含任一关键字即命中；空关键字规则为兑底（恒命中）。
-    /// 无声明或全部未命中返回 null（宿主保持通用"查询失败"文案）。</para>
+    /// <para>req-116 匹配顺序：①稳定错误码精确匹配（matchCodes，去语言化）→
+    /// ②关键字包含匹配（matchKeywords，保留给服务商 API 原文）→ ③空规则兑底（恒命中）。
+    /// 无声明或全部未命中返回 null（宿主保持通用"查询失败"文案）；引导文案经 PluginTextResolver 解析 i18n 键。</para>
     /// </summary>
     /// <param name="errorMessage">本次失败的错误消息（可空）。</param>
-    private string? ResolveErrorGuidance(string? errorMessage)
+    /// <param name="errorCode">本次失败的稳定错误码（可空 = 未分类）。</param>
+    private string? ResolveErrorGuidance(string? errorMessage, string? errorCode = null)
     {
         var rules = Provider?.ErrorGuidance;
         if (rules == null || rules.Count == 0) return null;
         var msg = errorMessage ?? string.Empty;
+
+        // ① 错误码精确匹配（优先级最高，不依赖错误文案措辞/语言）
+        if (!string.IsNullOrEmpty(errorCode))
+        {
+            foreach (var rule in rules)
+            {
+                if (rule.MatchCodes.Any(c => string.Equals(c, errorCode, StringComparison.OrdinalIgnoreCase)))
+                    return UsageMonitor.Core.Services.PluginTextResolver.Resolve(rule.Message);
+            }
+        }
+
+        // ② 关键字包含匹配 → ③ 空规则兑底
         foreach (var rule in rules)
         {
-            if (rule.MatchKeywords.Count == 0) return rule.Message; // 兑底规则
+            if (rule.MatchKeywords.Count == 0 && rule.MatchCodes.Count == 0)
+                return UsageMonitor.Core.Services.PluginTextResolver.Resolve(rule.Message); // 兑底规则
             foreach (var kw in rule.MatchKeywords)
             {
-                if (!string.IsNullOrEmpty(kw) && msg.Contains(kw)) return rule.Message;
+                if (!string.IsNullOrEmpty(kw) && msg.Contains(kw))
+                    return UsageMonitor.Core.Services.PluginTextResolver.Resolve(rule.Message);
             }
         }
         return null;
@@ -820,6 +836,69 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         UsageMonitor.Core.Models.UsageFields.VideoUsedCount => VideoIntervalPercent > 0 ? $"视频赠送 {VideoIntervalPercent:0}%" : null,
         _ => null
     };
+
+    // ==================== req-115：托盘悬浮窗模板包 ====================
+
+    /// <summary>
+    /// req-115：悬浮窗模板包行（选中 traytooltips 模板包时非空）。
+    /// <para>逐行解析：textTemplate 原样输出；fieldName 优先复用 <see cref="BuildTooltipFieldLine"/>，
+    /// 未覆盖字段回退「字段显示名 + ResolveFieldDisplay 值」；取不到值的行跳过。
+    /// 无模板包或包无有效行时返回 null（悬浮窗回退内置布局）。</para>
+    /// </summary>
+    public IReadOnlyList<string>? TrayTooltipPackLines
+    {
+        get
+        {
+            try
+            {
+                var packId = ConfigService?.Settings.TrayTooltipPackId;
+                if (string.IsNullOrWhiteSpace(packId)) return null;
+                var registry = (System.Windows.Application.Current as UsageMonitor.App.App)?.DisplayPacks;
+                var pack = registry?.GetTrayTooltipPack(packId);
+                if (pack == null) return null;
+
+                var lines = new List<string>();
+                foreach (var row in pack.Rows)
+                {
+                    if (!string.IsNullOrEmpty(row.TextTemplate))
+                    {
+                        lines.Add(row.TextTemplate!);
+                        continue;
+                    }
+                    if (string.IsNullOrWhiteSpace(row.FieldName)) continue;
+                    var f = row.FieldName!;
+                    var line = BuildTooltipFieldLine(f);
+                    if (line == null)
+                    {
+                        var value = ResolveFieldDisplay(f);
+                        if (value != null)
+                            line = $"{Helpers.TooltipFieldCatalog.GetDisplay(f)} {value}";
+                    }
+                    if (line != null) lines.Add(line);
+                }
+                return lines.Count > 0 ? lines : null;
+            }
+            catch
+            {
+                // 模板解析异常不影响悬浮窗：回退内置布局
+                return null;
+            }
+        }
+    }
+
+    /// <summary>req-115：悬浮窗模板包是否生效（控制模板行区可见性）。</summary>
+    public bool IsTrayTooltipPackActive => TrayTooltipPackLines != null;
+
+    /// <summary>req-115：内置明细区是否可见（模板包生效时隐藏，与 <see cref="IsTrayTooltipPackActive"/> 互斥）。</summary>
+    public bool IsTrayTooltipDefaultVisible => !IsTrayTooltipPackActive;
+
+    /// <summary>req-115：模板包切换 / 热重载后刷新模板行相关绑定。</summary>
+    public void NotifyTrayTooltipPackChanged()
+    {
+        OnPropertyChanged(nameof(TrayTooltipPackLines));
+        OnPropertyChanged(nameof(IsTrayTooltipPackActive));
+        OnPropertyChanged(nameof(IsTrayTooltipDefaultVisible));
+    }
 
     // ============== REQ-083 SDK v2 新增可选属性（委托给 Provider） ==============
 
@@ -1748,9 +1827,9 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
             StatusText = "查询失败";
 
             // Stage B（声明式插件架构）：失败态引导文案由插件 errorGuidance 声明驱动——
-            // 按声明顺序匹配错误消息关键字，命中即显示引导；无声明/未命中保持通用文案。
+            // req-116：先按稳定错误码精确匹配（usage.Error.Code），再回退关键字包含匹配；
             // 替代原按 ProviderId=="MiniMax" 的硬编码分支（宿主零 Provider 硬编码）。
-            var guidance = ResolveErrorGuidance(usage.ErrorMessage);
+            var guidance = ResolveErrorGuidance(usage.ErrorMessage, usage.Error?.Code);
             if (guidance != null) StatusText = guidance;
 
             // req-008：失败场景也要把余额快照重置为 4 个默认占位项，避免显示上一次成功的旧值。
@@ -2080,6 +2159,9 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         foreach (var v in values) if (v > peak) peak = v;
         if (peak <= 0) peak = 1;
 
+        // req-115：热力图色阶来源为 pack:<packId> 时优先用包内色阶，否则回退 HeatMapTierScale
+        var packResolver = BuildHeatMapPackTierResolver();
+
         for (int i = 0; i < values.Count; i++)
         {
             var token = values[i];
@@ -2087,7 +2169,9 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
                 ? dates[i]
                 : DateTime.Today.AddDays(-(values.Count - 1 - i)).ToString("yyyy-MM-dd");
             double percent = Math.Min(100.0, 100.0 * token / peak);
-            var bgBrush = token > 0 ? UsageMonitor.App.Helpers.HeatMapTierScale.ResolveBrush(token, ProviderId) : zeroBrush;
+            var bgBrush = token > 0
+                ? (packResolver?.Invoke(token) ?? UsageMonitor.App.Helpers.HeatMapTierScale.ResolveBrush(token, ProviderId))
+                : zeroBrush;
             double dayCacheHit = i < dailyCacheHitPercents.Count ? dailyCacheHitPercents[i] : -1;
 
             HeatMapCells.Add(new YearHeatMapCell
@@ -2333,9 +2417,75 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
     public void RecolorHeatMapCells()
     {
         var pid = ProviderId;
+        // req-115：色阶来源为 pack:<packId> 时优先用包内色阶，否则回退 HeatMapTierScale
+        var packResolver = BuildHeatMapPackTierResolver();
         foreach (var cell in HeatMapCells)
         {
-            cell.Background = UsageMonitor.App.Helpers.HeatMapTierScale.ResolveBrush(cell.Token, pid);
+            cell.Background = packResolver?.Invoke(cell.Token)
+                ?? UsageMonitor.App.Helpers.HeatMapTierScale.ResolveBrush(cell.Token, pid);
+        }
+    }
+
+    /// <summary>
+    /// req-115：构建热力图的图表样式包色阶解析器。
+    /// <para>读本账号 <c>AccountCustomization.ChartColorTierSources</c> 中 HeatMap 图表（含 #n 实例）的来源键：
+    /// "pack:&lt;packId&gt;" → 从 charts/ 图表样式包取 "HeatMap"（回退 "usage"）条目，阈值语义为 token 下界；
+    /// 非 pack 源 / 包不存在 / 解析失败返回 null（调用方回退 HeatMapTierScale 全局色阶）。</para>
+    /// </summary>
+    private Func<long, System.Windows.Media.Brush>? BuildHeatMapPackTierResolver()
+    {
+        try
+        {
+            var cs = ConfigService;
+            var heatChartIds = Provider?.Card?.Charts
+                .Where(c => c.Kind == DeclarativeChartKind.HeatMap)
+                .Select(c => c.ChartId)
+                .ToList();
+            if (cs == null || heatChartIds == null || heatChartIds.Count == 0) return null;
+
+            var eff = cs.GetEffectiveAccountCustomization(ProviderId, AccountIdSafe);
+            string? source = null;
+            foreach (var kv in eff.ChartColorTierSources)
+            {
+                var baseId = kv.Key;
+                var idx = baseId.LastIndexOf('#');
+                if (idx > 0) baseId = baseId.Substring(0, idx);
+                if (heatChartIds.Contains(baseId)) { source = kv.Value; break; }
+            }
+            const string packPrefix = "pack:";
+            if (source == null || !source.StartsWith(packPrefix, StringComparison.OrdinalIgnoreCase)) return null;
+
+            var registry = (System.Windows.Application.Current as UsageMonitor.App.App)?.DisplayPacks;
+            var pack = registry?.GetChartStylePack(source.Substring(packPrefix.Length));
+            if (pack == null) return null;
+            if (!pack.ChartStyles.TryGetValue("HeatMap", out var entry))
+                pack.ChartStyles.TryGetValue("usage", out entry);
+            var tiers = UsageMonitor.Core.Services.Display.DisplayPackConverters.ToUsageTiers(entry);
+            if (tiers == null || tiers.Count == 0) return null;
+
+            // 预构冻结画笔，按阈值降序命中首个 "token ≥ 下界" 的档位；低于全部下界时取最低档
+            var ordered = tiers
+                .OrderByDescending(t => t.MinPercent)
+                .Select(t =>
+                {
+                    var argb = t.ColorArgb;
+                    var brush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromArgb(
+                        (byte)(argb >> 24), (byte)(argb >> 16), (byte)(argb >> 8), (byte)argb));
+                    brush.Freeze();
+                    return (Min: t.MinPercent, Brush: (System.Windows.Media.Brush)brush);
+                })
+                .ToList();
+            return token =>
+            {
+                foreach (var (min, brush) in ordered)
+                    if (token >= min) return brush;
+                return ordered[ordered.Count - 1].Brush;
+            };
+        }
+        catch
+        {
+            // 解析失败不影响热力图：回退全局色阶
+            return null;
         }
     }
 

@@ -5,6 +5,7 @@ using System.Net.Http.Headers;
 using System.Threading;
 using System.Threading.Tasks;
 using UsageMonitor.Core.Models;
+using UsageMonitor.Core.Security;
 using UsageMonitor.Core.Services;
 
 namespace UsageMonitor.Core.Plugins.Declarative;
@@ -32,11 +33,14 @@ public static class DeclarativeHttpFetcher
     /// <param name="endpoints">待执行端点（调用方已按 mode=http 过滤）。</param>
     /// <param name="configValue">配置字段取值委托（供 {config:Key} 占位符）。</param>
     /// <param name="cookie">Cookie 串（供 {cookie:名} / {cookieHeader} 占位符；可空）。</param>
+    /// <param name="credentialAllowedDomains">凭据允许域集合（CredentialDomainGuard.CollectAllowedDomains 产出；
+    /// null/空 = 声明包无可推导官方域，此时携带 Cookie 占位符的端点一律拒绝）。</param>
     /// <param name="ct">取消令牌。</param>
     public static async Task<Dictionary<string, string>> FetchAsync(
         IEnumerable<FetchEndpoint> endpoints,
         Func<string, string?> configValue,
         string? cookie,
+        IReadOnlyCollection<string>? credentialAllowedDomains = null,
         CancellationToken ct = default)
     {
         var responses = new Dictionary<string, string>();
@@ -46,6 +50,11 @@ public static class DeclarativeHttpFetcher
             try
             {
                 var url = ExpandPlaceholders(ep.UrlTemplate!, configValue, cookie);
+
+                // 凭据域名同源约束：携带 Cookie / 敏感配置占位符的端点，目标域必须命中声明包官方域集合，
+                // 阻断恶意声明包把登录态/API Key 外发到任意外部 HTTPS 域（纯字符串判定，无 DNS 依赖，先于 SSRF 校验）。
+                if (!PassesCredentialDomainCheck(ep, url, credentialAllowedDomains)) continue;
+
                 // req-056 SSRF 防护：展开后的真实 URL 必须为 https 且非内网/环回地址。
                 if (!BaseUrlValidator.TryValidate(url, out var ssrfError))
                 {
@@ -88,6 +97,49 @@ public static class DeclarativeHttpFetcher
             }
         }
         return responses;
+    }
+
+    /// <summary>
+    /// 凭据域名同源检查：端点携带 Cookie 占位符时，目标 host 必须命中允许域（无允许域则一律拒绝）；
+    /// 仅携带敏感配置占位符时，有允许域则强制命中，无允许域时告警放行（兼容无登录节的纯 API 声明包）。
+    /// </summary>
+    /// <param name="ep">端点声明。</param>
+    /// <param name="url">展开后的真实 URL。</param>
+    /// <param name="allowedDomains">凭据允许域集合（可空）。</param>
+    /// <returns>true=允许发送；false=拦截（已记日志）。</returns>
+    private static bool PassesCredentialDomainCheck(FetchEndpoint ep, string url, IReadOnlyCollection<string>? allowedDomains)
+    {
+        var carriesCookie = CredentialDomainGuard.HasCookiePlaceholder(ep);
+        var carriesSensitiveConfig = CredentialDomainGuard.HasSensitiveConfigPlaceholder(ep);
+        if (!carriesCookie && !carriesSensitiveConfig) return true;
+
+        string host;
+        try { host = new Uri(url).Host; }
+        catch (UriFormatException)
+        {
+            FileLogger.Warn(LogSource, $"凭据端点 URL 无法解析 host，拒绝发送：{ep.UrlMatch}");
+            return false;
+        }
+
+        if (allowedDomains is { Count: > 0 })
+        {
+            if (CredentialDomainGuard.IsHostAllowed(host, allowedDomains)) return true;
+            FileLogger.Warn(LogSource,
+                $"凭据域名同源约束拦截：端点目标域 {host} 不在声明包官方域集合内，已拒绝发送（{ep.UrlMatch}）");
+            return false;
+        }
+
+        // 无任何可推导官方域：Cookie 外发一律拒绝；敏感配置占位符告警放行（用户为该插件主动录入的凭据）。
+        if (carriesCookie)
+        {
+            FileLogger.Warn(LogSource,
+                $"凭据域名同源约束拦截：声明包未声明任何官方域（loginConfig/capture/usageUrls/credentialDomains 均缺失），" +
+                $"携带 Cookie 占位符的端点已拒绝发送（{ep.UrlMatch}）");
+            return false;
+        }
+        FileLogger.Warn(LogSource,
+            $"凭据端点目标域 {host} 无法验证（声明包未声明 credentialDomains），建议声明后启用强制校验（{ep.UrlMatch}）");
+        return true;
     }
 
     /// <summary>

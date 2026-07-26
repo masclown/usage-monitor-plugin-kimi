@@ -394,11 +394,14 @@ public partial class MainViewModel : INotifyPropertyChanged
         {
             if (_configService.Settings.Theme == value) return;
             _configService.Settings.Theme = value;
+            // req-115：旧深/浅入口显式切换时清空主题包选择，回到内置主题语义
+            _configService.Settings.ThemeId = "";
             _configService.Save();
             UsageMonitor.App.Helpers.ThemeManager.Apply(value);
             OnPropertyChanged();
             OnPropertyChanged(nameof(IsDarkTheme));
             OnPropertyChanged(nameof(IsLightTheme));
+            OnPropertyChanged(nameof(SelectedThemeId));
         }
     }
 

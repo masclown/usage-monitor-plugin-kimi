@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// 插件模板文件：本文件按 Apache License 2.0 授权（见仓库根目录 LICENSE-APACHE），
+// 供第三方插件开发自由复制修改；仓库其余部分适用 BSL 1.1（见 LICENSE）。
 using UsageMonitor.Core.Models;
 using UsageMonitor.Core.Plugins;
 

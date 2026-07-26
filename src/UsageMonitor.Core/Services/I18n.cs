@@ -130,6 +130,30 @@ public static class I18n
     }
 
     /// <summary>
+    /// req-116：按前缀批量注销词条（所有语言）。
+    /// <para>典型用途：插件热重载前清除 <c>plugin.</c> 命名空间旧词条，避免已卸载插件的文案残留。</para>
+    /// </summary>
+    /// <param name="prefix">要清除的键前缀（Ordinal 比较）。</param>
+    public static void UnregisterByPrefix(string prefix)
+    {
+        if (string.IsNullOrEmpty(prefix)) return;
+        lock (_lock)
+        {
+            foreach (var bucket in _registry.Values)
+            {
+                var toRemove = new List<string>();
+                foreach (var key in bucket.Keys)
+                {
+                    if (key.StartsWith(prefix, StringComparison.Ordinal))
+                        toRemove.Add(key);
+                }
+                foreach (var key in toRemove)
+                    bucket.Remove(key);
+            }
+        }
+    }
+
+    /// <summary>
     /// 切换当前语言并触发 <see cref="LanguageChanged"/>。
     /// <para>
     /// 未来可由设置窗口调用：先 <see cref="Register"/> 加载目标语言包，再 <see cref="SetLanguage"/>。

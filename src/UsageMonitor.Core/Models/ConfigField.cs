@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// 插件 SDK 契约文件：本文件按 Apache License 2.0 授权（见仓库根目录 LICENSE-APACHE），
+// 供第三方插件开发自由引用；仓库其余部分适用 BSL 1.1（见 LICENSE）。
 namespace UsageMonitor.Core.Models;
 
 /// <summary>
@@ -42,6 +45,12 @@ public class ConfigField
 
     /// <summary>选项列表（仅当 FieldType 为 Select 时使用）</summary>
     public IReadOnlyList<string>? Options { get; set; }
+
+    /// <summary>
+    /// 是否为敏感字段（凭据类）。声明为 true 时落盘自动 DPAPI 加密；
+    /// Password 类型字段无需声明，隐含敏感。声明式插件在 configFields 节用 <c>"sensitive": true</c> 声明。
+    /// </summary>
+    public bool Sensitive { get; set; }
 
     /// <summary>
     /// 创建配置字段实例

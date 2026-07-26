@@ -11,6 +11,13 @@ public sealed class UsageError
     /// <summary>错误种类。</summary>
     public UsageErrorKind Kind { get; init; } = UsageErrorKind.Unknown;
 
+    /// <summary>
+    /// req-116：稳定错误码（如 <see cref="UsageErrorCodes.CredentialMissing"/>）。
+    /// <para>供插件 errorGuidance 的 <c>matchCodes</c> 精确匹配，去除对本地化错误文案的关键字耦合；
+    /// null = 未分类（仅能走关键字匹配）。</para>
+    /// </summary>
+    public string? Code { get; init; }
+
     /// <summary>人类可读的简短描述（用于 UI 与日志；不包含敏感凭据）。</summary>
     public string Message { get; init; } = string.Empty;
 
@@ -50,6 +57,34 @@ public sealed class UsageError
     /// <summary>创建「未知错误」实例。</summary>
     public static UsageError Unknown(string message)
         => new(UsageErrorKind.Unknown, message);
+}
+
+/// <summary>
+/// req-116：稳定错误码常量（宿主/声明式运行器生成失败态时填入 <see cref="UsageError.Code"/>）。
+/// <para>插件 errorGuidance 声明用 <c>matchCodes</c> 匹配这些稳定标识，不再依赖宿主错误文案的具体措辞/语言。</para>
+/// </summary>
+public static class UsageErrorCodes
+{
+    /// <summary>未配置凭据（Cookie / API Key 缺失）。</summary>
+    public const string CredentialMissing = "credential_missing";
+
+    /// <summary>凭据无效（登录态失效 / Key 错误）。</summary>
+    public const string AuthInvalid = "auth_invalid";
+
+    /// <summary>网络错误（连接失败 / DNS 等）。</summary>
+    public const string NetworkError = "network_error";
+
+    /// <summary>请求超时。</summary>
+    public const string Timeout = "timeout";
+
+    /// <summary>用户主动取消。</summary>
+    public const string Cancelled = "cancelled";
+
+    /// <summary>取数成功但无主指标数据（多为登录态失效）。</summary>
+    public const string DataEmpty = "data_empty";
+
+    /// <summary>插件声明/配置缺失（如缺 fetch 节）。</summary>
+    public const string ConfigMissing = "config_missing";
 }
 
 /// <summary>错误种类（与 <see cref="UsageError"/> 配套）。</summary>

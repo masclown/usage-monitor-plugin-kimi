@@ -2,6 +2,13 @@
 
 > req-086-3.6：基于 `WebPluginBase` 从 0 到 1 开发一个网页插件。
 
+> **req-111/114/116 更新**：当前主推纯声明包（零 DLL）路线，详见 `declarative-web-plugin-schema.md`。
+> 声明包现已支持：① **热重载**——放入 / 修改 `plugins/<包>/` 后自动生效，无需重启；
+> ② **安装入口**——设置 → 插件管理 →「安装插件…」支持文件夹与 zip 压缩包；
+> ③ **i18n 语言包**——`plugins/<包>/i18n/<lang>.json` + 文案写 `i18n:plugin.<providerId>.xxx` 键；
+> ④ **errorGuidance 错误码匹配**——`matchCodes` 匹配稳定错误码，不再依赖宿主文案关键字。
+> 参考示范：`src/Plugins/UsageMonitor.Plugin.MiniMax/`（defaults.json + i18n 双语言包）。
+
 ---
 
 ## 前置条件

@@ -61,6 +61,16 @@ public partial class App : Application
     // req-053：托盘 tooltip 节流——Windows NotifyIcon.Text 频繁更新会被系统忽略，限制每秒最多更新一次
     private DateTime _lastTrayTooltipUpdateUtc = DateTime.MinValue;
 
+    /// <summary>req-111：plugins/ 目录防抖监视器（变更后自动触发热重载管线）。</summary>
+    private DebouncedDirectoryWatcher? _pluginsWatcher;
+    /// <summary>req-111：热重载重入保护标志（1=正在重载，期间新触发直接丢弃）。</summary>
+    private int _isReloadingPlugins;
+    /// <summary>req-115：显示资源包注册表（themes/charts/minicharts/traytooltips 四目录，含热重载监视）。</summary>
+    private UsageMonitor.Core.Services.Display.DisplayPackRegistry? _displayPackRegistry;
+
+    /// <summary>req-115：显示资源包注册表（供 MainViewModel / 悬浮窗等消费方读取；启动完成前为 null）。</summary>
+    internal UsageMonitor.Core.Services.Display.DisplayPackRegistry? DisplayPacks => _displayPackRegistry;
+
     /// <summary>
     /// req-fix-托盘退出文案：标记"用户从托盘菜单选择了真正退出"。
     /// <c>true</c> 时 MainWindow.OnClosing 跳过「最小化到托盘」提示，直接放行关闭。
@@ -165,6 +175,13 @@ public partial class App : Application
         _configService = new ConfigService();
         _configService.Load();
 
+        // req-116：按用户配置应用界面语言（必须在插件扫描之前，manifest 里的 i18n: 键按此语言解析）
+        if (!string.IsNullOrWhiteSpace(_configService.Settings.Language))
+        {
+            I18n.SetLanguage(_configService.Settings.Language);
+            FileLogger.Info("App", $"I18n language from settings: '{I18n.CurrentLanguage}'");
+        }
+
         // req-089：Cookie 文件 ACL 收紧（P0）——对 cookies 目录和 config.json 所在目录做 NTFS ACL 收紧
         try
         {
@@ -194,11 +211,20 @@ public partial class App : Application
             FileLogger.Warn("App", $"req-090 cookie cleanup skipped: {ex.Message}");
         }
 
-        // 应用已保存的外观主题（必须在任何窗口/控件构造之前，保证首屏即为目标主题）
-        Helpers.ThemeManager.Apply(_configService.Settings.Theme);
+        // req-115：加载显示资源包（themes/charts/minicharts/traytooltips，与 plugins/ 平级）并挂目录监视热重载；
+        // 必须在应用主题之前完成，保证外部主题包首屏即可用。
+        _displayPackRegistry = new UsageMonitor.Core.Services.Display.DisplayPackRegistry();
+        _displayPackRegistry.StartWatching();
+        Services.Theme.ExternalThemeLoader.SyncToThemeModule(_displayPackRegistry, Services.Theme.ThemeModule.Default);
+        _displayPackRegistry.Changed += (_, _) => Dispatcher.BeginInvoke(new Action(OnDisplayPacksChanged));
 
-        // 加载用量色阶到全局静态表（保证 XAML 首次绑定 PercentToBrushConverter 时拿到正确颜色）。
-        UsageMonitor.App.Helpers.UsageTierScale.ApplyConfig(_configService.GetEffectiveUsageTierConfig());
+        // 应用已保存的外观主题（必须在任何窗口/控件构造之前，保证首屏即为目标主题；
+        // req-115：改按主题 Id 应用，ThemeId 缺省时映射旧 Theme 枚举）
+        Helpers.ThemeManager.ApplyById(EffectiveThemeId());
+
+        // 加载用量色阶到全局静态表（保证 XAML 首次绑定 PercentToBrushConverter 时拿到正确颜色；
+        // req-115：图表样式包选中时包内 usage 色阶优先）。
+        ApplyEffectiveUsageTierScale();
         // req-009：加载热力图色阶（按 ProviderId 独立色阶表），让首次渲染就拿到正确颜色。
         UsageMonitor.App.Helpers.HeatMapTierScale.ApplyConfig(_configService.Settings.ProviderHeatMapTiers);
         // req-065 B4：BrowserLoginService 已去静态化，不再需要 RegisterConfigService。
@@ -267,6 +293,8 @@ public partial class App : Application
         // 后续可在 TaskbarWindow 渲染层用 ITaskbarMiniChartRegistry.GetAll() 替换硬编码 VM 列表。
         _miniChartRegistry = new TaskbarMiniChartRegistry();
         MiniChartRegistryBootstrapper.RegisterBuiltins(_miniChartRegistry, _pluginManager, _configService);
+        // req-115：mini 图表样式包选中时覆盖色阶（启动期首次应用）
+        ApplyMiniChartStylePackOverrides();
 
         // 创建ViewModel（S1：注入 AuthManager 供插件管理页账号行状态灯与卡片重建使用）
         _viewModel = new MainViewModel(_pluginManager, _configService, _refreshService, _dataModule, _authManager);
@@ -289,9 +317,9 @@ public partial class App : Application
         // 死锁防护：ConfigChanged 可能由后台刷新线程触发，必须用 BeginInvoke 异步投递——
         // 同步 Invoke 会在"发布线程持有 ConfigService 锁 + UI 线程正在等同一把锁"时交叉死锁（UI 卡死）。
         _configService.ConfigChanged += (_, _) => Dispatcher.BeginInvoke(new Action(SyncOverlayWindowsFromSettings));
-        // 订阅配置变更：用量色阶在设置页保存后即时同步到全局色阶（让所有进度条 / 热力图重新取色）。
-        _configService.ConfigChanged += (_, _) => Dispatcher.BeginInvoke(new Action(() =>
-            UsageMonitor.App.Helpers.UsageTierScale.ApplyConfig(_configService.GetEffectiveUsageTierConfig())));
+        // 订阅配置变更：用量色阶在设置页保存后即时同步到全局色阶（让所有进度条 / 热力图重新取色；
+        // req-115：经 ApplyEffectiveUsageTierScale 统一解析，图表样式包选中时包内 usage 色阶优先）。
+        _configService.ConfigChanged += (_, _) => Dispatcher.BeginInvoke(new Action(ApplyEffectiveUsageTierScale));
 
         // 初始化系统托盘
         InitializeTrayIcon();
@@ -311,9 +339,263 @@ public partial class App : Application
         // req-012：启动时检测新卸载的 Provider → 弹批量对话框（一次选"删/保"，记录到 UninstalledProviderChoices）。
         // 必须在 SyncOverlayWindowsFromSettings 之后（_historyRepository 已就绪）、ShowMainWindow 之前（避免窗口闪烁）。
         CheckUninstalledPluginsOnStartup();
-
+    
+        // req-111：挂载 plugins/ 目录防抖监视器，变更后自动触发热重载管线
+        //（回调在计时器线程，BeginInvoke 投递到 UI 线程执行）。
+        _pluginsWatcher = new DebouncedDirectoryWatcher(
+            _pluginManager.PluginDirectory,
+            () => Dispatcher.BeginInvoke(new Action(() => ReloadPluginsAndRebuild())));
+        _pluginsWatcher.Start();
+    
         // 显示主窗口
         ShowMainWindow();
+    }
+    
+    /// <summary>
+    /// req-111/112：统一插件重载管线（必须在 UI 线程调用）。
+    /// <para>重新扫描 plugins/ 声明包 → 重同步启用状态与声明级热力图色阶 → 重建 mini 图表注册表 →
+    /// 全量重建卡片/插件项集合 → 重建任务栏窗口 → 预取新 Provider 图标。
+    /// 重入保护：正在重载时后续触发直接丢弃（目录监视器防抖后仍可能与手动刷新叠加）。</para>
+    /// </summary>
+    /// <returns>重载后的插件数；重入被丢弃或服务未就绪时返回 -1。</returns>
+    public int ReloadPluginsAndRebuild()
+    {
+        if (_pluginManager == null || _configService == null || _viewModel == null) return -1;
+        if (System.Threading.Interlocked.CompareExchange(ref _isReloadingPlugins, 1, 0) != 0) return -1;
+        try
+        {
+            _pluginManager.ReloadPlugins();
+    
+            // 重同步插件启用状态（与启动期逻辑一致：未记录过的插件默认启用）
+            foreach (var plugin in _pluginManager.Plugins)
+            {
+                plugin.IsEnabled = _configService.Settings.PluginEnabled
+                    .GetValueOrDefault(plugin.Provider.ProviderId, true);
+            }
+    
+            // 重新注册声明级热力图色阶兑底（用户保存的 ProviderHeatMapTiers 始终优先）
+            foreach (var plugin in _pluginManager.Plugins)
+            {
+                var declaredTiers = plugin.Provider.Card?.HeatMapTiers;
+                if (declaredTiers is { Count: > 0 })
+                    UsageMonitor.App.Helpers.HeatMapTierScale.RegisterDeclaredDefaults(plugin.Provider.ProviderId, declaredTiers);
+            }
+    
+            // 重建 mini 图表注册表（先清空再按最新声明重新注册，避免已卸载插件的 descriptor 残留）
+            if (_miniChartRegistry != null)
+            {
+                _miniChartRegistry.Clear();
+                MiniChartRegistryBootstrapper.RegisterBuiltins(_miniChartRegistry, _pluginManager, _configService);
+                // req-115：mini 样式包选中时覆盖色阶
+                ApplyMiniChartStylePackOverrides();
+            }
+    
+            // 全量重建卡片与插件项集合
+            _viewModel.RebuildAllFromPlugins();
+    
+            // 任务栏窗口重建（存在时）：拉取最新 mini 图表 descriptor 与卡片集合
+            if (_taskbarWindow != null)
+            {
+                DisposeTaskbarWindow();
+                SyncOverlayWindowsFromSettings();
+            }
+    
+            // 预取新 Provider 的 favicon（尽力而为，完成后回 UI 线程刷新卡片图标）
+            var providers = _pluginManager.Plugins.Select(p => p.Provider).ToList();
+            _ = UsageMonitor.App.Services.ProviderIconService.PrefetchAllAsync(providers)
+                .ContinueWith(_ => Dispatcher.BeginInvoke(new Action(() => _viewModel?.RefreshProviderIcons())),
+                    TaskScheduler.Default);
+    
+            var count = _pluginManager.Plugins.Count;
+            FileLogger.Info("App", $"热重载完成：{count} 个插件");
+            return count;
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Error("App", $"ReloadPluginsAndRebuild failed: {ex.Message}", ex);
+            return -1;
+        }
+        finally
+        {
+            System.Threading.Interlocked.Exchange(ref _isReloadingPlugins, 0);
+        }
+    }
+    
+    /// <summary>
+    /// req-114：从文件夹安装插件（安装期间挂起目录监视，完成后显式触发一次重载）。
+    /// </summary>
+    /// <param name="sourceDirectory">插件来源目录。</param>
+    /// <param name="overwrite">同名包已存在时是否覆盖。</param>
+    public UsageMonitor.Core.Plugins.PluginInstallResult InstallPluginFromFolder(string sourceDirectory, bool overwrite = false)
+        => RunPluginInstall(() => UsageMonitor.Core.Plugins.PluginInstaller.InstallFromFolder(
+            sourceDirectory, _pluginManager.PluginDirectory, overwrite, CurrentSdkVersion()));
+    
+    /// <summary>
+    /// req-114：从 zip 压缩包安装插件（安装期间挂起目录监视，完成后显式触发一次重载）。
+    /// </summary>
+    /// <param name="zipPath">zip 文件路径。</param>
+    /// <param name="overwrite">同名包已存在时是否覆盖。</param>
+    public UsageMonitor.Core.Plugins.PluginInstallResult InstallPluginFromZip(string zipPath, bool overwrite = false)
+        => RunPluginInstall(() => UsageMonitor.Core.Plugins.PluginInstaller.InstallFromZip(
+            zipPath, _pluginManager.PluginDirectory, overwrite, CurrentSdkVersion()));
+    
+    /// <summary>
+    /// req-114：安装流程包装——挂起监视器 → 执行安装 → 恢复监视器，成功后显式触发一次重载。
+    /// </summary>
+    /// <param name="install">实际安装动作。</param>
+    private UsageMonitor.Core.Plugins.PluginInstallResult RunPluginInstall(
+        Func<UsageMonitor.Core.Plugins.PluginInstallResult> install)
+    {
+        _pluginsWatcher?.Pause();
+        try
+        {
+            var result = install();
+            if (result.Success) ReloadPluginsAndRebuild();
+            return result;
+        }
+        finally
+        {
+            _pluginsWatcher?.Resume();
+        }
+    }
+    
+    /// <summary>当前 SDK 版本（装配程序集版本，供安装/校验兼容性判定）。</summary>
+    internal static Version CurrentSdkVersion()
+        => typeof(App).Assembly.GetName().Version ?? new Version(0, 24, 3);
+
+    /// <summary>req-113/114：plugins 根目录（供设置窗口聚合校验 / 安装入口定位）。</summary>
+    internal string PluginsDirectory => _pluginManager.PluginDirectory;
+
+    /// <summary>
+    /// req-115：配置的生效主题 Id（ThemeId 缺省时映射旧 Theme 枚举，保持旧配置兼容）。
+    /// </summary>
+    internal string EffectiveThemeId()
+    {
+        var s = _configService.Settings;
+        return string.IsNullOrWhiteSpace(s.ThemeId)
+            ? (s.Theme == UsageMonitor.Core.Models.ThemeMode.Light ? "light" : "dark")
+            : s.ThemeId;
+    }
+
+    /// <summary>
+    /// req-115：应用生效的全局用量色阶：图表样式包（ChartStylePackId）的 "usage" 色阶优先，
+    /// 否则回退用户配置 / 出厂默认（GetEffectiveUsageTierConfig）。
+    /// </summary>
+    private void ApplyEffectiveUsageTierScale()
+    {
+        List<UsageMonitor.Core.Models.UsageTierConfig>? packTiers = null;
+        try
+        {
+            var pack = _displayPackRegistry?.GetChartStylePack(_configService.Settings.ChartStylePackId);
+            if (pack != null && pack.ChartStyles.TryGetValue("usage", out var entry))
+                packTiers = UsageMonitor.Core.Services.Display.DisplayPackConverters.ToUsageTiers(entry);
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Warn("App", $"req-115 图表样式包色阶解析失败，回退配置色阶: {ex.Message}");
+        }
+        UsageMonitor.App.Helpers.UsageTierScale.ApplyConfig(packTiers ?? _configService.GetEffectiveUsageTierConfig());
+    }
+
+    /// <summary>
+    /// req-115：mini 图表样式包覆盖：选中包时按 MiniChartKind 名匹配包内色阶，
+    /// 以副本重注册 descriptor（init-only DTO 不可变，Register 同键覆盖为 Latest-Wins 语义）。
+    /// </summary>
+    private void ApplyMiniChartStylePackOverrides()
+    {
+        if (_miniChartRegistry == null) return;
+        var pack = _displayPackRegistry?.GetMiniChartStylePack(_configService.Settings.MiniChartStylePackId);
+        if (pack == null) return;
+
+        foreach (var d in _miniChartRegistry.GetAll().ToList())
+        {
+            if (!pack.ChartStyles.TryGetValue(d.Kind.ToString(), out var entry)) continue;
+            var tiers = UsageMonitor.Core.Services.Display.DisplayPackConverters.ToUsageTiers(entry);
+            if (tiers == null || tiers.Count == 0 || tiers.Count > 6) continue;
+            try
+            {
+                _miniChartRegistry.Register(new UsageMonitor.Core.Plugins.MiniChart.MiniChartDescriptor
+                {
+                    ProviderId = d.ProviderId,
+                    ChartId = d.ChartId,
+                    Kind = d.Kind,
+                    Style = d.Style,
+                    ColorTier = new UsageMonitor.Core.Plugins.MiniChart.MiniChartColorTier(tiers),
+                    DataSource = d.DataSource,
+                    CycleConfig = d.CycleConfig,
+                    Tooltip = d.Tooltip,
+                    ContentKind = d.ContentKind,
+                    SecondaryKind = d.SecondaryKind,
+                    ShowLogo = d.ShowLogo,
+                    ToolTipFields = d.ToolTipFields,
+                    DeclaredTooltipFields = d.DeclaredTooltipFields,
+                    DataGroups = d.DataGroups,
+                    Slicer = d.Slicer
+                });
+            }
+            catch (Exception ex)
+            {
+                FileLogger.Warn("App", $"req-115 mini 样式包覆盖 {d.ProviderId}/{d.ChartId} 失败: {ex.Message}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// req-115：mini 图表样式包选择变更后重建 mini 注册表（回到声明默认再叠加包覆盖）并重建任务栏窗口。
+    /// </summary>
+    internal void ReapplyMiniChartStyles()
+    {
+        if (_miniChartRegistry == null) return;
+        _miniChartRegistry.Clear();
+        MiniChartRegistryBootstrapper.RegisterBuiltins(_miniChartRegistry, _pluginManager, _configService);
+        ApplyMiniChartStylePackOverrides();
+        if (_taskbarWindow != null)
+        {
+            DisposeTaskbarWindow();
+            SyncOverlayWindowsFromSettings();
+        }
+    }
+
+    /// <summary>
+    /// req-115：显示资源包目录变更回调（UI 线程）：重同步外部主题 → 重放当前主题（取最新 token）→
+    /// 重应用色阶 / mini 样式包 → 重建任务栏窗口 → 通知 ViewModel 刷新主题下拉与悬浮窗模板。
+    /// </summary>
+    private void OnDisplayPacksChanged()
+    {
+        if (_displayPackRegistry == null || _configService == null) return;
+        try
+        {
+            Services.Theme.ExternalThemeLoader.SyncToThemeModule(_displayPackRegistry, Services.Theme.ThemeModule.Default);
+
+            // 当前主题若来自外部包：直接重放以拿到最新 token（ThemeModule.ApplyTheme 不按 Id 短路）；
+            // 包被删除时 ApplyById 内部回退内置主题。
+            var effective = EffectiveThemeId();
+            if (!string.Equals(effective, "dark", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(effective, "light", StringComparison.OrdinalIgnoreCase))
+            {
+                if (Services.Theme.ThemeModule.Default.AvailableThemes.Any(t => string.Equals(t.Id, effective, StringComparison.OrdinalIgnoreCase)))
+                    Services.Theme.ThemeModule.Default.ApplyTheme(effective);
+                else
+                    Helpers.ThemeManager.ApplyById(effective);
+            }
+
+            ApplyEffectiveUsageTierScale();
+            ApplyMiniChartStylePackOverrides();
+
+            // 任务栏窗口重建（存在时）：拉取覆盖后的 mini descriptor
+            if (_taskbarWindow != null)
+            {
+                DisposeTaskbarWindow();
+                SyncOverlayWindowsFromSettings();
+            }
+
+            _viewModel?.NotifyDisplayPacksChanged();
+            FileLogger.Info("App", "req-115 显示资源包热重载完成");
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Error("App", $"OnDisplayPacksChanged failed: {ex.Message}", ex);
+        }
     }
 
     /// <summary>
@@ -1068,6 +1350,10 @@ public partial class App : Application
         // req-fix-退出卡死兜底：先拉起看门狗，保证即使后续清理/进程关闭阶段挂住也能在 5s 内强制终止
         StartExitWatchdog();
         _trayHoverCheckTimer?.Stop();
+        // req-111：释放 plugins/ 目录监视器（避免退出阶段残留文件事件触发重载）
+        _pluginsWatcher?.Dispose();
+        // req-115：释放显示资源包目录监视器
+        _displayPackRegistry?.Dispose();
         // req-028：停止 5h 倒计时 timer（避免 DispatcherTimer 持续持有 root 引用）
         _viewModel?.StopResetCountdownTimer();
         _refreshService.Dispose();

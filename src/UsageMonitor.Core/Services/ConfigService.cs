@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using UsageMonitor.Core.Models;
 using UsageMonitor.Core.Plugins;
+using UsageMonitor.Core.Security;
 
 namespace UsageMonitor.Core.Services;
 
@@ -104,6 +105,22 @@ public class AppSettings
 
     /// <summary>应用外观主题（深色 / 浅色）。启动时由 ThemeManager 应用，默认深色。</summary>
     public ThemeMode Theme { get; set; } = ThemeMode.Dark;
+
+    /// <summary>req-115：外观主题 Id（空 = 按 <see cref="Theme"/> 枚举映射内置 dark/light；
+    /// 非空 = ThemeModule 已注册的主题 Id，含外部 themes/ 主题包）。</summary>
+    public string ThemeId { get; set; } = "";
+
+    /// <summary>req-115：图表样式包 Id（charts/ 目录，空 = 内置）。选中后包内 usage 色阶覆盖全局用量色阶。</summary>
+    public string ChartStylePackId { get; set; } = "";
+
+    /// <summary>req-115：mini 图表样式包 Id（minicharts/ 目录，空 = 内置）。选中后按 chartKind 覆盖迷你图私有色阶。</summary>
+    public string MiniChartStylePackId { get; set; } = "";
+
+    /// <summary>req-115：托盘悬浮窗模板包 Id（traytooltips/ 目录，空 = 内置布局）。</summary>
+    public string TrayTooltipPackId { get; set; } = "";
+
+    /// <summary>req-116：界面语言（zh-CN / en-US），影响经 I18n 解析的插件文案与语言包选择。</summary>
+    public string Language { get; set; } = "zh-CN";
 
     /// <summary>各 Provider 在主窗口卡片中展示的图表类型（key=ProviderId，缺省为 None 仅进度条）。
     /// <para>遗留的「单选」字段：仅用于向 <see cref="ProviderCardChartKinds"/> 迁移旧配置，新逻辑一律读写多选集合。</para></summary>
@@ -1124,6 +1141,8 @@ public class ConfigService : IConfigService
             acct.DataGroupOrders = CopyStringToIntDictDict(config.DataGroupOrders);
             // req-105：每张图表的 Tooltip 字段随卡片配置一起持久化
             acct.VisibleTooltipFields = CopyStringToListDict(config.VisibleTooltipFields);
+            // req-115：每张图表的色阶来源（chartId/实例 ID → "global:usage-tier-default" 或 "pack:<packId>"）随卡片配置一起持久化
+            acct.ChartColorTierSources = new Dictionary<string, string>(config.ChartColorTierSources);
             // 折叠分界线位置随卡片配置一起持久化
             acct.CollapseDividerIndex = config.CollapseDividerIndex;
         }
@@ -1205,7 +1224,7 @@ public class ConfigService : IConfigService
     }
 
     /// <summary>
-    /// 加密敏感字段（如Password类型的配置值）
+    /// 加密敏感字段（插件元数据声明 + 关键词兜底判定；已带前缀的密文跳过，避免二次加密）
     /// </summary>
     private void EncryptSensitiveFields(AppSettings settings)
     {
@@ -1214,16 +1233,19 @@ public class ConfigService : IConfigService
             var keysToEncrypt = config.Values.Keys.ToList();
             foreach (var key in keysToEncrypt)
             {
-                if (IsSensitiveKey(key) && !string.IsNullOrEmpty(config.Values[key]))
+                var value = config.Values[key];
+                if (IsSensitiveKey(key) && !string.IsNullOrEmpty(value)
+                    && !value.StartsWith(EncryptedPrefix, StringComparison.Ordinal))
                 {
-                    config.Values[key] = Encrypt(config.Values[key]);
+                    config.Values[key] = Encrypt(value);
                 }
             }
         }
     }
 
     /// <summary>
-    /// 解密敏感字段
+    /// 解密敏感字段：带 <see cref="EncryptedPrefix"/> 前缀的值无条件解密（自描述密文，不依赖敏感键
+    /// 判定时机，解决插件注册晚于配置加载的顺序问题）；无前缀的旧格式密文按敏感键判定尝试解密。
     /// </summary>
     private void DecryptSensitiveFields()
     {
@@ -1232,42 +1254,50 @@ public class ConfigService : IConfigService
             var keysToDecrypt = config.Values.Keys.ToList();
             foreach (var key in keysToDecrypt)
             {
-                if (IsSensitiveKey(key) && !string.IsNullOrEmpty(config.Values[key]))
+                var value = config.Values[key];
+                if (string.IsNullOrEmpty(value)) continue;
+                // 新格式：前缀自描述，任意键均解密；旧格式：仅敏感键尝试解密（兼容历史配置）。
+                var isPrefixed = value.StartsWith(EncryptedPrefix, StringComparison.Ordinal);
+                if (!isPrefixed && !IsSensitiveKey(key)) continue;
+                try
                 {
-                    try
-                    {
-                        config.Values[key] = Decrypt(config.Values[key]);
-                    }
-                    catch (Exception ex)
-                    {
-                        // 解密失败则保留原值（可能是未加密的旧配置）；记录告警便于诊断，绝不记明文值。
-                        FileLogger.Warn("ConfigService",
-                            $"解密字段失败，已保留原值。key={key}, 原因={ex.GetType().Name}: {ex.Message}");
-                    }
+                    config.Values[key] = Decrypt(value);
+                }
+                catch (Exception ex)
+                {
+                    // 解密失败则保留原值（可能是未加密的旧配置）；记录告警便于诊断，绝不记明文值。
+                    FileLogger.Warn("ConfigService",
+                        $"解密字段失败，已保留原值。key={key}, 原因={ex.GetType().Name}: {ex.Message}");
                 }
             }
         }
     }
 
-    /// <summary>判断是否为敏感配置键</summary>
+    /// <summary>
+    /// 判断是否为敏感配置键：插件字段元数据显式声明（Sensitive=true / Password 类型，
+    /// 经 <see cref="SensitiveConfigKeyRegistry"/> 注册）优先，关键词表兜底。
+    /// </summary>
     private static bool IsSensitiveKey(string key)
-    {
-        var sensitiveKeywords = new[] { "apikey", "token", "secret", "password", "cookie" };
-        return sensitiveKeywords.Any(k => key.Contains(k, StringComparison.OrdinalIgnoreCase));
-    }
+        => SensitiveConfigKeyRegistry.IsSensitive(key);
 
-    /// <summary>使用DPAPI加密字符串</summary>
+    /// <summary>加密值自描述前缀：落盘密文为 "enc:v1:" + Base64(DPAPI)，解密时无需依赖敏感键判定。</summary>
+    private const string EncryptedPrefix = "enc:v1:";
+
+    /// <summary>使用DPAPI加密字符串（输出带 <see cref="EncryptedPrefix"/> 自描述前缀）</summary>
     private static string Encrypt(string plainText)
     {
         var bytes = Encoding.UTF8.GetBytes(plainText);
         var encrypted = ProtectedData.Protect(bytes, null, DataProtectionScope.CurrentUser);
-        return Convert.ToBase64String(encrypted);
+        return EncryptedPrefix + Convert.ToBase64String(encrypted);
     }
 
-    /// <summary>使用DPAPI解密字符串</summary>
+    /// <summary>使用DPAPI解密字符串（兼容带前缀的新格式与纯 Base64 旧格式）</summary>
     private static string Decrypt(string cipherText)
     {
-        var bytes = Convert.FromBase64String(cipherText);
+        var payload = cipherText.StartsWith(EncryptedPrefix, StringComparison.Ordinal)
+            ? cipherText.Substring(EncryptedPrefix.Length)
+            : cipherText;
+        var bytes = Convert.FromBase64String(payload);
         var decrypted = ProtectedData.Unprotect(bytes, null, DataProtectionScope.CurrentUser);
         return Encoding.UTF8.GetString(decrypted);
     }

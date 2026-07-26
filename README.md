@@ -182,6 +182,8 @@ dotnet run --project src/UsageMonitor.App
 
 ## 许可证
 
+> 🔒 安全设计与凭据保护说明见 [SECURITY.md](SECURITY.md)（DPAPI 加密、网络行为边界、插件安全模型与漏洞披露方式）。
+
 本项目采用 **open-core（开放核心）** 双许可结构：
 
 | 范围 | 许可证 | 说明 |

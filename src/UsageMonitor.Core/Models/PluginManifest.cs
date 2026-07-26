@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// 插件 SDK 契约文件：本文件按 Apache License 2.0 授权（见仓库根目录 LICENSE-APACHE），
+// 供第三方插件开发自由引用；仓库其余部分适用 BSL 1.1（见 LICENSE）。
 using System;
 using System.Collections.Generic;
 using System.Text.Json;
@@ -27,6 +30,13 @@ public sealed class PluginManifest
 
     /// <summary>多语言用量网页（key = 语言代码如 zh-CN；订阅档位名称从对应语言网页抓取）。</summary>
     public Dictionary<string, string> UsageUrls { get; init; } = new();
+
+    /// <summary>
+    /// 凭据允许域名（可选显式声明，如 ["api.deepseek.com"]）。携带 Cookie / 敏感配置占位符的
+    /// http 端点目标域必须命中本列表或 loginConfig / fetch.capture / usageUrls 可推导的官方域集合
+    /// （见 <c>CredentialDomainGuard</c>），阻断凭据外传到任意外部域。
+    /// </summary>
+    public IReadOnlyList<string> CredentialDomains { get; init; } = System.Array.Empty<string>();
 
     // ============ Stage A 声明包扩展：第 1 部分（接入）与悬浮窗声明 ============
 
@@ -79,6 +89,7 @@ public sealed class PluginManifest
             ProviderId = first.ProviderId ?? second.ProviderId,
             DisplayName = first.DisplayName ?? second.DisplayName,
             UsageUrls = first.UsageUrls.Count > 0 ? first.UsageUrls : second.UsageUrls,
+            CredentialDomains = first.CredentialDomains.Count > 0 ? first.CredentialDomains : second.CredentialDomains,
             Meta = first.Meta ?? second.Meta,
             LoginConfig = first.LoginConfig ?? second.LoginConfig,
             ConfigFields = first.ConfigFields.Count > 0 ? first.ConfigFields : second.ConfigFields,

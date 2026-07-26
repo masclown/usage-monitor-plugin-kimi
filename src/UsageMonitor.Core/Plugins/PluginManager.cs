@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Security.Cryptography;
+using UsageMonitor.Core.Security;
 using UsageMonitor.Core.Services;
 
 namespace UsageMonitor.Core.Plugins;
@@ -23,6 +24,9 @@ public class PluginManager
     {
         get { lock (_pluginsLock) { return _plugins.ToList().AsReadOnly(); } }
     }
+
+    /// <summary>req-111/114：插件扫描根目录（供目录监视器与安装器定位 plugins/ 位置）。</summary>
+    public string PluginDirectory => _pluginDirectory;
 
     /// <summary>插件加载完成事件</summary>
     public event EventHandler? PluginsLoaded;
@@ -126,11 +130,17 @@ public class PluginManager
         }
 
         var loaded = 0;
+        // req-116：重扫前清除插件命名空间旧词条，避免已卸载插件的文案残留；
+        // 随后逐包先注册语言包再解析清单，保证 manifest 里的 i18n: 键能解析到译文。
+        I18n.UnregisterByPrefix("plugin.");
         foreach (var dir in packageDirs)
         {
             try
             {
                 if (!DeclarativeManifestFiles.Any(f => File.Exists(Path.Combine(dir, f)))) continue;
+
+                // req-116：先注册声明包自带语言包（i18n/<lang>.json）
+                PluginLanguagePackLoader.LoadAndRegister(dir);
 
                 var manifest = PluginDefaultsLoader.LoadFromDirectory(dir);
                 if (manifest == null || string.IsNullOrWhiteSpace(manifest.ProviderId))
@@ -140,6 +150,7 @@ public class PluginManager
                 }
 
                 var provider = new DeclarativeProvider(manifest, dir);
+                RegisterSensitiveConfigKeys(provider);
                 lock (_pluginsLock)
                 {
                     if (_plugins.Any(p => p.Provider.ProviderId == provider.ProviderId))
@@ -184,6 +195,7 @@ public class PluginManager
         {
             if (Activator.CreateInstance(type) is IUsageProvider provider)
             {
+                RegisterSensitiveConfigKeys(provider);
                 lock (_pluginsLock)
                 {
                     if (_plugins.Any(p => p.Provider.ProviderId == provider.ProviderId))
@@ -212,10 +224,28 @@ public class PluginManager
     }
 
     /// <summary>
+    /// 把插件声明的敏感配置键（Sensitive=true 或 Password 类型字段）注入全局敏感键注册表，
+    /// 供 ConfigService 落盘加密判定；失败不阻断插件加载（仅降级为关键词兜底）。
+    /// </summary>
+    /// <param name="provider">已实例化的插件。</param>
+    private static void RegisterSensitiveConfigKeys(IUsageProvider provider)
+    {
+        try
+        {
+            SensitiveConfigKeyRegistry.RegisterFields(provider.ConfigFields);
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Warn("PluginManager", $"注册敏感配置键失败（{provider.ProviderId}）: {ex.Message}");
+        }
+    }
+
+    /// <summary>
     /// 注册一个内置插件（不通过DLL加载）。req-057：加锁保护。
     /// </summary>
     public void RegisterPlugin(IUsageProvider provider)
     {
+        RegisterSensitiveConfigKeys(provider);
         lock (_pluginsLock)
         {
             if (_plugins.Any(p => p.Provider.ProviderId == provider.ProviderId))

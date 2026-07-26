@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using UsageMonitor.Core.Models;
 using UsageMonitor.Core.Plugins.Declarative;
+using UsageMonitor.Core.Security;
 using UsageMonitor.Core.Services;
 
 namespace UsageMonitor.Core.Plugins;
@@ -21,6 +22,9 @@ public sealed class DeclarativeProvider : IUsageProvider
 {
     private readonly PluginManifest _manifest;
     private readonly string _pluginDirectory;
+
+    /// <summary>凭据允许域集合缓存（首次取数时从清单推导，供凭据域名同源约束）。</summary>
+    private IReadOnlyCollection<string>? _credentialDomains;
 
     /// <summary>
     /// 创建声明包运行器实例。
@@ -94,7 +98,7 @@ public sealed class DeclarativeProvider : IUsageProvider
     {
         var fetch = _manifest.Fetch;
         if (fetch == null)
-            return CreateError("插件声明包缺少 fetch 节，无法取数");
+            return CreateError("插件声明包缺少 fetch 节，无法取数", UsageErrorCodes.ConfigMissing);
 
         // Cookie 自愈：config 缺失时回退已保存登录态并回填内存配置。
         // req-110 P2-2：按 _accountId 提示键优先读账号级 cookie 文件（cookies/{Provider}.{Account}.json），缺失回退 Provider 级。
@@ -130,7 +134,7 @@ public sealed class DeclarativeProvider : IUsageProvider
 
         // 需要浏览器捕获但无任何登录态/直连端点时，直接返回引导文案（避免空跑浏览器）。
         if (string.IsNullOrWhiteSpace(cookie) && captureEndpoints.Count > 0 && httpAlways.Count == 0)
-            return CreateError("未配置登录态，请在设置界面点击「🌐 获取登录态」完成登录");
+            return CreateError("未配置登录态，请在设置界面点击「🌐 获取登录态」完成登录", UsageErrorCodes.CredentialMissing);
 
         try
         {
@@ -161,7 +165,7 @@ public sealed class DeclarativeProvider : IUsageProvider
                     if (capture != null)
                     {
                         if (capture.LoginInvalid)
-                            return CreateError("登录态已失效，请重新获取登录态");
+                            return CreateError("登录态已失效，请重新获取登录态", UsageErrorCodes.AuthInvalid);
                         foreach (var kv in capture.Responses) responses[kv.Key] = kv.Value;
                         dom = capture.Dom;
                         FileLogger.Info(LogSource, $"浏览器捕获完成（{sw.ElapsedMilliseconds}ms，{responses.Count} 个响应）");
@@ -176,7 +180,7 @@ public sealed class DeclarativeProvider : IUsageProvider
             // 2. http 常规端点：声明式直连（如纯 API 型 Provider）。
             if (httpAlways.Count > 0)
             {
-                foreach (var kv in await DeclarativeHttpFetcher.FetchAsync(httpAlways, config.GetValue, cookie, ct))
+                foreach (var kv in await DeclarativeHttpFetcher.FetchAsync(httpAlways, config.GetValue, cookie, CredentialDomains, ct))
                     responses[kv.Key] = kv.Value;
             }
 
@@ -188,28 +192,28 @@ public sealed class DeclarativeProvider : IUsageProvider
             if (httpFallback.Count > 0 && !HasPrimaryMetric(result.Extras, primaryKey))
             {
                 FileLogger.Warn(LogSource, "主指标缺失，执行 http 回退端点");
-                foreach (var kv in await DeclarativeHttpFetcher.FetchAsync(httpFallback, config.GetValue, cookie, ct))
+                foreach (var kv in await DeclarativeHttpFetcher.FetchAsync(httpFallback, config.GetValue, cookie, CredentialDomains, ct))
                     responses[kv.Key] = kv.Value;
                 result = DeclarativeCaptureExecutor.Execute(fetch, responses, dom);
             }
 
             if (!HasPrimaryMetric(result.Extras, primaryKey))
-                return CreateError("未能获取主指标数据（登录态可能已失效，请重新获取登录态）");
+                return CreateError("未能获取主指标数据（登录态可能已失效，请重新获取登录态）", UsageErrorCodes.DataEmpty);
 
             return BuildUsageInfo(result, primaryKey!);
         }
         catch (HttpRequestException ex)
         {
-            return CreateError($"网络请求失败：{ex.Message}");
+            return CreateError($"网络请求失败：{ex.Message}", UsageErrorCodes.NetworkError);
         }
         // req-065 B7：取消与超时分类——用户主动取消显示"用户取消"，网络超时显示"请求超时"。
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            return CreateError("用户取消");
+            return CreateError("用户取消", UsageErrorCodes.Cancelled);
         }
         catch (TaskCanceledException)
         {
-            return CreateError("请求超时（30s），服务商接口可能响应缓慢或不可达，请稍后重试");
+            return CreateError("请求超时（30s），服务商接口可能响应缓慢或不可达，请稍后重试", UsageErrorCodes.Timeout);
         }
         catch (Exception ex)
         {
@@ -231,6 +235,10 @@ public sealed class DeclarativeProvider : IUsageProvider
 
     /// <summary>日志来源标识（带 ProviderId 前缀，便于多声明包共存时区分）。</summary>
     private string LogSource => $"DeclarativeProvider[{ProviderId}]";
+
+    /// <summary>凭据允许域集合（懒推导：loginConfig / fetch.capture / usageUrls / credentialDomains）。</summary>
+    private IReadOnlyCollection<string> CredentialDomains
+        => _credentialDomains ??= CredentialDomainGuard.CollectAllowedDomains(_manifest);
 
     /// <summary>判断 extras 是否已含主指标（primaryKey 未声明时视为不满足，避免静默空数据）。</summary>
     private static bool HasPrimaryMetric(IReadOnlyDictionary<string, object> extras, string? primaryKey)
@@ -326,8 +334,15 @@ public sealed class DeclarativeProvider : IUsageProvider
         return usage;
     }
 
-    /// <summary>创建失败态 UsageInfo（错误消息由宿主按 errorGuidance 声明映射为引导文案）。</summary>
+    /// <summary>创建失败态 UsageInfo（错误消息由宿主按 errorGuidance 声明映射为引导文案）。
+    /// <para>req-116：附带稳定错误码（<see cref="UsageErrorCodes"/>），供插件 matchCodes 去语言化匹配。</para></summary>
     /// <param name="message">原始错误消息。</param>
-    private UsageInfo CreateError(string message)
-        => UsageInfo.CreateError(ProviderId, DisplayName, message);
+    /// <param name="code">稳定错误码（可空 = 未分类）。</param>
+    private UsageInfo CreateError(string message, string? code = null)
+    {
+        var info = UsageInfo.CreateError(ProviderId, DisplayName, message);
+        if (code != null)
+            info.Error = new UsageError(UsageErrorKind.Unknown, message) { Code = code };
+        return info;
+    }
 }

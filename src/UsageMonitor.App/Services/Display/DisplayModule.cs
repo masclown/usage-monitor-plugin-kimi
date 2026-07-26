@@ -285,6 +285,25 @@ public sealed class DisplayModule : IDisplayModule
         }
     }
 
+    /// <summary>
+    /// req-111：插件热重载后全量重建。
+    /// <para>先逐卡解除 ConfigService 订阅（防重复订阅 / 内存泄漏，与 RebuildCardsForProvider 同策略），
+    /// 清空卡片 / 插件项集合与账号签名缓存，再按 PluginManager 当前已加载插件重跑 <see cref="Build"/>。
+    /// 必须在 UI 线程调用。</para>
+    /// </summary>
+    public void RebuildAll()
+    {
+        foreach (var vm in Usages)
+            vm.AttachConfigService(null);
+        Usages.Clear();
+        PluginItems.Clear();
+        _accountSignatures.Clear();
+
+        Build();
+        UsageMonitor.Core.Services.FileLogger.Info("DisplayModule",
+            $"RebuildAll 完成：插件数={PluginItems.Count}，卡片数={Usages.Count}");
+    }
+
     /// <inheritdoc/>
     public void RenderCard(UsageInfo data)
     {

@@ -38,6 +38,34 @@ public class CardChartConfigTests : IDisposable
         c.DataGroupOrders.Should().BeEmpty();
     }
 
+    /// <summary>req-115：图表色阶来源（含 pack:&lt;packId&gt; 形态）随 SetCardChartConfiguration 持久化往返。</summary>
+    [Fact]
+    public void SetCardChartConfiguration_PersistsChartColorTierSources_IncludingPackForm()
+    {
+        var svc = CreateConfigService();
+        var config = new AccountCustomization
+        {
+            VisibleCharts = new System.Collections.Generic.List<string> { "mm.chart.cache_heatmap" },
+            ChartColorTierSources = new System.Collections.Generic.Dictionary<string, string>
+            {
+                ["mm.chart.cache_heatmap"] = "pack:ocean-tiers",
+                ["mm.chart.usage_bar"] = "global:usage-tier-default"
+            }
+        };
+
+        svc.SetCardChartConfiguration("minimax", config, "acct1");
+
+        var eff = svc.GetEffectiveAccountCustomization("minimax", "acct1");
+        eff.ChartColorTierSources["mm.chart.cache_heatmap"].Should().Be("pack:ocean-tiers");
+        eff.ChartColorTierSources["mm.chart.usage_bar"].Should().Be("global:usage-tier-default");
+
+        // 重新加载配置文件，确认落盘后仍可读回（非仅内存态）
+        var svc2 = CreateConfigService();
+        svc2.Load();
+        var eff2 = svc2.GetEffectiveAccountCustomization("minimax", "acct1");
+        eff2.ChartColorTierSources["mm.chart.cache_heatmap"].Should().Be("pack:ocean-tiers");
+    }
+
     [Fact]
     public void Effective_CopiesVisibleDataGroupsAndDataGroupOrders()
     {

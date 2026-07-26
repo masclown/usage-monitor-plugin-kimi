@@ -123,6 +123,10 @@ public class CardManageViewModel : INotifyPropertyChanged
 
                 // tooltip 字段
                 config.VisibleTooltipFields[chart.InstanceId] = chart.TooltipFields.Where(f => f.IsChecked).Select(f => f.FieldName).ToList();
+
+                // req-115：色阶来源（仅对支持色阶的图表落盘；默认全局源也写入，保持显式语义）
+                if (chart.SupportsColorTiers && !string.IsNullOrEmpty(chart.SelectedTierSource))
+                    config.ChartColorTierSources[chart.InstanceId] = chart.SelectedTierSource;
             }
 
             config.CollapseDividerIndex = checkedBeforeDivider;
@@ -442,6 +446,33 @@ public class ChartNode : CardChartListItem
     /// <summary>Tooltip 字段多选项集合（S5 融入）。</summary>
     public ObservableCollection<TooltipFieldItem> TooltipFields { get; } = new();
 
+    /// <summary>req-115：图表类型是否支持色阶（控制色阶来源下拉可见性，按 ChartKindSpec 能力表）。</summary>
+    public bool SupportsColorTiers { get; }
+
+    /// <summary>req-115：色阶来源选项（全局色阶 + 已装 charts/ 图表样式包，Id 为 pack:&lt;packId&gt; 形态）。</summary>
+    public IReadOnlyList<DisplayPackOption> TierSourceOptions { get; }
+
+    private string _selectedTierSource;
+
+    /// <summary>req-115：当前色阶来源（"global:usage-tier-default" 或 "pack:&lt;packId&gt;"，选中即持久化并触发卡片重取色）。</summary>
+    public string SelectedTierSource
+    {
+        get => _selectedTierSource;
+        set
+        {
+            var v = string.IsNullOrEmpty(value) ? GlobalTierSourceKey : value;
+            if (!string.Equals(_selectedTierSource, v, StringComparison.OrdinalIgnoreCase))
+            {
+                _selectedTierSource = v;
+                OnPropertyChanged();
+                _parent.Save();
+            }
+        }
+    }
+
+    /// <summary>req-115：全局色阶源键（与插件声明 colorTiers.ref 的全局引用同名）。</summary>
+    internal const string GlobalTierSourceKey = "global:usage-tier-default";
+
     /// <summary>创建图表实例节点并初始化数据组与 tooltip 字段。</summary>
     public ChartNode(AccountNode parent, ChartDeclaration declaration, string instanceId, bool isVisible, AccountCustomization eff)
     {
@@ -452,6 +483,15 @@ public class ChartNode : CardChartListItem
         DisplayName = BuildDisplayName(declaration.ChartId, instanceId, declaration.Display);
         KindText = KindToChinese(declaration.Kind);
         RemoveSelfCommand = new RelayCommand(() => _parent.RemoveChartCommand.Execute(this));
+
+        // req-115：色阶来源初始化——仅支持色阶的图表类型展示下拉；已保存源（实例级优先回退图表级）缺省为全局色阶
+        SupportsColorTiers = ChartKindSpecRegistry.GetSpec(declaration.Kind)?.SupportsColorTiers == true;
+        TierSourceOptions = BuildTierSourceOptions();
+        var savedSource = ResolveTierSource(eff.ChartColorTierSources, instanceId, declaration.ChartId);
+        _selectedTierSource = !string.IsNullOrEmpty(savedSource)
+            && TierSourceOptions.Any(o => string.Equals(o.Id, savedSource, StringComparison.OrdinalIgnoreCase))
+            ? savedSource!
+            : GlobalTierSourceKey;
 
         // 初始化数据组（实例级配置优先，回退图表级）
         var visibleGroups = ResolveGroups(eff.VisibleDataGroups, instanceId, declaration.ChartId);
@@ -529,6 +569,32 @@ public class ChartNode : CardChartListItem
         if (!string.Equals(instanceId, chartId, StringComparison.Ordinal) && eff.VisibleTooltipFields.TryGetValue(instanceId, out var inst))
             return inst;
         return eff.VisibleTooltipFields.TryGetValue(chartId, out var chart) ? chart : null;
+    }
+
+    /// <summary>req-115：解析实例级/图表级色阶来源配置（实例级优先）。</summary>
+    private static string? ResolveTierSource(Dictionary<string, string> dict, string instanceId, string chartId)
+    {
+        if (!string.Equals(instanceId, chartId, StringComparison.Ordinal) && dict.TryGetValue(instanceId, out var inst))
+            return inst;
+        return dict.TryGetValue(chartId, out var chart) ? chart : null;
+    }
+
+    /// <summary>req-115：构建色阶来源选项：全局色阶 + 已装 charts/ 图表样式包（pack:&lt;packId&gt;）。
+    /// <para>单测环境无 App 实例时仅剩全局选项（防御性 null 保护）。</para></summary>
+    private static List<DisplayPackOption> BuildTierSourceOptions()
+    {
+        var options = new List<DisplayPackOption> { new(GlobalTierSourceKey, "全局色阶") };
+        try
+        {
+            var registry = (System.Windows.Application.Current as UsageMonitor.App.App)?.DisplayPacks;
+            if (registry != null)
+            {
+                foreach (var pack in registry.ChartStylePacks)
+                    options.Add(new DisplayPackOption($"pack:{pack.Id}", pack.EffectiveDisplayName));
+            }
+        }
+        catch { /* 包列举失败不影响页面加载 */ }
+        return options;
     }
 
     /// <summary>从 ChartId 提取简短显示名（去掉 Provider 前缀）。</summary>

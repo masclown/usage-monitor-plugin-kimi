@@ -500,30 +500,48 @@ public partial class SettingsWindow : Window
     }
 
     /// <summary>
-    /// req-107 B9：设置界面“校验插件”按钮——选择插件 defaults.json 即校验，
-    /// 复用与 <c>--validate-plugin</c> 命令行相同的 <see cref="UsageMonitor.Core.Plugins.PluginValidator"/> 校验代码。
+    /// req-113：设置界面"校验插件"按钮——直接扫描 plugins 目录全部声明包并弹出聚合报告，
+    /// 与 <c>--validate-plugin</c> 命令行共用 <see cref="UsageMonitor.Core.Plugins.PluginValidator"/> 校验代码。
     /// </summary>
     private void OnValidatePluginClick(object sender, RoutedEventArgs e)
     {
-        var dlg = new Microsoft.Win32.OpenFileDialog
-        {
-            Title = "选择插件显示声明文件 (defaults.json)",
-            Filter = "插件显示声明 (*.json)|*.json|所有文件 (*.*)|*.*",
-            CheckFileExists = true
-        };
-        if (dlg.ShowDialog(this) != true) return;
-
         try
         {
-            var json = File.ReadAllText(dlg.FileName);
-            var sdkVersion = typeof(SettingsWindow).Assembly.GetName().Version ?? new Version(0, 24, 3);
-            var result = UsageMonitor.Core.Plugins.PluginValidator.Validate(json, sdkVersion);
+            var pluginsRoot = (System.Windows.Application.Current as App)?.PluginsDirectory
+                ?? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "plugins");
+            var manifestNames = new[] { "plugin.json", "fetch.json", "display.json", "defaults.json" };
+            var packageDirs = Directory.Exists(pluginsRoot)
+                ? Directory.GetDirectories(pluginsRoot)
+                    .Where(d => manifestNames.Any(f => File.Exists(Path.Combine(d, f))))
+                    .ToList()
+                : new List<string>();
+
+            if (packageDirs.Count == 0)
+            {
+                System.Windows.MessageBox.Show(
+                    this, $"plugins 目录下未发现声明包：\n{pluginsRoot}", "插件校验",
+                    System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
+                return;
+            }
+
+            var sdkVersion = App.CurrentSdkVersion();
+            var sb = new System.Text.StringBuilder();
+            var allValid = true;
+            foreach (var dir in packageDirs)
+            {
+                var result = UsageMonitor.Core.Plugins.PluginValidator.ValidatePackageDirectory(dir, sdkVersion);
+                allValid &= result.IsValid;
+                sb.AppendLine($"【{Path.GetFileName(dir)}】");
+                sb.Append(result.ToReport());
+                sb.AppendLine();
+            }
+
             System.Windows.MessageBox.Show(
                 this,
-                result.ToReport(),
-                result.IsValid ? "插件校验通过" : "插件校验失败",
+                sb.ToString().TrimEnd(),
+                allValid ? $"插件校验通过（{packageDirs.Count} 个包）" : "插件校验存在问题",
                 System.Windows.MessageBoxButton.OK,
-                result.IsValid ? System.Windows.MessageBoxImage.Information : System.Windows.MessageBoxImage.Warning);
+                allValid ? System.Windows.MessageBoxImage.Information : System.Windows.MessageBoxImage.Warning);
         }
         catch (Exception ex)
         {
@@ -534,6 +552,136 @@ public partial class SettingsWindow : Window
                 System.Windows.MessageBoxButton.OK,
                 System.Windows.MessageBoxImage.Error);
         }
+    }
+
+    /// <summary>
+    /// req-112：插件管理页"刷新"按钮——调用与目录监视热重载相同的统一重载管线，
+    /// 完成后在按钮旁短暂显示"已加载 N 个插件"。
+    /// </summary>
+    private void OnReloadPluginsClick(object sender, RoutedEventArgs e)
+    {
+        if (System.Windows.Application.Current is not App app) return;
+        var count = app.ReloadPluginsAndRebuild();
+        ShowPluginActionStatus(sender, count >= 0 ? $"已加载 {count} 个插件" : "正在重载，请稍候再试");
+    }
+
+    /// <summary>
+    /// req-114："安装插件"按钮——弹出"从文件夹 / 从压缩包"两项菜单。
+    /// </summary>
+    private void OnInstallPluginClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.Button btn) return;
+
+        var menu = new System.Windows.Controls.ContextMenu();
+        var fromFolder = new System.Windows.Controls.MenuItem { Header = "从文件夹安装…" };
+        fromFolder.Click += (_, _) => InstallPluginFromFolderDialog(btn);
+        var fromZip = new System.Windows.Controls.MenuItem { Header = "从压缩包安装…" };
+        fromZip.Click += (_, _) => InstallPluginFromZipDialog(btn);
+        menu.Items.Add(fromFolder);
+        menu.Items.Add(fromZip);
+        menu.PlacementTarget = btn;
+        menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+        menu.IsOpen = true;
+    }
+
+    /// <summary>
+    /// req-114：选择插件文件夹并安装（.NET 8 OpenFolderDialog）。
+    /// </summary>
+    /// <param name="origin">发起按钮（用于定位状态提示文本）。</param>
+    private void InstallPluginFromFolderDialog(System.Windows.Controls.Button origin)
+    {
+        var dlg = new Microsoft.Win32.OpenFolderDialog { Title = "选择插件文件夹（含 plugin.json / defaults.json 等清单文件）" };
+        if (dlg.ShowDialog(this) != true) return;
+        RunPluginInstall(origin, overwrite =>
+            ((App)System.Windows.Application.Current).InstallPluginFromFolder(dlg.FolderName, overwrite));
+    }
+
+    /// <summary>
+    /// req-114：选择插件 zip 压缩包并安装。
+    /// </summary>
+    /// <param name="origin">发起按钮（用于定位状态提示文本）。</param>
+    private void InstallPluginFromZipDialog(System.Windows.Controls.Button origin)
+    {
+        var dlg = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = "选择插件压缩包",
+            Filter = "插件压缩包 (*.zip)|*.zip",
+            CheckFileExists = true
+        };
+        if (dlg.ShowDialog(this) != true) return;
+        RunPluginInstall(origin, overwrite =>
+            ((App)System.Windows.Application.Current).InstallPluginFromZip(dlg.FileName, overwrite));
+    }
+
+    /// <summary>
+    /// req-114：执行安装并处理结果：同名包弹覆盖确认后重试；失败展示错误与校验明细；成功短暂显示状态提示。
+    /// </summary>
+    /// <param name="origin">发起按钮。</param>
+    /// <param name="install">安装动作（参数为是否覆盖）。</param>
+    private void RunPluginInstall(
+        System.Windows.Controls.Button origin,
+        Func<bool, UsageMonitor.Core.Plugins.PluginInstallResult> install)
+    {
+        try
+        {
+            var result = install(false);
+            if (result.RequiresOverwriteConfirmation)
+            {
+                var confirm = System.Windows.MessageBox.Show(
+                    this, $"plugins/{result.PackageName} 已存在，是否覆盖安装？", "安装插件",
+                    System.Windows.MessageBoxButton.YesNo, System.Windows.MessageBoxImage.Question);
+                if (confirm != System.Windows.MessageBoxResult.Yes) return;
+                result = install(true);
+            }
+
+            if (result.Success)
+            {
+                ShowPluginActionStatus(origin, $"已安装 {result.PackageName}");
+                // 预校验警告不阻断安装，但提示给用户知晓
+                if (result.Validation is { Warnings.Count: > 0 })
+                {
+                    System.Windows.MessageBox.Show(
+                        this, $"安装成功，但存在警告：\n{result.Validation.ToReport()}", "安装插件",
+                        System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
+                }
+            }
+            else
+            {
+                var detail = result.Validation != null ? "\n\n" + result.Validation.ToReport() : string.Empty;
+                System.Windows.MessageBox.Show(
+                    this, (result.Error ?? "安装失败") + detail, "安装插件失败",
+                    System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Windows.MessageBox.Show(
+                this, $"安装异常：{ex.Message}", "安装插件",
+                System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
+        }
+    }
+
+    /// <summary>
+    /// req-112/114：在插件操作区按钮旁的状态 TextBlock 短暂显示提示（3 秒后自动隐藏）。
+    /// <para>状态 TextBlock 与按钮同属一个 StackPanel（DataTemplate 内无法用 x:Name 字段访问，改用父容器查找）。</para>
+    /// </summary>
+    /// <param name="sender">触发按钮。</param>
+    /// <param name="message">提示文本。</param>
+    private static void ShowPluginActionStatus(object sender, string message)
+    {
+        var panel = (sender as FrameworkElement)?.Parent as System.Windows.Controls.StackPanel;
+        var text = panel?.Children.OfType<System.Windows.Controls.TextBlock>().FirstOrDefault();
+        if (text == null) return;
+
+        text.Text = message;
+        text.Visibility = Visibility.Visible;
+        var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            text.Visibility = Visibility.Collapsed;
+        };
+        timer.Start();
     }
 
     /// <summary>

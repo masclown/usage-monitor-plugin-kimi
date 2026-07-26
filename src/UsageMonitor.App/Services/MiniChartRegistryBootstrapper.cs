@@ -146,7 +146,8 @@ public static class MiniChartRegistryBootstrapper
             Style = MiniChartStyle.Compact,
             DataSource = (double?)null,
             // 问题20：声明的内联色阶（thresholds/colors）转换为私有色阶；ref 引用全局色阶时保持 null（渲染层回退 UsageTierScale）。
-            ColorTier = ConvertDeclaredColorTiers(mini.ColorTiers),
+            // req-115：ref="pack:<packId>" 时按图表类型从样式包解析。
+            ColorTier = ConvertDeclaredColorTiers(mini.ColorTiers, mini.Kind.ToString()),
             Tooltip = MiniChartTooltip.Default,
             ContentKind = contentKind,
             SecondaryKind = secondaryKind,
@@ -178,13 +179,26 @@ public static class MiniChartRegistryBootstrapper
     /// <summary>
     /// 问题20：把声明的内联色阶（<see cref="UsageMonitor.Core.Models.ColorTierSpec"/> 的 thresholds/colors）
     /// 转换为迷你图私有色阶 <see cref="MiniChartColorTier"/>。
-    /// <para>ref 引用全局色阶 / 声明缺失 / 解析失败时返回 null（渲染层回退全局 UsageTierScale）。</para>
+    /// <para>ref 引用全局色阶 / 声明缺失 / 解析失败时返回 null（渲染层回退全局 UsageTierScale）。
+    /// req-115：ref 支持 "pack:&lt;packId&gt;" 形态——从 minicharts/ 或 charts/ 样式包取对应图表类型（回退 "usage"）色阶。</para>
     /// </summary>
     private static MiniChartColorTier? ConvertDeclaredColorTiers(UsageMonitor.Core.Models.ColorTierSpec? spec)
+        => ConvertDeclaredColorTiers(spec, null);
+
+    /// <summary>同上，携带图表类型名供 pack: 引用按类型取样式条目。</summary>
+    /// <param name="spec">色阶声明。</param>
+    /// <param name="chartKindName">迷你图类型名（如 "MiniRingChart"，可空）。</param>
+    private static MiniChartColorTier? ConvertDeclaredColorTiers(UsageMonitor.Core.Models.ColorTierSpec? spec, string? chartKindName)
     {
         if (spec == null) return null;
-        // ref 引用（如 "global:usage-tier-default"）→ 交给全局色阶，保持 null
-        if (!string.IsNullOrEmpty(spec.Ref)) return null;
+        if (!string.IsNullOrEmpty(spec.Ref))
+        {
+            // req-115："pack:<packId>" 引用 → 从显示资源包解析；其余 ref（如全局色阶）保持 null 交给全局
+            const string packPrefix = "pack:";
+            if (spec.Ref!.StartsWith(packPrefix, StringComparison.OrdinalIgnoreCase))
+                return ResolvePackColorTier(spec.Ref.Substring(packPrefix.Length), chartKindName);
+            return null;
+        }
         if (spec.Thresholds.Count == 0 || spec.Colors.Count == 0) return null;
         try
         {
@@ -210,6 +224,44 @@ public static class MiniChartRegistryBootstrapper
         catch (Exception ex)
         {
             FileLogger.Warn("MiniChartRegistryBootstrapper", $"声明色阶转换失败，回退全局色阶：{ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// req-115：从显示资源包解析 pack 色阶：优先 minicharts/ mini 样式包，回退 charts/ 图表样式包；
+    /// 包内条目按图表类型名取，缺失回退 "usage" 条目；均未命中 / 解析失败返回 null（回退全局色阶）。
+    /// </summary>
+    /// <param name="packId">样式包 Id。</param>
+    /// <param name="chartKindName">图表类型名（如 "MiniRingChart"，可空）。</param>
+    private static MiniChartColorTier? ResolvePackColorTier(string packId, string? chartKindName)
+    {
+        try
+        {
+            var registry = (System.Windows.Application.Current as UsageMonitor.App.App)?.DisplayPacks;
+            if (registry == null || string.IsNullOrWhiteSpace(packId)) return null;
+
+            UsageMonitor.Core.Services.Display.ChartStyleEntry? entry = null;
+            var miniPack = registry.GetMiniChartStylePack(packId);
+            if (miniPack != null
+                && (chartKindName == null || !miniPack.ChartStyles.TryGetValue(chartKindName, out entry)))
+                miniPack.ChartStyles.TryGetValue("usage", out entry);
+            if (entry == null)
+            {
+                var chartPack = registry.GetChartStylePack(packId);
+                if (chartPack != null
+                    && (chartKindName == null || !chartPack.ChartStyles.TryGetValue(chartKindName, out entry)))
+                    chartPack.ChartStyles.TryGetValue("usage", out entry);
+            }
+
+            var tiers = UsageMonitor.Core.Services.Display.DisplayPackConverters.ToUsageTiers(entry);
+            if (tiers == null || tiers.Count == 0) return null;
+            // MiniChartColorTier 限制 1-6 档，超出部分截断
+            return new MiniChartColorTier(tiers.Take(6).ToList());
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Warn("MiniChartRegistryBootstrapper", $"pack 色阶解析失败（{packId}），回退全局色阶：{ex.Message}");
             return null;
         }
     }

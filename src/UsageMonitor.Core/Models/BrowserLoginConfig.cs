@@ -1,4 +1,7 @@
-﻿using System.Collections.Generic;
+// SPDX-License-Identifier: Apache-2.0
+// 插件 SDK 契约文件：本文件按 Apache License 2.0 授权（见仓库根目录 LICENSE-APACHE），
+// 供第三方插件开发自由引用；仓库其余部分适用 BSL 1.1（见 LICENSE）。
+using System.Collections.Generic;
 
 namespace UsageMonitor.Core.Models;
 

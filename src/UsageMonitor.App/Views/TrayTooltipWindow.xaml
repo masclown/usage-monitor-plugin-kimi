@@ -70,35 +70,49 @@
                                     </Border>
                                 </Grid>
 
-                                <!-- 详细信息。req-079 U-35：标签字号 10→11，数值字号 12→13 -->
-                                <UniformGrid Columns="3">
-                                    <StackPanel>
-                                        <TextBlock Text="已使用" FontSize="11"
-                                                   Foreground="{DynamicResource TextTertiaryBrush}" />
-                                        <TextBlock Text="{Binding UsedText}" FontSize="13"
-                                                   Foreground="{DynamicResource TextPrimaryBrush}"
-                                                   FontWeight="Medium" />
-                                    </StackPanel>
-                                    <StackPanel>
-                                        <TextBlock Text="总额度" FontSize="11"
-                                                   Foreground="{DynamicResource TextTertiaryBrush}" />
-                                        <TextBlock Text="{Binding TotalText}" FontSize="13"
-                                                   Foreground="{DynamicResource TextPrimaryBrush}"
-                                                   FontWeight="Medium" />
-                                    </StackPanel>
-                                    <StackPanel>
-                                        <TextBlock Text="剩余额度" FontSize="11"
-                                                   Foreground="{DynamicResource TextTertiaryBrush}" />
-                                        <TextBlock Text="{Binding RemainingText}" FontSize="13"
-                                                   Foreground="{DynamicResource SuccessBrush}"
-                                                   FontWeight="Medium" />
-                                    </StackPanel>
-                                </UniformGrid>
+                                <!-- 详细信息。req-079 U-35：标签字号 10→11，数值字号 12→13。
+                                     req-115：悬浮窗模板包生效时隐藏内置明细区，改按包内字段行渲染 -->
+                                <StackPanel Visibility="{Binding IsTrayTooltipDefaultVisible, Converter={StaticResource BoolToVisibility}}">
+                                    <UniformGrid Columns="3">
+                                        <StackPanel>
+                                            <TextBlock Text="已使用" FontSize="11"
+                                                       Foreground="{DynamicResource TextTertiaryBrush}" />
+                                            <TextBlock Text="{Binding UsedText}" FontSize="13"
+                                                       Foreground="{DynamicResource TextPrimaryBrush}"
+                                                       FontWeight="Medium" />
+                                        </StackPanel>
+                                        <StackPanel>
+                                            <TextBlock Text="总额度" FontSize="11"
+                                                       Foreground="{DynamicResource TextTertiaryBrush}" />
+                                            <TextBlock Text="{Binding TotalText}" FontSize="13"
+                                                       Foreground="{DynamicResource TextPrimaryBrush}"
+                                                       FontWeight="Medium" />
+                                        </StackPanel>
+                                        <StackPanel>
+                                            <TextBlock Text="剩余额度" FontSize="11"
+                                                       Foreground="{DynamicResource TextTertiaryBrush}" />
+                                            <TextBlock Text="{Binding RemainingText}" FontSize="13"
+                                                       Foreground="{DynamicResource SuccessBrush}"
+                                                       FontWeight="Medium" />
+                                        </StackPanel>
+                                    </UniformGrid>
 
-                                <!-- req-028：5h 倒计时（字号与额度一致） -->
-                                <TextBlock Text="{Binding FiveHourCountdownText}" FontSize="12" FontWeight="Medium"
-                                           HorizontalAlignment="Right" Margin="0,8,0,0"
-                                           Foreground="{DynamicResource TextSecondaryBrush}" />
+                                    <!-- req-028：5h 倒计时（字号与额度一致） -->
+                                    <TextBlock Text="{Binding FiveHourCountdownText}" FontSize="12" FontWeight="Medium"
+                                               HorizontalAlignment="Right" Margin="0,8,0,0"
+                                               Foreground="{DynamicResource TextSecondaryBrush}" />
+                                </StackPanel>
+
+                                <!-- req-115：模板包字段行（traytooltips 包选中时显示，与内置明细区互斥） -->
+                                <ItemsControl ItemsSource="{Binding TrayTooltipPackLines}"
+                                              Visibility="{Binding IsTrayTooltipPackActive, Converter={StaticResource BoolToVisibility}}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding}" FontSize="12" Margin="0,1,0,1"
+                                                       Foreground="{DynamicResource TextPrimaryBrush}" />
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
 
                                 <!-- 错误信息 -->
                                 <TextBlock Text="{Binding ErrorMessage}"

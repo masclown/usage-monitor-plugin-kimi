@@ -234,6 +234,44 @@
 
 **为什么能热重载**：`DeclarativeWebPlugin` 对象生存在**已编译的 Core 程序集**里，`.plugin.json` 只是数据。重载只是替换数据对象，**不涉及 .NET 程序集卸载**（`Assembly.LoadFrom` 无法卸载的难题被绕开）——这是"配置型插件"相对"代码型 DLL 插件"的根本优势。
 
+**req-111 现行实现**：主程序对 `plugins/` 目录挂 `DebouncedDirectoryWatcher`（800ms 防抖），任何文件变更自动触发统一重载管线（重扫声明包 → 重建卡片/mini 图表/任务栏）；设置 → 插件管理页也提供「刷新」按钮手动触发、「安装插件…」按钮（文件夹 / zip，含 zip-slip 防护与安装前预校验）与「校验插件」按钮（直接聚合校验全部声明包）。
+
+---
+
+## i18n 插件语言包（req-116）
+
+声明包里的显示文案（`displayName` / `placeholder` / `display` / `errorGuidance.message` 等）支持两种写法：
+
+| 写法 | 示例 | 行为 |
+| --- | --- | --- |
+| 字面量（旧插件兼容） | `"display": "5h 限额"` | 原样显示，不随语言切换 |
+| i18n 键 | `"display": "i18n:plugin.MiniMax.group.bar5h"` | 按当前语言从语言包解析，缺键回退默认语言再回退键名 |
+
+**语言包文件**：`plugins/<包>/i18n/<lang>.json`（扁平 key→text，如 `i18n/zh-CN.json`、`i18n/en-US.json`）。
+
+**强制约束**：
+- 键必须以 `plugin.` 前缀开头（惯例 `plugin.<providerId>.xxx`），非法键被忽略（防宿主词条劫持）；
+- 插件重载前宿主自动清除 `plugin.` 命名空间旧词条；
+- 校验器会检查 i18n 键在默认语言（zh-CN）词条中是否存在（缺失报警告）。
+
+**语言切换**：设置 → 常规 → 界面语言；切换后宿主自动重载插件，manifest 里的 i18n 键按新语言重新解析。
+
+## errorGuidance 错误码匹配（req-116）
+
+新增 `matchCodes` 字段，匹配宿主生成的稳定错误码（不依赖错误文案措辞/语言）：
+
+```json
+"errorGuidance": [
+  { "matchCodes": ["credential_missing"], "message": "i18n:plugin.Xxx.guidance.credential" },
+  { "matchKeywords": ["1004", "login fail"], "message": "i18n:plugin.Xxx.guidance.authInvalid" },
+  { "matchKeywords": [], "message": "i18n:plugin.Xxx.guidance.fallback" }
+]
+```
+
+**匹配顺序**：① `matchCodes` 精确匹配 → ② `matchKeywords` 包含匹配（保留给服务商 API 原文）→ ③ 两者均空的兑底规则。
+
+**稳定错误码清单**（`UsageErrorCodes`）：`credential_missing`、`auth_invalid`、`network_error`、`timeout`、`cancelled`、`data_empty`、`config_missing`。
+
 ---
 
 ## 安全约束
@@ -242,6 +280,8 @@
 | --- | --- |
 | SSRF 白名单（req-056） | `loginUrl` / `usageUrl` 必须通过白名单校验，非法 URL 拒绝加载并记日志 |
 | Cookie ACL（req-089） | `cookieDomainFilters` 限定注入 Cookie 的域名范围 |
+| 凭据域名同源约束 | 携带 `{cookieHeader}` / `{cookie:名}` / `{config:敏感键}` 占位符的 http 端点，目标域必须命中声明包官方域集合（`loginConfig` / `fetch.capture` / `usageUrls` / 顶层 `credentialDomains` 列表），否则宿主拒绝发送；纯 API 型声明包建议显式声明 `"credentialDomains": ["api.xxx.com"]` 以启用强制校验 |
+| 敏感配置字段声明 | `configFields` 条目支持 `"sensitive": true`（Password 类型隐含敏感），声明后该字段落盘自动 DPAPI 加密；非常规命名的凭据字段（如 SessionId）务必声明，不要依赖关键词兜底 |
 | 无可执行代码 | 声明文件是纯数据，不含代码，天然比外部 DLL 插件安全 |
 | 内置优先 | `providerId` 与内置插件冲突时以内置为准，声明式无法覆盖核心插件 |
 

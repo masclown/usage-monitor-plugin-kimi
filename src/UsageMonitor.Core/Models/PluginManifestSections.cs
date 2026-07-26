@@ -30,8 +30,15 @@ public sealed class PluginMeta
 /// </summary>
 public sealed class ErrorGuidanceRule
 {
-    /// <summary>匹配关键字列表（错误消息包含任一即命中；空列表 = 兜底规则）。</summary>
+    /// <summary>匹配关键字列表（错误消息包含任一即命中；与 <see cref="MatchCodes"/> 均空 = 兑底规则）。</summary>
     public IReadOnlyList<string> MatchKeywords { get; init; } = System.Array.Empty<string>();
+
+    /// <summary>
+    /// req-116：匹配稳定错误码列表（如 "credential_missing"，见 <see cref="UsageErrorCodes"/>）。
+    /// <para>匹配优先级高于关键字：宿主先按错误码精确匹配，再回退关键字包含匹配。
+    /// 推荐用于匹配宿主生成的失败态（去语言化）；关键字保留给服务商 API 原文（如 "1004" / "login fail"）。</para>
+    /// </summary>
+    public IReadOnlyList<string> MatchCodes { get; init; } = System.Array.Empty<string>();
 
     /// <summary>命中后显示的引导文案（必填）。</summary>
     public string Message { get; init; } = string.Empty;

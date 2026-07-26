@@ -53,7 +53,18 @@ public static class UsageFieldsSchemaExporter
             ["generatedAtUtc"] = DateTime.UtcNow.ToString("o"),
             ["fields"] = fields,
             ["chartKinds"] = chartKinds,
-            ["transformers"] = Transformers.KnownNames.OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToArray()
+            ["transformers"] = Transformers.KnownNames.OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToArray(),
+            // req-116：稳定错误码清单（供 errorGuidance.matchCodes 声明时自动补全/校对）
+            ["errorCodes"] = new[]
+            {
+                UsageMonitor.Core.Models.UsageErrorCodes.CredentialMissing,
+                UsageMonitor.Core.Models.UsageErrorCodes.AuthInvalid,
+                UsageMonitor.Core.Models.UsageErrorCodes.NetworkError,
+                UsageMonitor.Core.Models.UsageErrorCodes.Timeout,
+                UsageMonitor.Core.Models.UsageErrorCodes.Cancelled,
+                UsageMonitor.Core.Models.UsageErrorCodes.DataEmpty,
+                UsageMonitor.Core.Models.UsageErrorCodes.ConfigMissing
+            }
         };
 
         var options = new JsonSerializerOptions { WriteIndented = true };

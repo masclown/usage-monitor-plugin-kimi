@@ -21,18 +21,18 @@
     "loggedInPathKeywords": [ "/console/", "/user-center/", "/plan", "/usage" ]
   },
   "configFields": [
-    { "key": "ApiKey", "displayName": "Token Plan 订阅密钥", "fieldType": "Password", "isRequired": false, "placeholder": "请输入 MiniMax Token Plan 订阅密钥（可在订阅页面获取）" },
-    { "key": "Cookie", "displayName": "Cookie 登录态（可选备用）", "fieldType": "Password", "isRequired": false, "placeholder": "可选。当密钥失效时，可尝试使用已登录浏览器的 Cookie" },
-    { "key": "Region", "displayName": "接口区域", "fieldType": "Select", "isRequired": false, "defaultValue": "CN", "options": [ "CN", "Global" ] },
-    { "key": "Show5hBar", "displayName": "显示 5h 限额进度条", "fieldType": "Boolean", "isRequired": false, "defaultValue": "true" },
-    { "key": "ShowWeeklyBar", "displayName": "显示 本周限额 进度条", "fieldType": "Boolean", "isRequired": false, "defaultValue": "true" },
-    { "key": "ShowVideo5hBar", "displayName": "显示 视频赠送 5h 进度条", "fieldType": "Boolean", "isRequired": false, "defaultValue": "true" },
-    { "key": "ShowVideoWeeklyBar", "displayName": "显示 视频赠送 本周 进度条", "fieldType": "Boolean", "isRequired": false, "defaultValue": "true" }
+    { "key": "ApiKey", "displayName": "i18n:plugin.MiniMax.field.ApiKey.name", "fieldType": "Password", "isRequired": false, "placeholder": "i18n:plugin.MiniMax.field.ApiKey.placeholder" },
+    { "key": "Cookie", "displayName": "i18n:plugin.MiniMax.field.Cookie.name", "fieldType": "Password", "isRequired": false, "placeholder": "i18n:plugin.MiniMax.field.Cookie.placeholder" },
+    { "key": "Region", "displayName": "i18n:plugin.MiniMax.field.Region.name", "fieldType": "Select", "isRequired": false, "defaultValue": "CN", "options": [ "CN", "Global" ] },
+    { "key": "Show5hBar", "displayName": "i18n:plugin.MiniMax.field.Show5hBar.name", "fieldType": "Boolean", "isRequired": false, "defaultValue": "true" },
+    { "key": "ShowWeeklyBar", "displayName": "i18n:plugin.MiniMax.field.ShowWeeklyBar.name", "fieldType": "Boolean", "isRequired": false, "defaultValue": "true" },
+    { "key": "ShowVideo5hBar", "displayName": "i18n:plugin.MiniMax.field.ShowVideo5hBar.name", "fieldType": "Boolean", "isRequired": false, "defaultValue": "true" },
+    { "key": "ShowVideoWeeklyBar", "displayName": "i18n:plugin.MiniMax.field.ShowVideoWeeklyBar.name", "fieldType": "Boolean", "isRequired": false, "defaultValue": "true" }
   ],
   "errorGuidance": [
-    { "matchKeywords": [ "Token Plan 订阅 Key", "填写" ], "message": "请进入设置界面来配置 Token Plan 订阅 Key" },
-    { "matchKeywords": [ "1004", "login fail" ], "message": "Token Plan 订阅 Key 无效，请进入设置检查" },
-    { "matchKeywords": [], "message": "请进入设置界面来配置 MiniMax 的权限" }
+    { "matchCodes": [ "credential_missing", "config_missing" ], "matchKeywords": [], "message": "i18n:plugin.MiniMax.guidance.credential" },
+    { "matchCodes": [ "auth_invalid", "data_empty" ], "matchKeywords": [ "1004", "login fail" ], "message": "i18n:plugin.MiniMax.guidance.authInvalid" },
+    { "matchKeywords": [], "message": "i18n:plugin.MiniMax.guidance.fallback" }
   ],
   "usageUrls": {
     "zh-CN": "https://platform.minimaxi.com/console/usage",
@@ -181,7 +181,7 @@
     "charts": [
       {
         "chartId": "mm.chart.usage_bar",
-        "display": "用量进度条",
+        "display": "i18n:plugin.MiniMax.chart.usage_bar",
         "kind": "Bar",
         "defaultOrder": 1,
         "slicer": { "mode": "DataGroup", "interaction": "Scroll", "default": "mm.bar.5h" },
@@ -190,7 +190,7 @@
         "dataGroups": [
           {
             "id": "mm.bar.5h",
-            "display": "5h 限额",
+            "display": "i18n:plugin.MiniMax.group.bar5h",
             "fields": [
               { "fieldName": "five_hour_used_percent", "role": "Value" },
               { "fieldName": "five_hour_upper_limit", "role": "Upper" },
@@ -200,7 +200,7 @@
           },
           {
             "id": "mm.bar.weekly",
-            "display": "本周限额",
+            "display": "i18n:plugin.MiniMax.group.barWeekly",
             "fields": [
               { "fieldName": "weekly_used_percent", "role": "Value" },
               { "fieldName": "weekly_upper_limit", "role": "Upper" },
@@ -210,7 +210,7 @@
           },
           {
             "id": "mm.bar.video",
-            "display": "视频赠送",
+            "display": "i18n:plugin.MiniMax.group.barVideo",
             "fields": [
               { "fieldName": "video_quota", "role": "Value" },
               { "fieldName": "video_quota_limit", "role": "Upper" }
@@ -224,7 +224,7 @@
       },
       {
         "chartId": "mm.chart.daily_line",
-        "display": "每日趋势",
+        "display": "i18n:plugin.MiniMax.chart.daily_line",
         "kind": "Line",
         "defaultOrder": 3,
         "slicer": {
@@ -238,7 +238,7 @@
         "dataGroups": [
           {
             "id": "mm.line.daily_tokens",
-            "display": "每日 Token",
+            "display": "i18n:plugin.MiniMax.group.lineDaily",
             "fields": [
               { "fieldName": "daily_token_date", "role": "Meta" },
               { "fieldName": "daily_token_value", "role": "Value" },
@@ -249,7 +249,7 @@
       },
       {
         "chartId": "mm.chart.cache_heatmap",
-        "display": "缓存热力图",
+        "display": "i18n:plugin.MiniMax.chart.cache_heatmap",
         "kind": "HeatMap",
         "defaultOrder": 4,
         "tooltip": { "fields": ["__date__", "daily_cache_hit_value"] },
@@ -260,7 +260,7 @@
         "dataGroups": [
           {
             "id": "mm.heatmap.cache",
-            "display": "缓存命中",
+            "display": "i18n:plugin.MiniMax.group.heatmapCache",
             "queryRange": { "type": "LastDays", "days": 90 },
             "fields": [
               { "fieldName": "daily_cache_hit_date", "role": "Meta" },
@@ -272,18 +272,18 @@
       },
       {
         "chartId": "mm.chart.remaining_number",
-        "display": "数据概览",
+        "display": "i18n:plugin.MiniMax.chart.remaining_number",
         "kind": "Number",
         "defaultOrder": 2,
         "dataGroups": [
-          { "id": "mm.number.cumulative", "display": "累计用量", "fields": [{ "fieldName": "used_tokens", "role": "Value" }] },
-          { "id": "mm.number.peak", "display": "单日峰值", "fields": [{ "fieldName": "most_active_token", "role": "Value" }] },
-          { "id": "mm.number.active_days", "display": "活跃天数", "fields": [
+          { "id": "mm.number.cumulative", "display": "i18n:plugin.MiniMax.group.numberCumulative", "fields": [{ "fieldName": "used_tokens", "role": "Value" }] },
+          { "id": "mm.number.peak", "display": "i18n:plugin.MiniMax.group.numberPeak", "fields": [{ "fieldName": "most_active_token", "role": "Value" }] },
+          { "id": "mm.number.active_days", "display": "i18n:plugin.MiniMax.group.numberActiveDays", "fields": [
             { "fieldName": "active_days", "role": "Value" },
             { "fieldName": "total_days", "role": "Upper" },
             { "fieldName": "total_days", "role": "Meta" }
           ] },
-          { "id": "mm.number.remaining", "display": "积分余额", "fields": [{ "fieldName": "remaining_credits", "role": "Value" }] }
+          { "id": "mm.number.remaining", "display": "i18n:plugin.MiniMax.group.numberRemaining", "fields": [{ "fieldName": "remaining_credits", "role": "Value" }] }
         ]
       }
     ]
@@ -298,25 +298,25 @@
     "miniCharts": [
       {
         "chartId": "mm.mini.ring",
-        "display": "限额圆环",
+        "display": "i18n:plugin.MiniMax.mini.ring",
         "kind": "MiniRingChart",
         "slicer": { "mode": "DataGroup", "interaction": "Scroll", "default": "mm.taskbar.5h" },
         "tooltip": { "fields": ["__provider_name__", "five_hour_used_percent", "weekly_used_percent", "__refresh_countdown__"] },
         "colorTiers": { "ref": "global:usage-tier-default" },
         "dataGroups": [
-          { "id": "mm.taskbar.5h", "display": "5h 限额", "fields": [{ "fieldName": "five_hour_used_percent", "role": "Value" }] },
-          { "id": "mm.taskbar.weekly", "display": "本周限额", "fields": [{ "fieldName": "weekly_used_percent", "role": "Value" }] }
+          { "id": "mm.taskbar.5h", "display": "i18n:plugin.MiniMax.group.taskbar5h", "fields": [{ "fieldName": "five_hour_used_percent", "role": "Value" }] },
+          { "id": "mm.taskbar.weekly", "display": "i18n:plugin.MiniMax.group.taskbarWeekly", "fields": [{ "fieldName": "weekly_used_percent", "role": "Value" }] }
         ]
       },
       {
         "chartId": "mm.mini.text",
-        "display": "用量文本",
+        "display": "i18n:plugin.MiniMax.mini.text",
         "kind": "MiniText",
         "slicer": { "mode": "DataGroup", "interaction": "Scroll", "default": "mm.taskbar.5h" },
         "tooltip": { "fields": ["__provider_name__", "five_hour_used_percent", "weekly_used_percent", "__refresh_countdown__"] },
         "dataGroups": [
-          { "id": "mm.taskbar.5h", "display": "5h 限额", "fields": [{ "fieldName": "five_hour_used_percent", "role": "Value" }] },
-          { "id": "mm.taskbar.weekly", "display": "本周限额", "fields": [{ "fieldName": "weekly_used_percent", "role": "Value" }] }
+          { "id": "mm.taskbar.5h", "display": "i18n:plugin.MiniMax.group.taskbar5h", "fields": [{ "fieldName": "five_hour_used_percent", "role": "Value" }] },
+          { "id": "mm.taskbar.weekly", "display": "i18n:plugin.MiniMax.group.taskbarWeekly", "fields": [{ "fieldName": "weekly_used_percent", "role": "Value" }] }
         ]
       }
     ]

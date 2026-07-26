@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Windows;
 using UsageMonitor.Core.Models;
 using UsageMonitor.Core.Services;
@@ -90,6 +91,51 @@ public static class ThemeManager
         var next = Current == ThemeMode.Dark ? ThemeMode.Light : ThemeMode.Dark;
         Apply(next);
         return next;
+    }
+
+    /// <summary>
+    /// req-115：按主题 Id 应用（支持内置 dark/light 与外部主题包）。
+    /// <para>与 <see cref="Apply(ThemeMode)"/> 的区别：外部主题包可能与当前 ThemeMode 同明暗但 token 不同，
+    /// 因此按 <c>ThemeModule.CurrentThemeId</c> 判重而非 ThemeMode；未注册的 Id 回退内置深色。
+    /// ThemeChanged 事件仍仅在明暗模式变化时触发（订阅方关心的是深/浅适配）。</para>
+    /// </summary>
+    /// <param name="themeId">目标主题 Id（如 "dark" / "light" / 外部包 Id）。</param>
+    public static void ApplyById(string? themeId)
+    {
+        var module = UsageMonitor.App.Services.Theme.ThemeModule.Default;
+        var target = string.IsNullOrWhiteSpace(themeId)
+            ? null
+            : module.AvailableThemes.FirstOrDefault(t => string.Equals(t.Id, themeId, StringComparison.OrdinalIgnoreCase));
+        if (target == null)
+        {
+            // 未注册（包被删除 / Id 拼写错误）：回退内置主题，保持当前明暗偏好
+            FileLogger.Warn("ThemeManager", $"ApplyById: 主题 {themeId} 未注册，回退内置 {Current}");
+            target = module.AvailableThemes.First(t => string.Equals(t.Id, Current == ThemeMode.Light ? "light" : "dark", StringComparison.OrdinalIgnoreCase));
+        }
+
+        // 已是目标主题（按 Id 判重）时短路，避免重复字典替换闪烁
+        if (string.Equals(module.CurrentThemeId, target.Id, StringComparison.OrdinalIgnoreCase)) return;
+
+        var previous = Current;
+        var mode = target.IsDark ? ThemeMode.Dark : ThemeMode.Light;
+
+        // 切换前对主窗口做快照遮罩过渡（与 Apply(ThemeMode) 同策略；捕获失败自动退化无过渡）
+        var overlay = ThemeTransitionOverlay.AttachSnapshotOverlay(FindMainWindow());
+        module.ApplyTheme(target.Id);
+        Current = mode;
+        ThemeTransitionOverlay.FadeOutAndRemove(overlay);
+
+        if (previous != mode)
+        {
+            try
+            {
+                ThemeChanged?.Invoke(typeof(ThemeManager), new ThemeChangedEventArgs(mode));
+            }
+            catch (Exception ex)
+            {
+                FileLogger.Error("ThemeManager", $"ThemeChanged handler threw: {ex.Message}", ex);
+            }
+        }
     }
 }
 
