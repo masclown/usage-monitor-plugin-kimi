@@ -10,8 +10,11 @@ namespace UsageMonitor.App.Helpers;
 public enum SettingsSection
 {
     // ===== 通用 =====
-    /// <summary>常规设置（外观主题 / 刷新间隔 / 开机自启 / 历史点数 / 圆环阈值 / 环形图中心数字 / 全局任务栏模式）</summary>
+    /// <summary>常规设置（外观主题 / 刷新间隔 / 开机自启 / 全局任务栏模式）</summary>
     General,
+
+    /// <summary>修复4：历史用量（圆环图阈值 / 环形图中心数字——历史窗口圆环图专属设置）</summary>
+    HistoryUsage,
 
     /// <summary>插件管理（启用/禁用、任务栏显示模式、插件配置入口）</summary>
     Plugins,

@@ -54,34 +54,68 @@
                     
                                         <!-- 订阅档位胶囊（TokenPlan）：位于刷新/设置按钮左侧、可按需隐藏 -->
                                         
-                                                            <!-- req-091-005：手动重新登录按钮（仅当 SupportsReLogin=true 时可见） -->
-                                                            <Button Command="{Binding ReLoginCommand}"
-                                                                    Margin="8,0,0,0"
-                                                                    Style="{StaticResource IconButtonStyle}"
-                                                                    ToolTip="手动启动浏览器重新登录（Cookie 失效时也可使用）"
-                                                                    AutomationProperties.Name="重新登录"
-                                                                    AutomationProperties.HelpText="手动打开浏览器重新登录并刷新 Cookie"
-                                                                    Visibility="{Binding SupportsReLogin, Converter={StaticResource BoolToVisibility}}">
-                                                                <TextBlock Text="🔑" FontSize="13" VerticalAlignment="Center" />
-                                                            </Button>
-                    <Border VerticalAlignment="Center"
-                            Style="{StaticResource SubscriptionPillActiveStyle}"
-                            Visibility="{Binding RenderKinds, Converter={StaticResource RenderKindToVisibility}, ConverterParameter=subscriptionTitle}">
-                        <!-- 问题17：订阅类型胶囊（与档位胶囊拆分为两个独立胶囊展示） -->
-                        <TextBlock Text="{Binding SubscriptionType}"
-                                   FontSize="11" FontWeight="SemiBold"
-                                   Foreground="{DynamicResource AccentBrush}"
-                                   VerticalAlignment="Center" />
-                    </Border>
-                    <Border VerticalAlignment="Center" Margin="6,0,0,0"
-                            Style="{StaticResource SubscriptionPillActiveStyle}"
-                            Visibility="{Binding RenderKinds, Converter={StaticResource RenderKindToVisibility}, ConverterParameter=subscriptionTitle}">
-                        <!-- 问题17：订阅档位胶囊（如 TokenPlanMax-年度会员），与类型分开显示 -->
-                        <TextBlock Text="{Binding SubscriptionTier}"
-                                   FontSize="11" FontWeight="SemiBold"
-                                   Foreground="{DynamicResource AccentBrush}"
-                                   VerticalAlignment="Center" />
-                    </Border>
+                                                            <!-- 修复2：订阅档位胶囊合并重新登录功能——点击 Token Plan / API 胶囊即可重新启动浏览器获取登录态，
+                         原独立 🔑 按钮已移除；仅当 SupportsReLogin=true 时胶囊可点击 -->
+                    <Button Command="{Binding ReLoginCommand}"
+                            Margin="0,0,0,0" Padding="0" Cursor="Hand"
+                            ToolTip="点击重新启动浏览器获取登录态（Cookie 失效时也可使用）"
+                            AutomationProperties.Name="重新登录"
+                            AutomationProperties.HelpText="点击订阅类型胶囊打开浏览器重新登录并刷新 Cookie"
+                            Visibility="{Binding SupportsReLogin, Converter={StaticResource BoolToVisibility}}">
+                        <Button.Style>
+                            <Style TargetType="Button">
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="Button">
+                                            <Border Background="Transparent" Padding="2,0" CornerRadius="4">
+                                                <ContentPresenter VerticalAlignment="Center" />
+                                            </Border>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </Button.Style>
+                        <StackPanel Orientation="Horizontal">
+                            <Border VerticalAlignment="Center"
+                                    Style="{StaticResource SubscriptionPillActiveStyle}"
+                                    Visibility="{Binding RenderKinds, Converter={StaticResource RenderKindToVisibility}, ConverterParameter=subscriptionTitle}">
+                                <!-- 问题17：订阅类型胶囊（与档位胶囊拆分为两个独立胶囊展示） -->
+                                <TextBlock Text="{Binding SubscriptionType}"
+                                           FontSize="11" FontWeight="SemiBold"
+                                           Foreground="{DynamicResource AccentBrush}"
+                                           VerticalAlignment="Center" />
+                            </Border>
+                            <Border VerticalAlignment="Center" Margin="6,0,0,0"
+                                    Style="{StaticResource SubscriptionPillActiveStyle}"
+                                    Visibility="{Binding RenderKinds, Converter={StaticResource RenderKindToVisibility}, ConverterParameter=subscriptionTitle}">
+                                <!-- 问题17：订阅档位胶囊（如 TokenPlanMax-年度会员），与类型分开显示 -->
+                                <TextBlock Text="{Binding SubscriptionTier}"
+                                           FontSize="11" FontWeight="SemiBold"
+                                           Foreground="{DynamicResource AccentBrush}"
+                                           VerticalAlignment="Center" />
+                            </Border>
+                        </StackPanel>
+                    </Button>
+                    <!-- 不支持重新登录的插件：胶囊仅展示（不可点击） -->
+                    <StackPanel Orientation="Horizontal"
+                                Visibility="{Binding SupportsReLogin, Converter={StaticResource BoolToVisibility}, ConverterParameter=Invert}">
+                        <Border VerticalAlignment="Center"
+                                Style="{StaticResource SubscriptionPillActiveStyle}"
+                                Visibility="{Binding RenderKinds, Converter={StaticResource RenderKindToVisibility}, ConverterParameter=subscriptionTitle}">
+                            <TextBlock Text="{Binding SubscriptionType}"
+                                       FontSize="11" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource AccentBrush}"
+                                       VerticalAlignment="Center" />
+                        </Border>
+                        <Border VerticalAlignment="Center" Margin="6,0,0,0"
+                                Style="{StaticResource SubscriptionPillActiveStyle}"
+                                Visibility="{Binding RenderKinds, Converter={StaticResource RenderKindToVisibility}, ConverterParameter=subscriptionTitle}">
+                            <TextBlock Text="{Binding SubscriptionTier}"
+                                       FontSize="11" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource AccentBrush}"
+                                       VerticalAlignment="Center" />
+                        </Border>
+                    </StackPanel>
 
                     <!-- 刷新本卡片按钮：位于设置按钮左侧，仅刷新当前服务商用量；刷新中图标持续旋转作为进行反馈 -->
                     <!-- req-064 U2：补充 a11y AutomationProperties 标注 -->
@@ -519,6 +553,44 @@
             </Border>
         </DataTemplate>
 
+        <!-- 声明式图表槽位模板：堆叠柱状图（绑定槽位级 StackedBarData，数据由 seriesPivot 声明驱动） -->
+        <DataTemplate x:Key="SlotStackedBarTemplate">
+            <Grid>
+                <controls:StackedBarChartControl Height="150" Margin="0,0,0,8"
+                    Categories="{Binding StackedBarData.Categories}"
+                    Series="{Binding StackedBarData.Series}"
+                    Unit="{Binding StackedBarData.Unit}"
+                    Title="{Binding StackedBarData.Title}"
+                    BarBrush="{DynamicResource AccentBrush}"
+                    GridLineBrush="{DynamicResource ChartGridBrush}"
+                    TextBrush="{DynamicResource TextSecondaryBrush}" />
+                <!-- 空数据提示 -->
+                <TextBlock Text="{Binding EmptyHint}" FontSize="12"
+                           Foreground="{DynamicResource TextTertiaryBrush}"
+                           VerticalAlignment="Center" HorizontalAlignment="Center"
+                           Visibility="{Binding EmptyHint, Converter={StaticResource StringToVisibility}}" />
+            </Grid>
+        </DataTemplate>
+
+        <!-- 声明式图表槽位模板：面积图（绑定槽位级 AreaData，数据由 seriesPivot 声明驱动） -->
+        <DataTemplate x:Key="SlotAreaTemplate">
+            <Grid>
+                <controls:AreaChartControl Height="120" Margin="0,0,0,8"
+                    Values="{Binding AreaData.Values}"
+                    Categories="{Binding AreaData.Categories}"
+                    Unit="{Binding AreaData.Unit}"
+                    SeriesName="{Binding AreaData.SeriesName}"
+                    AreaBrush="{DynamicResource UsageLowBrush}"
+                    StrokeBrush="{DynamicResource AccentBrush}"
+                    TextBrush="{DynamicResource TextSecondaryBrush}" />
+                <!-- 空数据提示 -->
+                <TextBlock Text="{Binding EmptyHint}" FontSize="12"
+                           Foreground="{DynamicResource TextTertiaryBrush}"
+                           VerticalAlignment="Center" HorizontalAlignment="Center"
+                           Visibility="{Binding EmptyHint, Converter={StaticResource StringToVisibility}}" />
+            </Grid>
+        </DataTemplate>
+
         <!-- 问题5：折叠分界线槽位模板——浅灰色 1px 横线，标记卡片折叠时的隐藏分界位置（折叠态随下方图表一同隐藏） -->
         <DataTemplate x:Key="SlotDividerTemplate">
             <Rectangle Height="1" Fill="{DynamicResource TrackBrush}"
@@ -553,6 +625,12 @@
                             </DataTrigger>
                             <DataTrigger Binding="{Binding SlotKind}" Value="Number">
                                 <Setter Property="ContentTemplate" Value="{StaticResource SlotNumberTemplate}" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding SlotKind}" Value="StackedBar">
+                                <Setter Property="ContentTemplate" Value="{StaticResource SlotStackedBarTemplate}" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding SlotKind}" Value="Area">
+                                <Setter Property="ContentTemplate" Value="{StaticResource SlotAreaTemplate}" />
                             </DataTrigger>
                             <!-- 问题5：折叠分界线槽位→浅灰色横线模板 -->
                             <DataTrigger Binding="{Binding SlotKind}" Value="Divider">

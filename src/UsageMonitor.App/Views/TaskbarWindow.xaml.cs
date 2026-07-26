@@ -204,7 +204,9 @@ public partial class TaskbarWindow : Window
                 EffectiveTooltipFields = ResolveMiniTooltipFields(descriptor, usageVm),
                 // 问题11/12：解析本 mini 图表的可见数据组（用户勾选；null = 全部声明组可见）
                 VisibleDataGroupIds = ResolveMiniVisibleDataGroups(descriptor, usageVm),
-                AccountName = ResolveAccountName(descriptor.ProviderId, usageVm.AccountIdSafe)
+                AccountName = ResolveAccountName(descriptor.ProviderId, usageVm.AccountIdSafe),
+                // 迷你时序图表：注入用户覆盖宽度（TaskbarMiniChartConfig.Width；null = 用声明值/默认）
+                UserWidth = ResolveUserMiniChartWidth(descriptor.ProviderId)
             });
         }
         // 问题11：注入可见数据组后重新对齐初始数据组索引（构造时尚未注入）。
@@ -274,13 +276,28 @@ public partial class TaskbarWindow : Window
         return accountId;
     }
 
+    /// <summary>解析用户覆盖的迷你图表宽度（TaskbarMiniChartConfig.Width；null = 未覆盖，用声明值/默认）。</summary>
+    private int? ResolveUserMiniChartWidth(string providerId)
+    {
+        try
+        {
+            if (_configService.Settings.TaskbarMiniChartConfigs.TryGetValue(providerId, out var cfg))
+                return cfg.Width;
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Warn("TaskbarWindow", $"ResolveUserMiniChartWidth({providerId}) failed: {ex.Message}");
+        }
+        return null;
+    }
+
     /// <summary>
     /// S4：计算迷你图列表签名（ProviderId:ChartId:有效字段:可见数据组 按序拼接），用于守卫比较。
     /// <para>问题8/11：签名包含有效 Tooltip 字段与可见数据组，保证设置页仅改勾选时也能触发重建。</para>
     /// </summary>
     private static string ComputeMiniChartSignature(IEnumerable<MiniChartItemViewModel> items)
         => string.Join("|", items.Select(i =>
-            $"{i.ProviderId}:{i.Descriptor.ChartId ?? string.Empty}:{(i.EffectiveTooltipFields == null ? "~" : string.Join(",", i.EffectiveTooltipFields))}:{(i.VisibleDataGroupIds == null ? "~" : string.Join(",", i.VisibleDataGroupIds))}"));
+            $"{i.ProviderId}:{i.Descriptor.ChartId ?? string.Empty}:{(i.EffectiveTooltipFields == null ? "~" : string.Join(",", i.EffectiveTooltipFields))}:{(i.VisibleDataGroupIds == null ? "~" : string.Join(",", i.VisibleDataGroupIds))}:{i.EffectiveWidth}"));
 
     /// <summary>
     /// S4：用新列表替换 VisibleMiniCharts（停旧 timer → 清空 → 写入 → 启新 timer → 重算窗口宽度）。
@@ -643,9 +660,11 @@ public partial class TaskbarWindow : Window
         {
             total += item.Kind switch
             {
-                MiniChartKind.MiniLineChart => 132,
+                // 迷你时序图表（折线/柱状/面积）：宽度可配（EffectiveWidth）+ 模板右边距 8。
+                MiniChartKind.MiniLineChart => item.EffectiveWidth + 8,
+                MiniChartKind.MiniBarChart => item.EffectiveWidth + 8,
+                MiniChartKind.MiniAreaChart => item.EffectiveWidth + 8,
                 MiniChartKind.MiniRingChart => 58,
-                MiniChartKind.MiniBarChart => 88,
                 MiniChartKind.MiniHeatMap => 128,
                 _ => MeasureMiniTextWidth(item)
             };

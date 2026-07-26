@@ -34,7 +34,9 @@ public class CardManageViewModel : INotifyPropertyChanged
         Reload();
     }
 
-    /// <summary>重新加载所有已启用账号及其图表配置（页面切入时调用）。</summary>
+    /// <summary>重新加载所有已启用账号及其图表配置（页面切入时调用）。
+    /// <para>req-110 P1-1 对齐：卡片严格跟随账号生命周期——无账号的插件不出现在卡片管理页
+    /// （与主窗口 DisplayModule.BuildCardTuples “无账号→不显示卡片”行为一致），不再回退隐形 default 节点。</para></summary>
     public void Reload()
     {
         AccountNodes.Clear();
@@ -46,18 +48,16 @@ public class CardManageViewModel : INotifyPropertyChanged
                 var card = provider.Card;
                 if (card == null || card.Charts.Count == 0) continue;
 
+                // 仅列出已启用且已配置凭据的账号；无账号/未配凭据的插件跳过
+                // （未设置账号前不应出现在卡片管理，与主窗口“无账号→不显示卡片”行为对齐）。
                 var accounts = _configService.GetAccounts(provider.ProviderId);
-                if (accounts.Count == 0)
+                foreach (var acct in accounts.Where(a => a.Enabled))
                 {
-                    // 无显式账号时回退 "default"
-                    AccountNodes.Add(CreateAccountNode(provider, card, "default", null));
-                }
-                else
-                {
-                    foreach (var acct in accounts.Where(a => a.Enabled))
-                    {
-                        AccountNodes.Add(CreateAccountNode(provider, card, acct.AccountId, acct));
-                    }
+                    var acctConfig = _configService.GetEffectiveAccountConfig(provider.ProviderId, acct.AccountId, provider);
+                    if (!UsageMonitor.Core.Services.CredentialProbe.HasConfiguredCredential(
+                            provider.ProviderId, acctConfig, acct.AccountId, provider.ConfigFields))
+                        continue;
+                    AccountNodes.Add(CreateAccountNode(provider, card, acct.AccountId, acct));
                 }
             }
         }

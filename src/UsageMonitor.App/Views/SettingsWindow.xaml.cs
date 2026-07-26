@@ -239,6 +239,33 @@ public partial class SettingsWindow : Window
         }
     }
 
+    /// <summary>修复7：浏览选择日志文件夹（FolderBrowserDialog），选中后写入 LogFolder 设置并即时生效。</summary>
+    private void BrowseLogFolder_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            using var dlg = new System.Windows.Forms.FolderBrowserDialog
+            {
+                Description = "选择运行日志保存文件夹",
+                ShowNewFolderButton = true,
+                SelectedPath = FileLogger.LogDir
+            };
+            if (dlg.ShowDialog() == System.Windows.Forms.DialogResult.OK
+                && DataContext is ViewModels.MainViewModel vm)
+            {
+                vm.LogFolder = dlg.SelectedPath;
+                // 刷新“当前日志文件”显示
+                var logPathTextBox = FindVisualChildByName<System.Windows.Controls.TextBox>(this, "LogPathTextBox");
+                if (logPathTextBox != null)
+                    logPathTextBox.Text = FileLogger.GetCurrentLogPath();
+            }
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Error("SettingsWindow", "Failed to browse log folder", ex);
+        }
+    }
+
     /// <summary>Open the debug folder (XHR / DOM dumps).</summary>
     private void OpenDebugFolder_Click(object sender, RoutedEventArgs e)
     {

@@ -41,6 +41,7 @@ public class HeatMapTierConfigViewModel : INotifyPropertyChanged
         Parent = parent;
         RemoveCommand = new RelayCommand(() => Parent?.RemoveTier(this));
         PickColorCommand = new RelayCommand(PickColor);
+        PickScreenColorCommand = new RelayCommand(PickScreenColor);
     }
 
     /// <summary>下界（含，单位 tokens）。负数会被限幅到 0。</summary>
@@ -110,6 +111,9 @@ public class HeatMapTierConfigViewModel : INotifyPropertyChanged
     /// <summary>取色按钮命令：弹出 WinForms ColorDialog，关闭后更新 ColorHex。</summary>
     public IRelayCommand PickColorCommand { get; }
 
+    /// <summary>修复6：屏幕取色器命令——全屏覆盖层点击取色，更新 ColorHex。</summary>
+    public IRelayCommand PickScreenColorCommand { get; }
+
     /// <summary>删除本行命令：通知父 VM 移除。</summary>
     public IRelayCommand RemoveCommand { get; }
 
@@ -133,13 +137,23 @@ public class HeatMapTierConfigViewModel : INotifyPropertyChanged
         }
     }
 
+    /// <summary>修复6：屏幕取色器——弹出全屏覆盖层，点击屏幕任意位置拾取像素颜色。</summary>
+    private void PickScreenColor()
+    {
+        var c = UsageMonitor.App.Helpers.ScreenColorPicker.PickColor();
+        if (c.HasValue)
+        {
+            ColorHex = $"#{c.Value.R:X2}{c.Value.G:X2}{c.Value.B:X2}";
+        }
+    }
+
     public event PropertyChangedEventHandler? PropertyChanged;
     private void OnPropertyChanged([CallerMemberName] string? name = null)
         => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }
 
 /// <summary>
-/// 热力图色阶集合的编辑 VM（设置页"热力图色阶" Tab 整体绑定上下文，req-011）。
+/// 热力图色阶集合的编辑 VM（设置页“热力图色阶” Tab 整体绑定上下文，req-011）。
 /// <para>
 /// 暴露 <see cref="TierItems"/> 集合 + <see cref="ProviderOptions"/> 下拉 + 添加/恢复默认/应用预览/保存 等命令。
 /// 与 <see cref="MainViewModel"/> 解耦：只通过构造函数注入的回调与父 VM 交互，便于在设置窗口独立测试。

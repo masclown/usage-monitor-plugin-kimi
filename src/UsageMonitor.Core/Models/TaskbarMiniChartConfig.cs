@@ -31,4 +31,7 @@ public class TaskbarMiniChartConfig
 
     /// <summary>是否显示 Provider Logo。默认 true。</summary>
     public bool ShowLogo { get; set; } = true;
+
+    /// <summary>用户覆盖的图表宽度（DIP，40-400 有效；null = 使用插件声明值或宿主默认 120）。</summary>
+    public int? Width { get; set; }
 }

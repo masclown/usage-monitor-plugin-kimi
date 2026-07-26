@@ -25,6 +25,9 @@ public sealed class MiniChartDeclaration
 
     /// <summary>数据组列表。</summary>
     public IReadOnlyList<DataGroup> DataGroups { get; init; } = System.Array.Empty<DataGroup>();
+
+    /// <summary>图表宽度（DIP，插件声明默认值；null = 宿主默认 120）。用户可在设置中覆盖。</summary>
+    public int? Width { get; init; }
 }
 
 /// <summary>

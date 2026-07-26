@@ -23,7 +23,17 @@ public enum DeclarativeChartKind
     /// <summary>迷你圆环图（任务栏，数据组切片，Value 必须为百分比）。</summary>
     MiniRingChart,
     /// <summary>迷你文本（任务栏，Reset/Meta 文本）。</summary>
-    MiniText
+    MiniText,
+    /// <summary>迷你折线图（任务栏，时间序列，数据组滚轮切换）。</summary>
+    MiniLineChart,
+    /// <summary>迷你柱状图（任务栏，时间序列，数据组滚轮切换）。</summary>
+    MiniBarChart,
+    /// <summary>迷你面积图（任务栏，时间序列，数据组滚轮切换）。</summary>
+    MiniAreaChart,
+    /// <summary>多系列堆叠柱状图（seriesPivot 数据源，按类别 × 系列堆叠展示）。</summary>
+    StackedBar,
+    /// <summary>面积图（单系列面积填充，Meta + Value 或 pivot 数据源）。</summary>
+    Area
 }
 
 /// <summary>
@@ -139,6 +149,26 @@ public static class ChartKindSpecRegistry
                 OptionalRoles = new[] { FieldRole.Reset, FieldRole.Meta, FieldRole.Value },
                 AllowedValueTypes = System.Array.Empty<UsageFieldDataType>(),
                 SupportsColorTiers = false
+            },
+            // 堆叠柱状图：无切片器（数据来自 seriesPivot 声明）；数据组仅作字段引用载体
+            new()
+            {
+                Kind = DeclarativeChartKind.StackedBar,
+                SupportedSlicerModes = System.Array.Empty<SlicerMode>(),
+                RequiredRoles = System.Array.Empty<FieldRole>(),
+                OptionalRoles = new[] { FieldRole.Meta, FieldRole.Value },
+                AllowedValueTypes = System.Array.Empty<UsageFieldDataType>(),
+                SupportsColorTiers = false
+            },
+            // 面积图：无切片器（单系列面积填充）；数据组仅作字段引用载体
+            new()
+            {
+                Kind = DeclarativeChartKind.Area,
+                SupportedSlicerModes = System.Array.Empty<SlicerMode>(),
+                RequiredRoles = System.Array.Empty<FieldRole>(),
+                OptionalRoles = new[] { FieldRole.Meta, FieldRole.Value },
+                AllowedValueTypes = System.Array.Empty<UsageFieldDataType>(),
+                SupportsColorTiers = false
             }
         };
         return list.ToDictionary(s => s.Kind);
@@ -164,8 +194,8 @@ public static class ChartKindSpecRegistry
             return errors;
         }
 
-        // 数据组非空
-        if (chart.DataGroups.Count == 0)
+        // 数据组非空（seriesPivot 绑定图表除外——其数据由 CategoriesField/ValuesMatrixField 声明驱动）
+        if (chart.DataGroups.Count == 0 && string.IsNullOrEmpty(chart.CategoriesField) && string.IsNullOrEmpty(chart.ValuesMatrixField))
             errors.Add($"图表 {chart.ChartId}（{chart.Kind}）：至少需要一个 dataGroup");
 
         // 切片器模式支持性

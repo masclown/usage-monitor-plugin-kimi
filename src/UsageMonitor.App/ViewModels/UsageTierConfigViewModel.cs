@@ -36,6 +36,7 @@ public class UsageTierConfigViewModel : INotifyPropertyChanged
         Parent = parent;
         RemoveCommand = new RelayCommand(() => Parent?.RemoveTier(this));
         PickColorCommand = new RelayCommand(PickColor);
+        PickScreenColorCommand = new RelayCommand(PickScreenColor);
     }
 
     /// <summary>下界（含，0-99）。</summary>
@@ -91,6 +92,9 @@ public class UsageTierConfigViewModel : INotifyPropertyChanged
     /// <summary>取色按钮命令：弹出 WinForms ColorDialog，关闭后更新 ColorArgb。</summary>
     public IRelayCommand PickColorCommand { get; }
 
+    /// <summary>修复6：屏幕取色器命令——全屏覆盖层点击取色，更新 ColorArgb。</summary>
+    public IRelayCommand PickScreenColorCommand { get; }
+
     /// <summary>删除本行命令：通知父 VM 移除。</summary>
     public IRelayCommand RemoveCommand { get; }
 
@@ -114,6 +118,16 @@ public class UsageTierConfigViewModel : INotifyPropertyChanged
         {
             var c = dlg.Color;
             ColorArgb = ((uint)c.A << 24) | ((uint)c.R << 16) | ((uint)c.G << 8) | c.B;
+        }
+    }
+
+    /// <summary>修复6：屏幕取色器——弹出全屏覆盖层，点击屏幕任意位置拾取像素颜色。</summary>
+    private void PickScreenColor()
+    {
+        var c = UsageMonitor.App.Helpers.ScreenColorPicker.PickColor();
+        if (c.HasValue)
+        {
+            ColorArgb = (0xFFu << 24) | ((uint)c.Value.R << 16) | ((uint)c.Value.G << 8) | c.Value.B;
         }
     }
 

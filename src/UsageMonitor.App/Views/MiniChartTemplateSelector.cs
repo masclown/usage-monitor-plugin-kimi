@@ -28,6 +28,9 @@ public class MiniChartTemplateSelector : DataTemplateSelector
     /// <summary>MiniHeatMap 模板（迷你热力图：占位 —— 后续 YearHeatMapControl 可直接复用）。</summary>
     public DataTemplate? HeatMapTemplate { get; set; }
 
+    /// <summary>MiniAreaChart 模板（迷你面积图：MiniSeriesChartControl Area 模式）。</summary>
+    public DataTemplate? AreaChartTemplate { get; set; }
+
     /// <summary>
     /// req-088 B5：根据数据项的 Kind 选择模板。
     /// </summary>
@@ -42,6 +45,7 @@ public class MiniChartTemplateSelector : DataTemplateSelector
             MiniChartKind.MiniLineChart => LineChartTemplate ?? TextTemplate,
             MiniChartKind.MiniBarChart => BarChartTemplate ?? TextTemplate,
             MiniChartKind.MiniHeatMap => HeatMapTemplate ?? TextTemplate,
+            MiniChartKind.MiniAreaChart => AreaChartTemplate ?? TextTemplate,
             MiniChartKind.MiniText => TextTemplate,
             _ => TextTemplate
         };

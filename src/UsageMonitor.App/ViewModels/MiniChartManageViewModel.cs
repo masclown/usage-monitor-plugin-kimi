@@ -33,7 +33,8 @@ public class MiniChartManageViewModel : INotifyPropertyChanged
         Reload();
     }
 
-    /// <summary>重新加载所有已启用账号及其 mini 图表配置（页面切入时调用）。</summary>
+    /// <summary>重新加载所有已启用账号及其 mini 图表配置（页面切入时调用）。
+    /// <para>req-110 P1-1 对齐：无账号的插件不出现在迷你图表管理页，不再回退隐形 default 节点。</para></summary>
     public void Reload()
     {
         AccountNodes.Clear();
@@ -46,18 +47,15 @@ public class MiniChartManageViewModel : INotifyPropertyChanged
                 // 仅处理声明了 mini 图表的 Provider（与卡片管理页对齐：无声明者跳过）
                 if (taskbar == null || taskbar.MiniCharts.Count == 0) continue;
 
+                // 仅列出已启用且已配置凭据的账号；无账号/未配凭据的插件跳过（与卡片管理页对齐）。
                 var accounts = _configService.GetAccounts(provider.ProviderId);
-                if (accounts.Count == 0)
+                foreach (var acct in accounts.Where(a => a.Enabled))
                 {
-                    // 无显式账号时回退 "default"
-                    AccountNodes.Add(CreateAccountNode(provider, taskbar, "default", null));
-                }
-                else
-                {
-                    foreach (var acct in accounts.Where(a => a.Enabled))
-                    {
-                        AccountNodes.Add(CreateAccountNode(provider, taskbar, acct.AccountId, acct));
-                    }
+                    var acctConfig = _configService.GetEffectiveAccountConfig(provider.ProviderId, acct.AccountId, provider);
+                    if (!UsageMonitor.Core.Services.CredentialProbe.HasConfiguredCredential(
+                            provider.ProviderId, acctConfig, acct.AccountId, provider.ConfigFields))
+                        continue;
+                    AccountNodes.Add(CreateAccountNode(provider, taskbar, acct.AccountId, acct));
                 }
             }
         }
@@ -140,6 +138,7 @@ public class MiniAccountNode : INotifyPropertyChanged
     private readonly MiniChartManageViewModel _owner;
     private readonly TaskbarDeclaration _taskbarDeclaration;
     private bool _isExpanded;
+    private int? _width;
 
     /// <summary>所属 Provider ID。</summary>
     public string ProviderId { get; }
@@ -166,6 +165,22 @@ public class MiniAccountNode : INotifyPropertyChanged
     /// <summary>展开箭头字符。</summary>
     public string ExpandArrow => _isExpanded ? "▾" : "▸";
 
+    /// <summary>用户覆盖的迷你图表宽度（DIP，40-400；null = 用插件声明值/宿主默认 120）。变更即持久化。</summary>
+    public int? Width
+    {
+        get => _width;
+        set
+        {
+            var clamped = value.HasValue ? Math.Clamp(value.Value, 40, 400) : (int?)null;
+            if (_width != clamped)
+            {
+                _width = clamped;
+                OnPropertyChanged();
+                _owner.GetConfigServiceInternal().SetMiniChartWidth(ProviderId, clamped);
+            }
+        }
+    }
+
     /// <summary>创建账号节点。</summary>
     public MiniAccountNode(MiniChartManageViewModel owner, string providerId, string accountId,
         string displayName, string? iconPath, TaskbarDeclaration taskbarDeclaration)
@@ -176,6 +191,9 @@ public class MiniAccountNode : INotifyPropertyChanged
         AccountId = accountId;
         DisplayName = displayName;
         IconPath = iconPath;
+        // 加载用户覆盖宽度（TaskbarMiniChartConfig.Width；未配置时为 null）
+        var cfgService = owner.GetConfigServiceInternal();
+        _width = cfgService.Settings.TaskbarMiniChartConfigs.TryGetValue(providerId, out var cfg) ? cfg.Width : null;
     }
 
     /// <summary>从插件声明（Taskbar.MiniCharts）+ AccountCustomization 合并加载 mini 图表列表。</summary>
@@ -353,6 +371,9 @@ public class MiniChartNode : INotifyPropertyChanged
     {
         DeclarativeChartKind.MiniRingChart => "迷你圆环",
         DeclarativeChartKind.MiniText => "迷你文本",
+        DeclarativeChartKind.MiniLineChart => "迷你折线图",
+        DeclarativeChartKind.MiniBarChart => "迷你柱状图",
+        DeclarativeChartKind.MiniAreaChart => "迷你面积图",
         DeclarativeChartKind.Ring => "环形图",
         DeclarativeChartKind.Bar => "进度条",
         DeclarativeChartKind.Line => "折线图",

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text.Json.Serialization;
 
 namespace UsageMonitor.Core.Models;
 
@@ -60,6 +61,14 @@ public class BrowserCookieData
     /// 优先于 API 查询使用（避免依赖 API Key）。
     /// </summary>
     public UsageSnapshot? UsageSnapshot { get; set; }
+
+    /// <summary>
+    /// 登录成功后从浏览器 localStorage 提取的令牌（配置字段名 → 令牌值）。
+    /// <para>仅用于登录服务 → 配置窗体的内存传递（供 UI 回填对应输入框），
+    /// 不落盘到 cookie 文件（令牌已由 ConfigService 加密持久化到配置表）。</para>
+    /// </summary>
+    [JsonIgnore]
+    public Dictionary<string, string> LocalStorageTokens { get; set; } = new();
 }
 
 /// <summary>单个 Cookie 的元数据（对应 CDP <c>Network.getAllCookies</c> 返回的字段）</summary>

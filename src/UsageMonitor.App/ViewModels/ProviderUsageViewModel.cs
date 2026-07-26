@@ -72,6 +72,9 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
     private string _numberMostActiveDay = string.Empty;    // most_active_day（如 "2026-07-01 (552.49M)"，数据概览备注行）
     private double _videoIntervalPercent;
     private double _videoWeeklyPercent;
+    /// <summary>迷你时序图表序列缓存（key = seriesKey，来自 DataGroup.SeriesKey 声明）。
+    /// Provider 刷新时将序列写入 Extra["mini_series:{seriesKey}"]，本 VM 解析后缓存供 MiniChartItemViewModel 取用。</summary>
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, UsageMonitor.Core.Models.MiniSeriesData> _miniSeriesCache = new(StringComparer.OrdinalIgnoreCase);
     private IReadOnlyList<string> _renderKinds = Array.Empty<string>();
     private bool _show5hBar = true;
     private bool _showWeeklyBar = true;
@@ -81,6 +84,8 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
     private IReadOnlyList<CardChartKind> _cardChartKinds = Array.Empty<CardChartKind>();
     private IReadOnlyList<double> _cardLineValues = Array.Empty<double>();
     private double _cardLineMax = 100;
+    /// <summary>最新一次刷新产出的 extras 字典缓存（供 StackedBar/Area 槽位构建 pivot 图表数据）。</summary>
+    private Dictionary<string, object>? _latestExtras;
     // 声明式富渲染模式标记：为 true 时折线图使用「每日 Token」，不被历史用量百分比覆盖。
     private bool _isDeclarativeRenderMode;
     // req-007：折线图完整化字段。SupportsPeriodSwitch=true 的插件（仅 MiniMax）会启用周期切换按钮。
@@ -1143,7 +1148,7 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         return idx > 0 ? instanceId.Substring(0, idx) : instanceId;
     }
 
-    /// <summary>原位刷新指定槽位的 Bar/Number 数据（结构不变时调用，避免控件重建）。
+    /// <summary>原位刷新指定槽位的 Bar/Number/StackedBar/Area 数据（结构不变时调用，避免控件重建）。
     /// <para>问题8：空态提示区分两种原因——数据组全部未勾选 vs 数据尚未到达（刷新后自动恢复）。</para></summary>
     private void RefreshSlotData(CardChartSlotViewModel slot, CardDeclaration card, AccountCustomization eff)
     {
@@ -1161,6 +1166,83 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
             slot.EmptyHint = slot.NumberData != null ? null
                 : (HasVisibleGroups(slot.ChartId, slot.InstanceId, card, eff) ? "暂无数据，等待刷新…" : "未配置数据组，请在卡片管理中勾选");
         }
+        else if (slot.Kind == DeclarativeChartKind.StackedBar)
+        {
+            var chartDecl = card.Charts.FirstOrDefault(c => string.Equals(c.ChartId, slot.ChartId, StringComparison.Ordinal));
+            slot.StackedBarData = BuildStackedBarData(chartDecl);
+            slot.EmptyHint = slot.StackedBarData != null ? null : "暂无数据，等待刷新…";
+        }
+        else if (slot.Kind == DeclarativeChartKind.Area)
+        {
+            var chartDecl = card.Charts.FirstOrDefault(c => string.Equals(c.ChartId, slot.ChartId, StringComparison.Ordinal));
+            slot.AreaData = BuildAreaData(chartDecl);
+            slot.EmptyHint = slot.AreaData != null ? null : "暂无数据，等待刷新…";
+        }
+    }
+
+    /// <summary>从声明的 pivot 字段构建堆叠柱状图数据（extras 中的 seriesPivot 产出）。</summary>
+    private UsageMonitor.Core.Models.StackedBarChartData? BuildStackedBarData(ChartDeclaration? decl)
+    {
+        if (decl == null || _latestExtras == null) return null;
+        var catKey = decl.CategoriesField;
+        var namesKey = decl.SeriesNamesField;
+        var matrixKey = decl.ValuesMatrixField;
+        if (string.IsNullOrEmpty(catKey) || string.IsNullOrEmpty(matrixKey)) return null;
+
+        var categories = ReadStringList(_latestExtras, catKey!);
+        var matrix = ReadMatrix(_latestExtras, matrixKey!);
+        if (categories.Count == 0 || matrix.Count == 0) return null;
+
+        var names = !string.IsNullOrEmpty(namesKey) ? ReadStringList(_latestExtras, namesKey!) : new List<string>();
+        var seriesList = new List<UsageMonitor.Core.Models.ChartSeries>();
+        for (int i = 0; i < matrix.Count; i++)
+        {
+            var name = i < names.Count ? names[i] : $"系列{i + 1}";
+            var color = i < decl.Colors.Count ? decl.Colors[i] : null;
+            seriesList.Add(new UsageMonitor.Core.Models.ChartSeries(name, matrix[i], color));
+        }
+        return new UsageMonitor.Core.Models.StackedBarChartData(categories, seriesList, decl.Unit, decl.Display);
+    }
+
+    /// <summary>从声明的 pivot 字段构建面积图数据（取矩阵首行，或单系列 parallel 数据）。</summary>
+    private UsageMonitor.Core.Models.AreaChartData? BuildAreaData(ChartDeclaration? decl)
+    {
+        if (decl == null || _latestExtras == null) return null;
+        var catKey = decl.CategoriesField;
+        var matrixKey = decl.ValuesMatrixField;
+        if (string.IsNullOrEmpty(catKey) || string.IsNullOrEmpty(matrixKey)) return null;
+
+        var categories = ReadStringList(_latestExtras, catKey!);
+        var matrix = ReadMatrix(_latestExtras, matrixKey!);
+        if (categories.Count == 0 || matrix.Count == 0) return null;
+
+        // 面积图为单系列：取矩阵首行。
+        var values = matrix[0];
+        var namesKey2 = decl.SeriesNamesField;
+        var names = !string.IsNullOrEmpty(namesKey2) ? ReadStringList(_latestExtras, namesKey2!) : new List<string>();
+        var seriesName = names.Count > 0 ? names[0] : decl.Display;
+        return new UsageMonitor.Core.Models.AreaChartData(values, categories, Unit: decl.Unit, SeriesName: seriesName);
+    }
+
+    /// <summary>从 extras 读取值矩阵（List&lt;List&lt;double&gt;&gt;，兼容可枚举形态）。</summary>
+    private static List<List<double>> ReadMatrix(Dictionary<string, object> extra, string key)
+    {
+        var result = new List<List<double>>();
+        if (!extra.TryGetValue(key, out var obj) || obj is not System.Collections.IEnumerable rows) return result;
+        foreach (var rowObj in rows)
+        {
+            if (rowObj is System.Collections.IEnumerable cells and not string)
+            {
+                var row = new List<double>();
+                foreach (var cell in cells)
+                {
+                    try { row.Add(Convert.ToDouble(cell, System.Globalization.CultureInfo.InvariantCulture)); }
+                    catch { row.Add(0); }
+                }
+                result.Add(row);
+            }
+        }
+        return result;
     }
 
     /// <summary>问题4：构建数据概览单个数据项的悬停提示文本——按用户勾选的 tooltip 字段顺序，
@@ -1364,15 +1446,26 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         return null;
     }
 
-    /// <summary>req-107 B8：字段取值器——标准字段名 → 当前值（过渡期映射到已刷新的 VM 属性，后续可改从标准字段字典泛化解析）。</summary>
+    /// <summary>req-107 B8：字段取值器——标准字段名 → 当前值。
+    /// <para>已知字段映射到已刷新的 VM 属性；其余字段（如 DeepSeek 的 balance_amount/monthly_cost 等
+    /// 声明式插件字段）泛化从 <see cref="_latestExtras"/> 解析，避免为每个 Provider 硬编码。</para></summary>
     private double? ResolveFieldValue(string fieldName) => fieldName switch
     {
         UsageMonitor.Core.Models.UsageFields.FiveHourUsedPercent => PrimaryBarPercent,
         UsageMonitor.Core.Models.UsageFields.WeeklyUsedPercent => WeeklyBarPercent,
         UsageMonitor.Core.Models.UsageFields.VideoQuota => VideoIntervalPercent,
         UsageMonitor.Core.Models.UsageFields.RemainingCredits => RemainingCredits,
-        _ => null
+        _ => ResolveFieldValueFromExtras(fieldName)
     };
+
+    /// <summary>从最新 extras 泛化解析任意数值字段（声明式插件的通用字段取值路径）。</summary>
+    private double? ResolveFieldValueFromExtras(string fieldName)
+    {
+        if (_latestExtras == null) return null;
+        if (!_latestExtras.TryGetValue(fieldName, out var v) || v == null) return null;
+        try { return Convert.ToDouble(v, System.Globalization.CultureInfo.InvariantCulture); }
+        catch { return null; }
+    }
 
     /// <summary>req-107 B8：字段显示标签解析（过渡期内置中文标签，后续接 I18n + SDK 元数据 LabelKey）。</summary>
     private static string DeclarativeFieldLabel(string fieldName) => fieldName switch
@@ -1393,8 +1486,21 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         UsageMonitor.Core.Models.UsageFields.ActiveDays => _numberActiveDays > 0 ? _numberActiveDays.ToString() : null,
         UsageMonitor.Core.Models.UsageFields.TotalDays => _numberTotalDays > 0 ? _numberTotalDays.ToString() : null,
         UsageMonitor.Core.Models.UsageFields.RemainingCredits => _remainingCredits >= 0 ? _remainingCredits.ToString("0") : null,
-        _ => ResolveFieldValue(fieldName)?.ToString("0")
+        _ => ResolveFieldValue(fieldName) is { } v ? FormatFieldValue(v) : null
     };
+
+    /// <summary>通用数值格式化：大数用 K/M/B 简写（如月 Token 298.92M）；
+    /// 小数保留两位（如余额 32.66）；整数不带小数点。</summary>
+    private static string FormatFieldValue(double v)
+    {
+        var abs = Math.Abs(v);
+        if (abs >= 1_000_000_000) return (v / 1_000_000_000).ToString("0.##B", System.Globalization.CultureInfo.InvariantCulture);
+        if (abs >= 1_000_000) return (v / 1_000_000).ToString("0.##M", System.Globalization.CultureInfo.InvariantCulture);
+        if (abs >= 10_000) return (v / 1_000).ToString("0.##K", System.Globalization.CultureInfo.InvariantCulture);
+        return Math.Abs(v % 1) > 0.001
+            ? v.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)
+            : v.ToString("0", System.Globalization.CultureInfo.InvariantCulture);
+    }
 
     /// <summary>将 Token 数值格式化为人类可读形式（如 552.49M / 5.85B）。</summary>
     private static string FormatTokenNumber(double value)
@@ -1839,6 +1945,9 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
 
         UsagePercentage = usage.GetUsagePercentage();
 
+        // 迷你时序图表序列提取：扫描 Extra 中 "mini_series:*" 键，解析并缓存供任务栏迷你图取用。
+        ExtractMiniSeriesFromExtra(usage.Extra);
+
         // Stage D（声明驱动渲染）：插件声明了卡片主指标（Card.PrimaryMetric）且本次 extras 已捕获该字段时，
         // 走声明式富卡片渲染路径（进度条/订阅胶囊/汇总面板/每日图表）。
         // 替代旧 "domExtract" 魔法标志（旧提取器删除后已无写入方，导致富渲染路径失活）——
@@ -1901,6 +2010,8 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
     {
         var extra = usage.Extra!;
         _isDeclarativeRenderMode = true;
+        // 缓存最新 extras（供 StackedBar/Area 槽位构建 pivot 图表数据；必须在 RebuildChartSlots 之前赋值）。
+        _latestExtras = extra;
 
         // 小工具：容错读取 double / long / string（Extra 值为 object 装箱）。
         double D(string k) => extra.TryGetValue(k, out var v) && v != null
@@ -2282,6 +2393,92 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         }
         var mins = Math.Max(1, (int)Math.Ceiling(diff.TotalMinutes));
         return $"{mins} 分钟后重置";
+    }
+
+    /// <summary>
+    /// 迷你时序图表序列提取：扫描 Extra 中 "mini_series:{seriesKey}" 前缀键，解析并缓存到 <see cref="_miniSeriesCache"/>。
+    /// <para>
+    /// 支持的值格式：
+    /// <list type="bullet">
+    /// <item><description><c>MiniSeriesData</c> 实例（Provider 直接传入，零解析开销）</description></item>
+    /// <item><description><c>IReadOnlyList&lt;MiniSeriesPoint&gt;</c> / <c>List&lt;MiniSeriesPoint&gt;</c>（点列表，自动截断）</description></item>
+    /// <item><description><c>IReadOnlyList&lt;double&gt;</c> / <c>List&lt;long&gt;</c>（纯数值序列，按天回溯生成时间戳）</description></item>
+    /// </list>
+    /// </para>
+    /// </summary>
+    /// <param name="extra">本次刷新产出的 Extra 字典（可为 null）</param>
+    private void ExtractMiniSeriesFromExtra(Dictionary<string, object>? extra)
+    {
+        if (extra == null || extra.Count == 0) return;
+        const string prefix = "mini_series:";
+
+        foreach (var kv in extra)
+        {
+            if (!kv.Key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) continue;
+            var seriesKey = kv.Key[prefix.Length..];
+            if (string.IsNullOrWhiteSpace(seriesKey)) continue;
+
+            var series = ConvertToMiniSeriesData(kv.Value);
+            if (series != null)
+                _miniSeriesCache[seriesKey] = series;
+        }
+    }
+
+    /// <summary>
+    /// 将 Extra 中的原始值转换为 <see cref="UsageMonitor.Core.Models.MiniSeriesData"/>（容错：无法解析时返回 null）。
+    /// </summary>
+    /// <param name="raw">Extra 中的原始值（支持 MiniSeriesData / 点列表 / 纯数值列表）</param>
+    /// <returns>解析后的序列数据集；无法解析时返回 null</returns>
+    private static UsageMonitor.Core.Models.MiniSeriesData? ConvertToMiniSeriesData(object? raw)
+    {
+        switch (raw)
+        {
+            case UsageMonitor.Core.Models.MiniSeriesData direct:
+                return direct;
+
+            case IReadOnlyList<UsageMonitor.Core.Models.MiniSeriesPoint> points:
+                return UsageMonitor.Core.Models.MiniSeriesData.Create(points);
+
+            case IReadOnlyList<double> doubles:
+            {
+                var pts = new List<UsageMonitor.Core.Models.MiniSeriesPoint>(doubles.Count);
+                var today = DateTime.Today;
+                for (int i = 0; i < doubles.Count; i++)
+                    pts.Add(new UsageMonitor.Core.Models.MiniSeriesPoint
+                    {
+                        Timestamp = today.AddDays(i - doubles.Count + 1),
+                        Value = doubles[i]
+                    });
+                return UsageMonitor.Core.Models.MiniSeriesData.Create(pts);
+            }
+
+            case IReadOnlyList<long> longs:
+            {
+                var pts = new List<UsageMonitor.Core.Models.MiniSeriesPoint>(longs.Count);
+                var today = DateTime.Today;
+                for (int i = 0; i < longs.Count; i++)
+                    pts.Add(new UsageMonitor.Core.Models.MiniSeriesPoint
+                    {
+                        Timestamp = today.AddDays(i - longs.Count + 1),
+                        Value = longs[i]
+                    });
+                return UsageMonitor.Core.Models.MiniSeriesData.Create(pts);
+            }
+
+            default:
+                return null;
+        }
+    }
+
+    /// <summary>
+    /// 按 seriesKey 获取缓存的迷你图表序列数据（供 MiniChartItemViewModel 调用）。
+    /// </summary>
+    /// <param name="seriesKey">数据组声明的序列键（DataGroup.SeriesKey）</param>
+    /// <returns>缓存的序列数据；未缓存时返回 null</returns>
+    public UsageMonitor.Core.Models.MiniSeriesData? GetMiniSeries(string seriesKey)
+    {
+        if (string.IsNullOrWhiteSpace(seriesKey)) return null;
+        return _miniSeriesCache.TryGetValue(seriesKey, out var data) ? data : null;
     }
 
     /// <summary>

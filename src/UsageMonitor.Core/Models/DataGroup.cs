@@ -78,4 +78,11 @@ public sealed class DataGroup
 
     /// <summary>本组的字段引用列表（至少一个 Value 角色字段，加载时按 ChartKindSpec 校验）。</summary>
     public IReadOnlyList<FieldReference> Fields { get; init; } = System.Array.Empty<FieldReference>();
+
+    /// <summary>
+    /// 序列数据键（迷你时序图表用）：Provider 据此将时间序列写入
+    /// <c>UsageInfo.Extra["mini_series:{SeriesKey}"]</c>，宿主按当前数据组的 SeriesKey 取出渲染。
+    /// <para>null = 无序列声明（单值图表如环形/文本，或回退 HistoryValues 兼容路径）。</para>
+    /// </summary>
+    public string? SeriesKey { get; init; }
 }

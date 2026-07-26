@@ -22,8 +22,27 @@ public static class FileLogger
     /// <summary>Project root (resolved by walking up to UsageMonitor.sln).</summary>
     public static readonly string ProjectRoot = ResolveProjectRoot();
 
-    /// <summary>Logs directory: &lt;projectRoot&gt;/logs/</summary>
-    public static readonly string LogDir = Path.Combine(ProjectRoot, "logs");
+    /// <summary>日志目录：默认 &lt;projectRoot&gt;/logs/，可通过 <see cref="SetLogDir"/> 在启动时覆盖（修复7：运行日志文件夹可配置）。</summary>
+    public static string LogDir { get; private set; } = Path.Combine(ProjectRoot, "logs");
+
+    /// <summary>
+    /// 修复7：设置自定义日志文件夹（仅在应用启动时调用一次，写入前生效）。
+    /// <para>空字符串或 null 表示使用默认路径；目录不存在时自动创建，创建失败则回退默认目录。</para>
+    /// </summary>
+    public static void SetLogDir(string? customDir)
+    {
+        if (string.IsNullOrWhiteSpace(customDir)) return;
+        try
+        {
+            var dir = customDir.Trim();
+            Directory.CreateDirectory(dir);
+            LogDir = dir;
+        }
+        catch
+        {
+            // 目录不可写/路径无效时保留默认日志目录，避免日志丢失
+        }
+    }
 
     /// <summary>Concurrent write queue so multiple threads (UI + worker) can log safely.</summary>
     private static readonly BlockingCollection<LogEntry> Queue = new();

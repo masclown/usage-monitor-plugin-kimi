@@ -175,6 +175,13 @@ public partial class App : Application
         _configService = new ConfigService();
         _configService.Load();
 
+        // 修复7：应用用户配置的日志文件夹（空 = 默认 <projectRoot>/logs/）
+        if (!string.IsNullOrWhiteSpace(_configService.Settings.LogFolder))
+        {
+            FileLogger.SetLogDir(_configService.Settings.LogFolder);
+            FileLogger.Info("App", $"Log directory from settings: {FileLogger.LogDir}");
+        }
+
         // req-116：按用户配置应用界面语言（必须在插件扫描之前，manifest 里的 i18n: 键按此语言解析）
         if (!string.IsNullOrWhiteSpace(_configService.Settings.Language))
         {

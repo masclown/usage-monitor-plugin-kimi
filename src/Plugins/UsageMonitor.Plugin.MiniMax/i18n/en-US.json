@@ -27,5 +27,7 @@
   "plugin.MiniMax.group.taskbar5h": "5h Quota",
   "plugin.MiniMax.group.taskbarWeekly": "Weekly Quota",
   "plugin.MiniMax.mini.ring": "Quota Ring",
-  "plugin.MiniMax.mini.text": "Usage Text"
+  "plugin.MiniMax.mini.text": "Usage Text",
+  "plugin.MiniMax.mini.bar": "Daily Token Bar",
+  "plugin.MiniMax.group.miniDailyTokens": "Daily Tokens"
 }

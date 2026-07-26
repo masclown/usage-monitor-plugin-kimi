@@ -1,0 +1,19 @@
+{
+  "plugin.DeepSeek.login.button": "🌐 Get DeepSeek login state",
+  "plugin.DeepSeek.field.UserToken.name": "Platform UserToken",
+  "plugin.DeepSeek.field.UserToken.placeholder": "Click 'Get login state' above to auto-fill, or paste localStorage.userToken value",
+  "plugin.DeepSeek.guidance.credential": "Please enter the DeepSeek platform UserToken in settings (obtain from browser localStorage after login)",
+  "plugin.DeepSeek.guidance.authInvalid": "UserToken is invalid or expired, please re-obtain from browser",
+  "plugin.DeepSeek.guidance.fallback": "Please check DeepSeek plugin configuration",
+  "plugin.DeepSeek.chart.balance_number": "Account Overview",
+  "plugin.DeepSeek.chart.daily_cost": "Daily Cost",
+  "plugin.DeepSeek.chart.daily_requests": "API Requests",
+  "plugin.DeepSeek.chart.daily_tokens": "Token Usage",
+  "plugin.DeepSeek.group.numberBalance": "Balance",
+  "plugin.DeepSeek.group.numberMonthlyCost": "Monthly Cost",
+  "plugin.DeepSeek.group.numberTotalCost": "Total Cost",
+  "plugin.DeepSeek.group.numberMonthlyTokens": "Monthly Tokens",
+  "plugin.DeepSeek.group.taskbarBalance": "Balance",
+  "plugin.DeepSeek.group.taskbarMonthly": "Monthly",
+  "plugin.DeepSeek.mini.text": "Balance Text"
+}

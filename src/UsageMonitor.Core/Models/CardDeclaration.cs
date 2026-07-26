@@ -119,6 +119,23 @@ public sealed class ChartDeclaration
 
     /// <summary>数据组列表（至少一个）。</summary>
     public IReadOnlyList<DataGroup> DataGroups { get; init; } = System.Array.Empty<DataGroup>();
+
+    // ============== seriesPivot 图表数据绑定（StackedBar / Area） ==============
+
+    /// <summary>类别标签 extras 键名（如 "daily_cost_categories"——seriesPivot 产出的 X 轴标签列表）。</summary>
+    public string? CategoriesField { get; init; }
+
+    /// <summary>系列名 extras 键名（如 "daily_cost_series_names"——seriesPivot 产出的系列名列表）。</summary>
+    public string? SeriesNamesField { get; init; }
+
+    /// <summary>值矩阵 extras 键名（如 "daily_cost_matrix"——seriesPivot 产出的 List&lt;List&lt;double&gt;&gt;，行=系列，列=类别）。</summary>
+    public string? ValuesMatrixField { get; init; }
+
+    /// <summary>图表颜色序列（可空；与系列索引对应，如 ["#FF810C", "#FFA10A", "#FFC104"]；缺省由宿主色板分配）。</summary>
+    public IReadOnlyList<string> Colors { get; init; } = System.Array.Empty<string>();
+
+    /// <summary>数值单位提示（"¥"/"tokens"/"次"），供 tooltip / 轴标签使用。</summary>
+    public string? Unit { get; init; }
 }
 
 /// <summary>

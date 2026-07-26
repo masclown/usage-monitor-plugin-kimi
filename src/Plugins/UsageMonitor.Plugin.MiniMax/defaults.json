@@ -112,6 +112,7 @@
             "itemFields": [
               { "path": "$.date", "target": "daily_token_dates", "elementType": "string" },
               { "path": "$.total_token", "target": "daily_token_values", "elementType": "long" },
+              { "path": "$.total_token", "target": "mini_series:mm.daily.tokens", "elementType": "long" },
               { "path": "$.cache_hit_percent", "target": "daily_cache_hit_percents", "transform": "parsePercent", "elementType": "double" }
             ]
           },
@@ -317,6 +318,17 @@
         "dataGroups": [
           { "id": "mm.taskbar.5h", "display": "i18n:plugin.MiniMax.group.taskbar5h", "fields": [{ "fieldName": "five_hour_used_percent", "role": "Value" }] },
           { "id": "mm.taskbar.weekly", "display": "i18n:plugin.MiniMax.group.taskbarWeekly", "fields": [{ "fieldName": "weekly_used_percent", "role": "Value" }] }
+        ]
+      },
+      {
+        "chartId": "mm.mini.bar",
+        "display": "i18n:plugin.MiniMax.mini.bar",
+        "kind": "MiniBarChart",
+        "width": 100,
+        "slicer": { "mode": "DataGroup", "interaction": "Scroll", "default": "mm.mini.bar.tokens" },
+        "tooltip": { "fields": ["__provider_name__", "__refresh_countdown__"] },
+        "dataGroups": [
+          { "id": "mm.mini.bar.tokens", "display": "i18n:plugin.MiniMax.group.miniDailyTokens", "seriesKey": "mm.daily.tokens", "fields": [{ "fieldName": "daily_token_value", "role": "Value" }] }
         ]
       }
     ]

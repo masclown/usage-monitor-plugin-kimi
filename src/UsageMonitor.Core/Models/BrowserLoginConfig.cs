@@ -151,4 +151,19 @@ public class BrowserLoginConfig
     /// </para>
     /// </summary>
     public IReadOnlyList<string> LoggedInPathKeywords { get; set; } = new List<string>();
+
+    /// <summary>
+    /// 登录成功后需从浏览器 localStorage 提取的令牌声明（可选）。
+    /// <para>
+    /// 适用于鉴权令牌存于 localStorage 而非 Cookie 的服务商（如 DeepSeek：API 需
+    /// <c>Authorization: Bearer {localStorage.userToken.value}</c>，纯 Cookie 返回 40002 Missing Token）。
+    /// </para>
+    /// <para>
+    /// key = 写入配置表的字段名（如 "UserToken"，供声明包 http 端点 <c>{config:UserToken}</c> 占位符引用）；
+    /// value = localStorage 键名（如 "userToken"）。提取时若原始值是 JSON 且含 <c>value</c> 成员
+    /// （如 DeepSeek appKit 存储格式 <c>{"value":"...","__version":1}</c>）则自动取其 <c>value</c>，否则用原始字符串。
+    /// </para>
+    /// <para>示例（DeepSeek）：<c>{ "UserToken": "userToken" }</c></para>
+    /// </summary>
+    public IReadOnlyDictionary<string, string> LocalStorageTokens { get; set; } = new Dictionary<string, string>();
 }

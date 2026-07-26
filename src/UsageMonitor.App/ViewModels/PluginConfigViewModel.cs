@@ -131,6 +131,11 @@ public class PluginConfigViewModel : INotifyPropertyChanged
     /// <summary>Cookie 提取成功后通知视图填入 Cookie 输入控件（参数为完整 Cookie 字符串）。</summary>
     public event Action<string>? CookieReceived;
 
+    /// <summary>登录成功后通知视图填入任意配置字段（参数：字段 Key → 值）。
+    /// <para>用于 localStorage 令牌类插件（如 DeepSeek 的 UserToken），登录提取后回填对应输入框，
+    /// 避免用户点【保存】时用空值覆盖已持久化的令牌。</para></summary>
+    public event Action<string, string>? ConfigFieldReceived;
+
     /// <summary>视图层赋值：收集当前表单所有字段的值（fieldKey → value，保存语义——始终返回字符串）。</summary>
     public Func<Dictionary<string, string>>? CollectFormValues { get; set; }
 
@@ -444,7 +449,10 @@ public class PluginConfigViewModel : INotifyPropertyChanged
             var loginService = new BrowserLoginService(_configService);
             var data = await loginService.LoginAndExtractCookieAsync(_loginConfig);
 
-            if (data == null || string.IsNullOrEmpty(data.Cookie))
+            // 成功判定：Cookie 或 localStorage 令牌任一提取到即视为登录成功
+            // （纯 localStorage 鉴权的服务商如 DeepSeek 可能抓不到 Cookie，但能提取到 UserToken）。
+            var hasLocalStorageTokens = data?.LocalStorageTokens != null && data.LocalStorageTokens.Count > 0;
+            if (data == null || (string.IsNullOrEmpty(data.Cookie) && !hasLocalStorageTokens))
             {
                 // 显示真实错误信息（来自 BrowserLoginService.LastError）
                 var lastError = loginService.LastError;
@@ -471,20 +479,30 @@ public class PluginConfigViewModel : INotifyPropertyChanged
             // 通知视图将 Cookie 填入 Cookie 字段
             CookieReceived?.Invoke(data.Cookie);
 
-            // 更新状态提示（显示关键元数据）
-            GetCookieButtonText = $"✅ 已获取 {data.Count} 条 Cookie（{data.Domain}）";
+            // 通知视图回填 localStorage 令牌字段（如 DeepSeek UserToken），避免保存时被空值覆盖。
+            if (data.LocalStorageTokens != null)
+            {
+                foreach (var kv in data.LocalStorageTokens)
+                    ConfigFieldReceived?.Invoke(kv.Key, kv.Value);
+            }
 
+            // 更新状态提示（显示关键元数据）
+            GetCookieButtonText = hasLocalStorageTokens
+                ? $"✅ 已获取登录态（{string.Join(",", data.LocalStorageTokens!.Keys)}）"
+                : $"✅ 已获取 {data.Count} 条 Cookie（{data.Domain}）";
+
+            // 根据凭据类型组装成功提示文案（Cookie 型 / localStorage 令牌型）。
+            var credentialSummary = hasLocalStorageTokens
+                ? $"令牌字段: {string.Join(", ", data.LocalStorageTokens!.Keys)}（已安全保存并自动填充）\n"
+                : $"域名: {data.Domain}\n条数: {data.Count}\nCookie 长度: {data.Cookie.Length} 字符（完整内容已安全保存，不在弹窗中显示）\n";
             System.Windows.MessageBox.Show(
-                $"Cookie 获取成功！\n\n" +
+                $"登录态获取成功！\n\n" +
                 $"服务商: {data.ProviderId}\n" +
-                $"域名: {data.Domain}\n" +
-                $"条数: {data.Count}\n" +
-                $"保存于: {data.SavedAt:yyyy-MM-dd HH:mm:ss}\n" +
-                $"Cookie 长度: {data.Cookie.Length} 字符（完整内容已安全保存，不在弹窗中显示）\n\n" +
-                $"持久化路径: %AppData%\\UsageMonitor\\cookies\\{data.ProviderId}.json\n\n" +
+                credentialSummary +
+                $"保存于: {data.SavedAt:yyyy-MM-dd HH:mm:ss}\n\n" +
                 "Edge 浏览器窗口已被自动关闭。\n" +
                 "点击【保存】按钮保存配置后，回到主界面右键托盘 → 立即刷新即可看到用量数据。",
-                "Cookie 已填入字段",
+                "登录态已填入字段",
                 MessageBoxButton.OK, MessageBoxImage.Information);
         }
         catch (Exception ex)

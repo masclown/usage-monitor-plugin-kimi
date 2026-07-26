@@ -25,4 +25,7 @@ public enum MiniChartKind
 
     /// <summary>迷你热力图（每日 Token 用量日历）—— 未来扩展，预留枚举值。</summary>
     MiniHeatMap = 4,
+
+    /// <summary>迷你面积图（历史用量时间序列，折线 + 渐变填充）。</summary>
+    MiniAreaChart = 5,
 }

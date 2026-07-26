@@ -106,6 +106,9 @@ public class AppSettings
     /// <summary>应用外观主题（深色 / 浅色）。启动时由 ThemeManager 应用，默认深色。</summary>
     public ThemeMode Theme { get; set; } = ThemeMode.Dark;
 
+    /// <summary>修复7：运行日志文件夹（空 = 默认 &lt;projectRoot&gt;/logs/）。启动时由 FileLogger.SetLogDir 应用。</summary>
+    public string LogFolder { get; set; } = "";
+
     /// <summary>req-115：外观主题 Id（空 = 按 <see cref="Theme"/> 枚举映射内置 dark/light；
     /// 非空 = ThemeModule 已注册的主题 Id，含外部 themes/ 主题包）。</summary>
     public string ThemeId { get; set; } = "";
@@ -1219,6 +1222,27 @@ public class ConfigService : IConfigService
             acct.MiniDataGroupOrders = CopyStringToIntDictDict(config.MiniDataGroupOrders);
             // 问题8：各 Mini 图表的 Tooltip/文本显示字段随 Mini 配置一起持久化
             acct.MiniTooltipFields = CopyStringToListDict(config.MiniTooltipFields);
+        }
+        Save();
+    }
+
+    /// <summary>
+    /// 持久化指定 Provider 的任务栏迷你图表用户覆盖宽度（TaskbarMiniChartConfig.Width）。
+    /// <para>null = 清除覆盖（回退插件声明值/宿主默认）；有效范围 40-400，越界时钳位。</para>
+    /// </summary>
+    /// <param name="providerId">Provider 唯一标识。</param>
+    /// <param name="width">用户覆盖宽度（DIP）；null 表示清除覆盖。</param>
+    public void SetMiniChartWidth(string providerId, int? width)
+    {
+        if (string.IsNullOrWhiteSpace(providerId)) return;
+        lock (_ioLock)
+        {
+            if (!_settings.TaskbarMiniChartConfigs.TryGetValue(providerId, out var cfg) || cfg == null)
+            {
+                cfg = new Models.TaskbarMiniChartConfig();
+                _settings.TaskbarMiniChartConfigs[providerId] = cfg;
+            }
+            cfg.Width = width.HasValue ? Math.Clamp(width.Value, 40, 400) : null;
         }
         Save();
     }

@@ -50,6 +50,8 @@ public class CardChartSlotViewModel : INotifyPropertyChanged
             DeclarativeChartKind.Ring => "Ring",
             DeclarativeChartKind.HeatMap => "HeatMap",
             DeclarativeChartKind.Number => "Number",
+            DeclarativeChartKind.StackedBar => "StackedBar",
+            DeclarativeChartKind.Area => "Area",
             _ => kind.ToString()
         };
     }
@@ -116,6 +118,22 @@ public class CardChartSlotViewModel : INotifyPropertyChanged
         get => _numberData;
         set { if (!ReferenceEquals(_numberData, value)) { _numberData = value; OnPropertyChanged(); } }
     }
+
+    /// <summary>堆叠柱状图（StackedBar）槽位的图表数据（按声明的 pivot 字段构建）。</summary>
+    public StackedBarChartData? StackedBarData
+    {
+        get => _stackedBarData;
+        set { if (!ReferenceEquals(_stackedBarData, value)) { _stackedBarData = value; OnPropertyChanged(); } }
+    }
+    private StackedBarChartData? _stackedBarData;
+
+    /// <summary>面积图（Area）槽位的图表数据（按声明的 pivot 字段构建）。</summary>
+    public AreaChartData? AreaData
+    {
+        get => _areaData;
+        set { if (!ReferenceEquals(_areaData, value)) { _areaData = value; OnPropertyChanged(); } }
+    }
+    private AreaChartData? _areaData;
 
     /// <summary>问题1：槽位悬停提示文本（按用户勾选的 tooltip 字段顺序生成；null = 不显示 tooltip）。</summary>
     public string? TooltipText

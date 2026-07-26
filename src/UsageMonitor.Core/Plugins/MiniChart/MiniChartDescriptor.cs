@@ -115,6 +115,12 @@ public sealed class MiniChartDescriptor
     public SlicerSpec? Slicer { get; init; }
 
     /// <summary>
+    /// 插件声明的图表宽度（DIP，来自 <c>taskbar.miniCharts[].width</c>）。
+    /// <para>null = 未声明，宿主回退默认 120；用户设置覆盖优先级更高（见 TaskbarMiniChartConfig.Width）。</para>
+    /// </summary>
+    public int? DeclaredWidth { get; init; }
+
+    /// <summary>
     /// 辅助构造：用最常用字段快速构造一个 Text 类型描述符。
     /// </summary>
     public static MiniChartDescriptor ForText(string providerId, double? usagePercent = null)

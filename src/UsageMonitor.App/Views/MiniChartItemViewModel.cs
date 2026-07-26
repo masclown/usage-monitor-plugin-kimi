@@ -76,8 +76,93 @@ public class MiniChartItemViewModel : INotifyPropertyChanged
         => VisibleDataGroupIds != null
            && VisibleDataGroupIds.Contains(MiniTooltipFieldCatalog.RefreshCountdownVirtual, StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>问题11：宿主注入 VisibleDataGroupIds 后重新解析初始数据组索引（构造时尚未注入，需二次对齐）。</summary>
+    /// <summary>问馘11：宿主注入 VisibleDataGroupIds 后重新解析初始数据组索引（构造时尚未注入，需二次对齐）。</summary>
     public void ReinitializeDataGroupIndex() => _currentDataGroupIndex = ResolveInitialDataGroupIndex();
+    
+    // ===================== 迷你时序图表序列数据（柱状/折线/面积） =====================
+    
+    /// <summary>用户覆盖宽度（DIP，由 TaskbarWindow 构建时从 TaskbarMiniChartConfig.Width 解析注入；null = 未覆盖）。</summary>
+    public int? UserWidth { get; set; }
+    
+    /// <summary>有效宽度（DIP）：用户设置 > 插件声明 > 宿主默认 120。供 XAML 模板绑定 Width。</summary>
+    public int EffectiveWidth
+    {
+        get
+        {
+            var w = UserWidth ?? Descriptor.DeclaredWidth ?? 120;
+            return Math.Clamp(w, 40, 400);
+        }
+    }
+    
+    /// <summary>
+    /// 当前数据组的序列数据（迷你时序图表用）。
+    /// <para>解析链路：当前数据组 SeriesKey → UsageVm.GetMiniSeries(seriesKey)；
+    /// 无 SeriesKey 或缓存为空时回退 <c>UsageVm.HistoryValues</c>（兼容旧 Provider）。</para>
+    /// </summary>
+    public UsageMonitor.Core.Models.MiniSeriesData? CurrentSeries
+    {
+        get
+        {
+            var group = CurrentDataGroup;
+            if (group?.SeriesKey != null && UsageVm != null)
+            {
+                var series = UsageVm.GetMiniSeries(group.SeriesKey);
+                if (series is { Points.Count: > 0 }) return series;
+            }
+            // 回退：无序列声明或缓存为空时，用历史用量百分比序列兼容旧 Provider
+            var history = UsageVm?.HistoryValues;
+            if (history is { Count: > 0 })
+            {
+                var pts = new List<UsageMonitor.Core.Models.MiniSeriesPoint>(history.Count);
+                var today = DateTime.Today;
+                for (int i = 0; i < history.Count; i++)
+                    pts.Add(new UsageMonitor.Core.Models.MiniSeriesPoint
+                    {
+                        Timestamp = today.AddDays(i - history.Count + 1),
+                        Value = history[i]
+                    });
+                return UsageMonitor.Core.Models.MiniSeriesData.Create(pts);
+            }
+            return null;
+        }
+    }
+    
+    /// <summary>当前序列的 Y 轴数值列表（供 MiniSeriesChartControl.Values 绑定）。</summary>
+    public IReadOnlyList<double> CurrentSeriesValues
+    {
+        get
+        {
+            var series = CurrentSeries;
+            if (series == null || series.Points.Count == 0) return Array.Empty<double>();
+            var values = new double[series.Points.Count];
+            for (int i = 0; i < series.Points.Count; i++) values[i] = series.Points[i].Value;
+            return values;
+        }
+    }
+    
+    /// <summary>当前序列的 X 轴标签列表（日期短格式，供 hover 气泡显示）。</summary>
+    public IReadOnlyList<string> CurrentSeriesLabels
+    {
+        get
+        {
+            var series = CurrentSeries;
+            if (series == null || series.Points.Count == 0) return Array.Empty<string>();
+            var labels = new string[series.Points.Count];
+            for (int i = 0; i < series.Points.Count; i++)
+                labels[i] = series.Points[i].Timestamp.ToString("M/d");
+            return labels;
+        }
+    }
+    
+    /// <summary>当前序列的 Y 轴上限（0 = 控件自动取最大值）。</summary>
+    public double CurrentSeriesMax => CurrentSeries?.MaxValue ?? 0;
+    
+    /// <summary>当前序列的 Y 轴数值类型（百分比/绝对数值，影响气泡格式化）。</summary>
+    public UsageMonitor.Core.Models.MiniSeriesValueKind CurrentValueKind
+        => CurrentSeries?.ValueKind ?? UsageMonitor.Core.Models.MiniSeriesValueKind.Percent;
+    
+    /// <summary>当前序列的数值单位。</summary>
+    public string CurrentSeriesUnit => CurrentSeries?.Unit ?? string.Empty;
 
     /// <summary>唯一 ProviderId（来自 Descriptor，转发给 XAML 便于调试）。</summary>
     public string ProviderId => Descriptor.ProviderId;
@@ -259,8 +344,8 @@ public class MiniChartItemViewModel : INotifyPropertyChanged
 
     /// <summary>
     /// 问题12：MiniText 模板的正文片段（Provider 名之外的内容）。
-    /// <para>改为数据组驱动：仅展示用户勾选的数据组（按勾选顺序，如 "5h 42% 周 30%"），
-    /// 倒计时段由虚拟倒计时数据组勾选控制；未勾选任何数据组时不显示数据段。
+    /// <para>修复5：与 mini 圆环一致，各数据组单独显示，通过鼠标滚轮滚动切换（CycleDataGroup 驱动）；
+    /// 倒计时段由虚拟倒计时数据组勾选控制，始终追加在当前组后方。
     /// 无数据组声明（旧注册路径）时回退当前百分比。</para>
     /// </summary>
     public string MiniTextBody
@@ -270,13 +355,17 @@ public class MiniChartItemViewModel : INotifyPropertyChanged
             if (Descriptor.DataGroups is { Count: > 0 })
             {
                 var parts = new List<string>();
-                foreach (var group in EffectiveDataGroups)
+                // 修复5：仅展示当前数据组（滚轮切换），与 mini 圆环图行为一致
+                var group = CurrentDataGroup;
+                if (group != null)
                 {
                     var valueField = group.Fields.FirstOrDefault(f => f.Role == FieldRole.Value)?.FieldName;
-                    if (valueField == null) continue;
-                    var v = ResolveMiniFieldValue(valueField);
-                    var shortLabel = ResolveFieldShortLabel(valueField, group);
-                    parts.Add(v.HasValue ? $"{shortLabel} {v.Value:0}%" : $"{shortLabel} --");
+                    if (valueField != null)
+                    {
+                        var v = ResolveMiniFieldValue(valueField);
+                        var shortLabel = ResolveFieldShortLabel(valueField, group);
+                        parts.Add(v.HasValue ? $"{shortLabel} {v.Value:0}%" : $"{shortLabel} --");
+                    }
                 }
                 // 问题12：倒计时段由虚拟数据组勾选控制
                 if (ShowCountdownInText)
@@ -381,6 +470,13 @@ public class MiniChartItemViewModel : INotifyPropertyChanged
         // 问题8：MiniText 回退模式下正文随当前组切换；倒计时来源也随当前组（5h/周）切换。
         OnPropertyChanged(nameof(MiniTextBody));
         OnPropertyChanged(nameof(RefreshCountdownText));
+        // 迷你时序图表：切组后序列数据联动刷新（柱状/折线/面积图切换显示对应组的序列）
+        OnPropertyChanged(nameof(CurrentSeries));
+        OnPropertyChanged(nameof(CurrentSeriesValues));
+        OnPropertyChanged(nameof(CurrentSeriesLabels));
+        OnPropertyChanged(nameof(CurrentSeriesMax));
+        OnPropertyChanged(nameof(CurrentValueKind));
+        OnPropertyChanged(nameof(CurrentSeriesUnit));
         return true;
     }
 
@@ -525,6 +621,13 @@ public class MiniChartItemViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(ShowProviderInText));
         // req-105：刷新动态倒计时。FiveHourCountdownText 由 MainViewModel 全局 timer 每秒刷新。
         OnPropertyChanged(nameof(RefreshCountdownText));
+        // 迷你时序图表：数据刷新后序列缓存可能已更新，通知渲染层重取。
+        OnPropertyChanged(nameof(CurrentSeries));
+        OnPropertyChanged(nameof(CurrentSeriesValues));
+        OnPropertyChanged(nameof(CurrentSeriesLabels));
+        OnPropertyChanged(nameof(CurrentSeriesMax));
+        OnPropertyChanged(nameof(CurrentValueKind));
+        OnPropertyChanged(nameof(CurrentSeriesUnit));
     }
 
     /// <summary>

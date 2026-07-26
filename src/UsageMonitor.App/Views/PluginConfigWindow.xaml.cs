@@ -77,6 +77,7 @@ public partial class PluginConfigWindow : Window
         _viewModel.CollectMiniChartStates = () => ReadCheckBoxStates(_miniChartCheckBoxes);
         _viewModel.CloseRequested += OnCloseRequested;
         _viewModel.CookieReceived += OnCookieReceived;
+        _viewModel.ConfigFieldReceived += OnConfigFieldReceived;
 
         BuildForm(_viewModel.ConfigFields);
         BuildChartSwitchCheckBoxes();
@@ -96,17 +97,29 @@ public partial class PluginConfigWindow : Window
     /// <summary>VM 通知 Cookie 提取成功——将 Cookie 填入对应输入控件。</summary>
     private void OnCookieReceived(string cookie)
     {
-        if (_inputControls.TryGetValue("Cookie", out var control))
+        FillInputControl("Cookie", cookie);
+    }
+
+    /// <summary>VM 通知 localStorage 令牌提取成功——将值填入对应配置字段输入控件（如 DeepSeek UserToken）。</summary>
+    private void OnConfigFieldReceived(string fieldKey, string value)
+    {
+        FillInputControl(fieldKey, value);
+    }
+
+    /// <summary>向指定字段的输入控件填值（兼容 PasswordBox 包装与 TextBox 两种形态）。</summary>
+    private void FillInputControl(string fieldKey, string value)
+    {
+        if (_inputControls.TryGetValue(fieldKey, out var control))
         {
-            // Cookie 字段是 PasswordBox（用 Grid 包装），需要特殊处理
+            // Password 字段是 PasswordBox（用 Grid 包装），需要特殊处理
             if (control is Grid grid && grid.Tag is PasswordBoxWrapper wrapper)
             {
-                wrapper.PasswordBox.Password = cookie;
+                wrapper.PasswordBox.Password = value;
             }
             // 也支持直接的 TextBox（如果用户已切换到"显示"模式）
             else if (control is WpfTextBox textBox)
             {
-                textBox.Text = cookie;
+                textBox.Text = value;
             }
         }
     }

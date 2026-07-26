@@ -112,6 +112,9 @@ public static class UsageFields
     /// <summary>累计消费</summary>
     public const string TotalCost = "total_cost";
 
+    /// <summary>月 Token 用量（计费制 Provider 的月度累计 token 消耗）</summary>
+    public const string MonthlyTokenUsage = "monthly_token_usage";
+
     /// <summary>货币（CNY/USD）</summary>
     public const string Currency = "currency";
 

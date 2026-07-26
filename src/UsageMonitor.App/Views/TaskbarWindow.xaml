@@ -102,32 +102,78 @@
             </Grid>
         </DataTemplate>
 
-        <!-- req-088 B5：折线图模式模板
-             req-079 U-33：数据未就绪时以 120x22 骨架屏覆盖空白折线区 -->
+        <!-- 迷你折线图模式模板（MiniSeriesChartControl Line 模式：滚轮切数据组 + hover 气泡 + 宽度可配）
+             req-079 U-33：数据未就绪时以同尺寸骨架屏覆盖空白区 -->
         <DataTemplate x:Key="MiniChartLineChartTemplate" DataType="{x:Type views:MiniChartItemViewModel}">
-            <Grid Width="120" Height="22">
-                <controls:MiniLineChartControl Width="120" Height="22"
-                                                Values="{Binding UsageVm.HistoryValues, Mode=OneWay}"
-                                                StrokeThickness="1.6"
-                                                LowBrush="{DynamicResource UsageLowBrush}"
-                                                MidBrush="{DynamicResource UsageMidBrush}"
-                                                HighBrush="{DynamicResource UsageHighBrush}"
-                                                ToolTip="{Binding TooltipTitle, Mode=OneWay}"
-                                                ToolTipService.InitialShowDelay="{Binding TooltipShowDelayMs}" />
+            <Grid Width="{Binding EffectiveWidth, Mode=OneWay}" Height="22" Margin="0,0,8,0"
+                  Background="Transparent"
+                  PreviewMouseWheel="OnRingChartPreviewMouseWheel"
+                  ToolTipService.Placement="Top"
+                  ToolTipService.VerticalOffset="-8"
+                  ToolTipService.InitialShowDelay="{Binding TooltipShowDelayMs}">
+                <Grid.ToolTip>
+                    <ToolTip Content="{Binding CompositeTooltipText, Mode=OneWay}"
+                             Style="{StaticResource NullCollapsedToolTipStyle}" />
+                </Grid.ToolTip>
+                <controls:MiniSeriesChartControl ChartMode="MiniLineChart"
+                                                  Values="{Binding CurrentSeriesValues, Mode=OneWay}"
+                                                  Labels="{Binding CurrentSeriesLabels, Mode=OneWay}"
+                                                  MaxValue="{Binding CurrentSeriesMax, Mode=OneWay}"
+                                                  ValueKind="{Binding CurrentValueKind, Mode=OneWay}"
+                                                  Unit="{Binding CurrentSeriesUnit, Mode=OneWay}"
+                                                  SeriesBrush="{DynamicResource AccentBrush}" />
                 <!-- req-079 U-33：骨架屏（与折线图同尺寸，微光扫过动画） -->
                 <controls:SkeletonPlaceholder CornerRadius="3"
                                               Visibility="{Binding IsDataReady, Converter={StaticResource BoolToVisibility}, ConverterParameter=Invert}" />
             </Grid>
         </DataTemplate>
 
-        <!-- req-088 B5：柱状图模式模板（占位） -->
+        <!-- 迷你柱状图模式模板（MiniSeriesChartControl Bar 模式：滚轮切数据组 + hover 气泡 + 宽度可配） -->
         <DataTemplate x:Key="MiniChartBarChartTemplate" DataType="{x:Type views:MiniChartItemViewModel}">
-            <Border Width="80" Height="22" Margin="0,0,8,0"
-                    Background="{DynamicResource TrackBrush}" CornerRadius="3"
-                    ToolTip="MiniBarChart 占位（待 BarChartControl 接入）">
-                <TextBlock Text="▌▌▌" FontSize="10" Foreground="{DynamicResource TextSecondaryBrush}"
-                           HorizontalAlignment="Center" VerticalAlignment="Center" />
-            </Border>
+            <Grid Width="{Binding EffectiveWidth, Mode=OneWay}" Height="22" Margin="0,0,8,0"
+                  Background="Transparent"
+                  PreviewMouseWheel="OnRingChartPreviewMouseWheel"
+                  ToolTipService.Placement="Top"
+                  ToolTipService.VerticalOffset="-8"
+                  ToolTipService.InitialShowDelay="{Binding TooltipShowDelayMs}">
+                <Grid.ToolTip>
+                    <ToolTip Content="{Binding CompositeTooltipText, Mode=OneWay}"
+                             Style="{StaticResource NullCollapsedToolTipStyle}" />
+                </Grid.ToolTip>
+                <controls:MiniSeriesChartControl ChartMode="MiniBarChart"
+                                                  Values="{Binding CurrentSeriesValues, Mode=OneWay}"
+                                                  Labels="{Binding CurrentSeriesLabels, Mode=OneWay}"
+                                                  MaxValue="{Binding CurrentSeriesMax, Mode=OneWay}"
+                                                  ValueKind="{Binding CurrentValueKind, Mode=OneWay}"
+                                                  Unit="{Binding CurrentSeriesUnit, Mode=OneWay}"
+                                                  SeriesBrush="{DynamicResource AccentBrush}" />
+                <controls:SkeletonPlaceholder CornerRadius="3"
+                                              Visibility="{Binding IsDataReady, Converter={StaticResource BoolToVisibility}, ConverterParameter=Invert}" />
+            </Grid>
+        </DataTemplate>
+
+        <!-- 迷你面积图模式模板（MiniSeriesChartControl Area 模式：滚轮切数据组 + hover 气泡 + 宽度可配） -->
+        <DataTemplate x:Key="MiniChartAreaChartTemplate" DataType="{x:Type views:MiniChartItemViewModel}">
+            <Grid Width="{Binding EffectiveWidth, Mode=OneWay}" Height="22" Margin="0,0,8,0"
+                  Background="Transparent"
+                  PreviewMouseWheel="OnRingChartPreviewMouseWheel"
+                  ToolTipService.Placement="Top"
+                  ToolTipService.VerticalOffset="-8"
+                  ToolTipService.InitialShowDelay="{Binding TooltipShowDelayMs}">
+                <Grid.ToolTip>
+                    <ToolTip Content="{Binding CompositeTooltipText, Mode=OneWay}"
+                             Style="{StaticResource NullCollapsedToolTipStyle}" />
+                </Grid.ToolTip>
+                <controls:MiniSeriesChartControl ChartMode="MiniAreaChart"
+                                                  Values="{Binding CurrentSeriesValues, Mode=OneWay}"
+                                                  Labels="{Binding CurrentSeriesLabels, Mode=OneWay}"
+                                                  MaxValue="{Binding CurrentSeriesMax, Mode=OneWay}"
+                                                  ValueKind="{Binding CurrentValueKind, Mode=OneWay}"
+                                                  Unit="{Binding CurrentSeriesUnit, Mode=OneWay}"
+                                                  SeriesBrush="{DynamicResource AccentBrush}" />
+                <controls:SkeletonPlaceholder CornerRadius="3"
+                                              Visibility="{Binding IsDataReady, Converter={StaticResource BoolToVisibility}, ConverterParameter=Invert}" />
+            </Grid>
         </DataTemplate>
 
         <!-- req-088 B5：热力图模式模板（占位） -->
@@ -149,7 +195,8 @@
                                          RingChartTemplate="{StaticResource MiniChartRingChartTemplate}"
                                          LineChartTemplate="{StaticResource MiniChartLineChartTemplate}"
                                          BarChartTemplate="{StaticResource MiniChartBarChartTemplate}"
-                                         HeatMapTemplate="{StaticResource MiniChartHeatMapTemplate}" />
+                                         HeatMapTemplate="{StaticResource MiniChartHeatMapTemplate}"
+                                         AreaChartTemplate="{StaticResource MiniChartAreaChartTemplate}" />
     </Window.Resources>
 
     <Border Background="{DynamicResource OverlayBackgroundBrush}" CornerRadius="8" Padding="12,6" Margin="2"

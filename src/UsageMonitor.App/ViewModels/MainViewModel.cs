@@ -386,6 +386,21 @@ public partial class MainViewModel : INotifyPropertyChanged
         }
     }
 
+    /// <summary>修复7：运行日志文件夹（空 = 默认 &lt;projectRoot&gt;/logs/）。设置后即时生效并保存。</summary>
+    public string LogFolder
+    {
+        get => _configService.Settings.LogFolder;
+        set
+        {
+            var v = value?.Trim() ?? "";
+            if (_configService.Settings.LogFolder == v) return;
+            _configService.Settings.LogFolder = v;
+            UsageMonitor.Core.Services.FileLogger.SetLogDir(v);
+            _configService.Save();
+            OnPropertyChanged();
+        }
+    }
+
     /// <summary>外观主题（深色 / 浅色）。设置时写入配置、保存并即时应用换肤。</summary>
     public ThemeMode ThemeMode
     {
@@ -465,6 +480,7 @@ public partial class MainViewModel : INotifyPropertyChanged
         // ===== 通用 =====
         Helpers.SettingsNavigationItem.CreateGroupHeader("通用"),
         Helpers.SettingsNavigationItem.CreateItem(Helpers.SettingsSection.General, "常规设置", "通用"),
+        Helpers.SettingsNavigationItem.CreateItem(Helpers.SettingsSection.HistoryUsage, "历史用量", "通用"),
         Helpers.SettingsNavigationItem.CreateItem(Helpers.SettingsSection.Plugins, "插件管理", "通用"),
         Helpers.SettingsNavigationItem.CreateItem(Helpers.SettingsSection.CardManage, "卡片管理", "通用"),
 

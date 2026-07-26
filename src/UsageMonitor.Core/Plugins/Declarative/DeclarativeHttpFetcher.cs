@@ -144,7 +144,10 @@ public static class DeclarativeHttpFetcher
 
     /// <summary>
     /// 展开模板占位符：<c>{config:Key}</c> → 配置字段值；<c>{cookie:名}</c> → Cookie 串中对应值；
-    /// <c>{cookieHeader}</c> → 完整 Cookie 串。未识别的占位符原样保留。
+    /// <c>{cookieHeader}</c> → 完整 Cookie 串；<c>{now:unix}</c> → 当前 Unix 秒；
+    /// <c>{now:unix-Nd}</c> → N 天前的 Unix 秒；<c>{now:unixDay}</c> → 当前 UTC 日对齐（零点）Unix 秒；
+    /// <c>{now:unixDay-Nd}</c> → N 天前的 UTC 日对齐 Unix 秒（部分服务商接口要求时间戳按日对齐，如 DeepSeek）。
+    /// 未识别的占位符原样保留。
     /// </summary>
     /// <param name="template">URL 或请求头模板。</param>
     /// <param name="configValue">配置字段取值委托。</param>
@@ -152,10 +155,23 @@ public static class DeclarativeHttpFetcher
     public static string ExpandPlaceholders(string template, Func<string, string?> configValue, string? cookie)
     {
         if (string.IsNullOrEmpty(template)) return template;
-        return System.Text.RegularExpressions.Regex.Replace(template, @"\{(config|cookie):([^}]+)\}|\{cookieHeader\}",
+        return System.Text.RegularExpressions.Regex.Replace(
+            template,
+            @"\{(config|cookie):([^}]+)\}|\{cookieHeader\}|\{now:unix(Day)?(?:-(\d+)d)?\}",
             m =>
             {
                 if (m.Value == "{cookieHeader}") return cookie?.Trim() ?? string.Empty;
+                // 时间占位符：{now:unix} 当前秒；{now:unixDay} 日对齐；-Nd 向前偏移 N 天。
+                if (m.Value.StartsWith("{now:unix", StringComparison.Ordinal))
+                {
+                    var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+                    // Day 变体：先向下取整到 UTC 当日零点（部分接口要求时间戳按日对齐）。
+                    if (m.Groups[3].Success && m.Groups[3].Value == "Day")
+                        now -= now % 86400L;
+                    if (m.Groups[4].Success && int.TryParse(m.Groups[4].Value, out var days))
+                        now -= days * 86400L;
+                    return now.ToString();
+                }
                 var kind = m.Groups[1].Value;
                 var name = m.Groups[2].Value;
                 return kind switch

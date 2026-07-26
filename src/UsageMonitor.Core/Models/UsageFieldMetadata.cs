@@ -137,6 +137,7 @@ public static class UsageFieldMetadataRegistry
             new(UsageFields.BonusBalanceAmount, UsageFieldCategory.Cost, UsageFieldVisibility.Public, UsageFieldDataType.Currency, "Field.BonusBalanceAmount", "赠送余额"),
             new(UsageFields.MonthlyCost, UsageFieldCategory.Cost, UsageFieldVisibility.Public, UsageFieldDataType.Currency, "Field.MonthlyCost", "月消费"),
             new(UsageFields.TotalCost, UsageFieldCategory.Cost, UsageFieldVisibility.Public, UsageFieldDataType.Currency, "Field.TotalCost", "累计消费"),
+            new(UsageFields.MonthlyTokenUsage, UsageFieldCategory.Cost, UsageFieldVisibility.Public, UsageFieldDataType.Token, "Field.MonthlyTokenUsage", "月 Token 用量（计费制月度累计）"),
             new(UsageFields.Currency, UsageFieldCategory.Cost, UsageFieldVisibility.Public, UsageFieldDataType.Text, "Field.Currency", "货币（CNY/USD）"),
             // —— 重置 / 有效期时间 ——
             new(UsageFields.FiveHourResetAt, UsageFieldCategory.Reset, UsageFieldVisibility.Public, UsageFieldDataType.DateTime, "Field.FiveHourResetAt", "5h 窗口重置时刻（UTC）"),

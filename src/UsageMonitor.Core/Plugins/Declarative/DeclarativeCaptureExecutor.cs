@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Text.Json;
 using UsageMonitor.Core.Models;
 
@@ -233,10 +234,16 @@ public static class DeclarativeCaptureExecutor
     /// <summary>判断值是否为整型（供计算列结果类型推断）。</summary>
     private static bool IsIntegral(object o) => o is long or int or short or byte;
 
-    /// <summary>展开一个数组声明到 extras（objects=字典列表；parallel=多条对齐的强类型列表）。</summary>
+    /// <summary>展开一个数组声明到 extras（objects=字典列表；parallel=多条对齐的强类型列表；seriesPivot=系列×桶转置）。</summary>
     private static void ExpandArray(JsonElement root, FetchArray arr, Dictionary<string, object> extras)
     {
         if (!TryNavigate(root, arr.ItemsPath, out var items) || items.ValueKind != JsonValueKind.Array) return;
+
+        if (string.Equals(arr.Mode, "seriesPivot", StringComparison.OrdinalIgnoreCase))
+        {
+            ExpandSeriesPivot(items, arr, extras);
+            return;
+        }
 
         if (string.Equals(arr.Mode, "parallel", StringComparison.OrdinalIgnoreCase))
         {
@@ -369,6 +376,141 @@ public static class DeclarativeCaptureExecutor
         "double" => val == null ? 0d : Convert.ToDouble(val, CultureInfo.InvariantCulture),
         _ => val?.ToString() ?? string.Empty
     };
+
+    /// <summary>
+    /// seriesPivot 模式：把“系列 × 桶”三层嵌套结构转置为图表可直接消费的并行结构。
+    /// <para>输入：系列数组（每项含系列名 + 桶数组），如 DeepSeek 的 data[0].series[].buckets[]。</para>
+    /// <para>两种子模式：
+    /// ① 模型枢轴（SeriesNameField 非空）：每个系列对象成为一个系列，值取 ItemFields[0]；
+    /// ② 字段枢轴（SeriesNameField 为空）：每个 ItemField 成为一个系列，值跨所有系列对象求和（如 token 类型分层）。</para>
+    /// <para>产出（写入 extras）：
+    /// <c>{target}_categories</c> = List&lt;string&gt;（类别标签，取首个系列的桶时间戳转 MM-dd）；
+    /// <c>{target}_series_names</c> = List&lt;string&gt;（系列名）；
+    /// <c>{target}_matrix</c> = List&lt;List&lt;double&gt;&gt;（行=系列，列=类别）。</para>
+    /// </summary>
+    private static void ExpandSeriesPivot(JsonElement seriesArray, FetchArray arr, Dictionary<string, object> extras)
+    {
+        var nestedName = arr.NestedItems;
+        if (string.IsNullOrEmpty(nestedName)) return;
+
+        var isFieldPivot = string.IsNullOrEmpty(arr.SeriesNameField);
+        if (isFieldPivot)
+            ExpandFieldPivot(seriesArray, arr, nestedName!, extras);
+        else
+            ExpandModelPivot(seriesArray, arr, nestedName!, extras);
+    }
+
+    /// <summary>模型枢轴：每个系列对象（按 SeriesNameField 取名）成为一个系列，值取 ItemFields[0] 声明的桶内字段。</summary>
+    private static void ExpandModelPivot(JsonElement seriesArray, FetchArray arr, string nestedName, Dictionary<string, object> extras)
+    {
+        var valueField = arr.ItemFields.FirstOrDefault();
+        var seriesNames = new List<string>();
+        var matrix = new List<List<double>>();
+        List<string>? categories = null;
+
+        foreach (var series in seriesArray.EnumerateArray())
+        {
+            if (series.ValueKind != JsonValueKind.Object) continue;
+
+            string name = $"series_{seriesNames.Count}";
+            if (series.TryGetProperty(arr.SeriesNameField!, out var nameEl))
+                name = ToRaw(nameEl) ?? name;
+
+            if (!series.TryGetProperty(nestedName, out var buckets) || buckets.ValueKind != JsonValueKind.Array) continue;
+
+            var row = new List<double>();
+            var cats = new List<string>();
+            foreach (var bucket in buckets.EnumerateArray())
+            {
+                cats.Add(ExtractBucketCategory(bucket, cats.Count));
+                row.Add(ExtractBucketValue(bucket, valueField));
+            }
+
+            categories ??= cats;
+            seriesNames.Add(name);
+            matrix.Add(row);
+        }
+
+        if (seriesNames.Count == 0 || categories == null) return;
+        extras[$"{arr.Target}_categories"] = categories;
+        extras[$"{arr.Target}_series_names"] = seriesNames;
+        extras[$"{arr.Target}_matrix"] = matrix;
+    }
+
+    /// <summary>字段枢轴：每个 ItemField 成为一个系列，值跨所有系列对象求和（如 token 类型分层聚合全模型）。</summary>
+    private static void ExpandFieldPivot(JsonElement seriesArray, FetchArray arr, string nestedName, Dictionary<string, object> extras)
+    {
+        if (arr.ItemFields.Count == 0) return;
+
+        var fieldCount = arr.ItemFields.Count;
+        var seriesNames = arr.ItemFields.Select(f => f.Target).ToList();
+        var matrix = new List<List<double>>();
+        for (int f = 0; f < fieldCount; f++) matrix.Add(new List<double>());
+        List<string>? categories = null;
+        int catCount = 0;
+
+        foreach (var series in seriesArray.EnumerateArray())
+        {
+            if (series.ValueKind != JsonValueKind.Object) continue;
+            if (!series.TryGetProperty(nestedName, out var buckets) || buckets.ValueKind != JsonValueKind.Array) continue;
+
+            var cats = new List<string>();
+            int idx = 0;
+            foreach (var bucket in buckets.EnumerateArray())
+            {
+                cats.Add(ExtractBucketCategory(bucket, idx));
+                // 确保矩阵列数与桶数对齐。
+                while (matrix[0].Count <= idx)
+                    for (int f = 0; f < fieldCount; f++) matrix[f].Add(0);
+
+                for (int f = 0; f < fieldCount; f++)
+                    matrix[f][idx] += ExtractBucketValue(bucket, arr.ItemFields[f]);
+                idx++;
+            }
+
+            if (categories == null) { categories = cats; catCount = idx; }
+        }
+
+        if (categories == null || catCount == 0) return;
+        extras[$"{arr.Target}_categories"] = categories;
+        extras[$"{arr.Target}_series_names"] = seriesNames;
+        extras[$"{arr.Target}_matrix"] = matrix;
+    }
+
+    /// <summary>从桶对象按声明的值字段提取数值（导航 + 转换器）。</summary>
+    private static double ExtractBucketValue(JsonElement bucket, FetchField? field)
+    {
+        if (field == null) return 0;
+        if (!TryNavigate(bucket, field.Path, out var vEl)) return 0;
+        var raw = ToRaw(vEl);
+        if (raw == null) return 0;
+        var transformed = Transformers.Apply(field.Transform, raw);
+        if (transformed == null) return 0;
+        try { return Convert.ToDouble(transformed, CultureInfo.InvariantCulture); }
+        catch { return 0; }
+    }
+
+    /// <summary>从桶对象提取类别标签：优先 time/timestamp/date 字段（Unix 秒/毫秒 → MM-dd），否则用序号。</summary>
+    private static string ExtractBucketCategory(JsonElement bucket, int index)
+    {
+        foreach (var key in new[] { "time", "timestamp", "date" })
+        {
+            if (!bucket.TryGetProperty(key, out var el)) continue;
+            var raw = ToRaw(el);
+            if (raw == null) continue;
+            // 日期字符串（yyyy-MM-dd 等）直接截取 MM-dd。
+            if (el.ValueKind == JsonValueKind.String)
+                return raw.Length >= 10 ? raw.Substring(5, 5) : raw;
+            // Unix 时间戳（秒或毫秒）转 MM-dd。
+            if (long.TryParse(raw, NumberStyles.Any, CultureInfo.InvariantCulture, out var ts))
+            {
+                if (ts > 1_000_000_000_000) ts /= 1000; // 毫秒 → 秒
+                var dt = DateTimeOffset.FromUnixTimeSeconds(ts).LocalDateTime;
+                return dt.ToString("MM-dd");
+            }
+        }
+        return (index + 1).ToString();
+    }
 
     /// <summary>标量 JsonElement 转字符串（供 Transformers 处理）；对象/数组返回 null。</summary>
     private static string? ToRaw(JsonElement e) => e.ValueKind switch

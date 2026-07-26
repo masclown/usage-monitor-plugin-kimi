@@ -200,11 +200,15 @@ public sealed class FetchArray
     /// <summary>数组 jsonpath（如 "$.date_model_usage"）。</summary>
     public string ItemsPath { get; init; } = string.Empty;
 
-    /// <summary>展开模式：objects（默认，产出 List&lt;Dictionary&gt;）或 parallel（每个 ItemField 产出一条并行强类型列表）。</summary>
+    /// <summary>展开模式：objects（默认，产出 List&lt;Dictionary&gt;）、parallel（每个 ItemField 产出一条并行强类型列表）
+    /// 或 seriesPivot（系列×桶转置：产出类别标签+系列名+值矩阵）。</summary>
     public string Mode { get; init; } = "objects";
 
-    /// <summary>可选：每项内的二级数组成员名（如 "models"）。为空表示只展开一级。</summary>
+    /// <summary>可选：每项内的二级数组成员名（如 "models" / "buckets"）。为空表示只展开一级。</summary>
     public string? NestedItems { get; init; }
+
+    /// <summary>seriesPivot 模式：系列名称字段名（如 "model"——从每个系列对象上取系列名）。</summary>
+    public string? SeriesNameField { get; init; }
 
     /// <summary>写入 extras 的键（如 "model_daily"）。</summary>
     public string Target { get; init; } = string.Empty;

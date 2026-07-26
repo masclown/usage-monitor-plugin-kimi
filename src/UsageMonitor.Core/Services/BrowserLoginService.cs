@@ -144,6 +144,79 @@ public class BrowserLoginService
         }
     }
 
+    /// <summary>
+    /// 从已登录页面提取声明的 localStorage 令牌（如 DeepSeek 的 userToken）。
+    /// <para>对每个声明的 localStorage 键读取原始值；若为 JSON 且含 <c>value</c> 成员
+    /// （DeepSeek appKit 存储格式）则取其 <c>value</c>，否则用原始字符串。</para>
+    /// </summary>
+    /// <param name="page">仍打开的已登录页面。</param>
+    /// <param name="config">登录配置（LocalStorageTokens：配置字段名 → localStorage 键名）。</param>
+    /// <returns>配置字段名 → 令牌值 字典；未声明或提取失败时为空。</returns>
+    private static async Task<Dictionary<string, string>> ExtractLocalStorageTokensAsync(
+        IPage page, BrowserLoginConfig config)
+    {
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (config.LocalStorageTokens == null || config.LocalStorageTokens.Count == 0) return result;
+
+        try
+        {
+            // 把“配置字段 → localStorage 键”映射传入浏览器端，读取后返回 JSON。
+            var mapping = new Dictionary<string, string>(config.LocalStorageTokens);
+            var json = await page.EvaluateAsync<string>(@"(mapping) => {
+                const out = {};
+                for (const field in mapping) {
+                    const lsKey = mapping[field];
+                    let raw = localStorage.getItem(lsKey);
+                    if (!raw) continue;
+                    try {
+                        const p = JSON.parse(raw);
+                        if (p && typeof p === 'object' && p.value) { out[field] = String(p.value); continue; }
+                    } catch (e) { /* not JSON, use raw */ }
+                    out[field] = raw;
+                }
+                return JSON.stringify(out);
+            }", mapping);
+
+            if (!string.IsNullOrWhiteSpace(json))
+            {
+                var parsed = JsonSerializer.Deserialize<Dictionary<string, string>>(json);
+                if (parsed != null)
+                {
+                    foreach (var kv in parsed)
+                        if (!string.IsNullOrWhiteSpace(kv.Value)) result[kv.Key] = kv.Value;
+                }
+            }
+            FileLogger.Info("BrowserLoginService",
+                $"Extracted {result.Count} localStorage token(s): {string.Join(",", result.Keys)}");
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Warn("BrowserLoginService", $"ExtractLocalStorageTokens failed: {ex.Message}");
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// 将 localStorage 令牌经 ConfigService 加密路径写入配置表（与 Cookie 同样走敏感字段 DPAPI 加密）。
+    /// </summary>
+    /// <param name="config">登录配置（提供 ProviderId）。</param>
+    /// <param name="tokens">配置字段名 → 令牌值。</param>
+    private void PersistLocalStorageTokens(BrowserLoginConfig config, Dictionary<string, string> tokens)
+    {
+        if (_configService == null)
+        {
+            FileLogger.Warn("BrowserLoginService",
+                "ConfigService 未注册，跳过 localStorage 令牌持久化");
+            return;
+        }
+        var cfg = _configService.GetProviderConfig(config.ProviderId);
+        foreach (var kv in tokens)
+            cfg.SetValue(kv.Key, kv.Value);
+        _configService.UpdateProviderConfig(config.ProviderId, cfg);
+        FileLogger.Info("BrowserLoginService",
+            $"Persisted {tokens.Count} localStorage token(s) (encrypted) for {config.ProviderId}");
+    }
+
     /// <summary>Cookie 持久化根目录</summary>
     private static readonly string CookieDir = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
@@ -358,7 +431,13 @@ public class BrowserLoginService
                 $"Cookie URLs to query: {cookieUrls.Count}: {string.Join(", ", cookieUrls.Take(8))}");
 
             var cookies = await context.CookiesAsync(cookieUrls.ToArray());
-            if (cookies == null || cookies.Count == 0)
+
+            // localStorage 令牌提取（如 DeepSeek：鉴权令牌存于 localStorage.userToken 而非 Cookie）。
+            // 提前到 cookies.Count 判定之前：纯 localStorage 鉴权的服务商可能抓不到任何 Cookie，
+            // 但只要提取到声明的令牌即视为登录成功，不因 Cookie 为空而失败。
+            var localStorageTokens = await ExtractLocalStorageTokensAsync(page, config);
+
+            if ((cookies == null || cookies.Count == 0) && localStorageTokens.Count == 0)
             {
                 // 诊断：记录当前页面状态帮助排查
                 string diagInfo = "unknown";
@@ -389,10 +468,9 @@ public class BrowserLoginService
                 return null;
             }
 
-            var cookieStr = string.Join("; ", cookies.Select(c => $"{c.Name}={c.Value}"));
+            var cookieStr = cookies == null ? string.Empty : string.Join("; ", cookies.Select(c => $"{c.Name}={c.Value}"));
             var userAgent = await page.EvaluateAsync<string>("() => navigator.userAgent");
-            // cookies.Count 已大于 0，FirstOrDefault 不会返回 null
-            var primaryDomain = cookies[0].Domain;
+            var primaryDomain = (cookies != null && cookies.Count > 0) ? cookies[0].Domain : string.Empty;
 
             // ---- Strict login verification: required cookie names + required domain ----
             // If RequiredCookieNames is configured (e.g. "acw_tc" for MiniMax),
@@ -400,7 +478,7 @@ public class BrowserLoginService
             // landing-page tracking cookies (sensorsdata, GA, _oauth_state) and the real
             // session token never got saved.
             var missing = new List<string>();
-            if (config.RequiredCookieNames != null && config.RequiredCookieNames.Count > 0)
+            if (cookies != null && config.RequiredCookieNames != null && config.RequiredCookieNames.Count > 0)
             {
                 var presentNames = new HashSet<string>(cookies.Select(c => c.Name),
                     StringComparer.OrdinalIgnoreCase);
@@ -409,7 +487,7 @@ public class BrowserLoginService
                     if (!presentNames.Contains(req)) missing.Add(req);
                 }
             }
-            if (!string.IsNullOrEmpty(config.RequiredCookieDomain))
+            if (cookies != null && !string.IsNullOrEmpty(config.RequiredCookieDomain))
             {
                 var reqDom = config.RequiredCookieDomain.TrimStart('.');
                 bool hasDomain = cookies.Any(c => !string.IsNullOrEmpty(c.Domain) &&
@@ -429,21 +507,21 @@ public class BrowserLoginService
                 // the browser actually uses, so we save them regardless.
                 FileLogger.Warn("BrowserLoginService",
                     $"Required cookies missing (non-fatal, session already confirmed): {string.Join(",", missing)}. " +
-                    $"Captured names: {string.Join(",", cookies.Select(c => c.Name))}");
+                    $"Captured names: {string.Join(",", cookies!.Select(c => c.Name))}");
             }
             FileLogger.Info("BrowserLoginService",
-                $"Captured {cookies.Count} cookies");
+                $"Captured {cookies?.Count ?? 0} cookies, {localStorageTokens.Count} localStorage token(s)");
 
             var cookieData = new BrowserCookieData
             {
                 Cookie = cookieStr,
                 UserAgent = userAgent ?? "UsageMonitor",
                 SavedAt = DateTime.UtcNow,
-                Count = cookies.Count,
+                Count = cookies?.Count ?? 0,
                 Domain = primaryDomain,
                 ProviderId = config.ProviderId,
                 LoginUrl = config.LoginUrl,
-                RawCookies = cookies.Select(c => new BrowserCookieEntry
+                RawCookies = (cookies ?? Array.Empty<BrowserContextCookiesResult>()).Select(c => new BrowserCookieEntry
                 {
                     Name = c.Name,
                     Value = c.Value,
@@ -455,6 +533,9 @@ public class BrowserLoginService
                     SameSite = c.SameSite.ToString(),
                 }).ToList(),
             };
+
+            // 携带 localStorage 令牌供 UI 回填（不落盘，仅内存传递）。
+            cookieData.LocalStorageTokens = localStorageTokens;
 
             SaveCookieData(cookieData);
 
@@ -468,6 +549,20 @@ public class BrowserLoginService
             {
                 FileLogger.Warn("BrowserLoginService",
                     $"PersistToMainConfig threw (non-fatal): {persistEx.Message}");
+            }
+
+            // localStorage 令牌持久化到配置表（加密路径），供声明包 http 端点 {config:字段} 占位符引用。
+            if (localStorageTokens.Count > 0)
+            {
+                try
+                {
+                    PersistLocalStorageTokens(config, localStorageTokens);
+                }
+                catch (Exception tokenEx)
+                {
+                    FileLogger.Warn("BrowserLoginService",
+                        $"PersistLocalStorageTokens threw (non-fatal): {tokenEx.Message}");
+                }
             }
 
             return cookieData;

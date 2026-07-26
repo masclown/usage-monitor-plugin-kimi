@@ -155,6 +155,8 @@ public static class MiniChartRegistryBootstrapper
             // req-107 B4：透传数据组与切片器声明，供渲染端（MiniChartItemViewModel）滚轮切组。
             DataGroups = mini.DataGroups.Count > 0 ? mini.DataGroups : null,
             Slicer = mini.Slicer,
+            // 迷你时序图表：透传插件声明宽度（用户设置覆盖优先级更高，见 TaskbarWindow.ResolveUserMiniChartWidth）。
+            DeclaredWidth = mini.Width,
             // 问题8：透传声明的 tooltip.fields（SDK/虚拟字段名），作为用户未配置时的默认字段集。
             DeclaredTooltipFields = mini.Tooltip?.Fields is { Count: > 0 } declaredFields ? declaredFields : null
         };
@@ -170,6 +172,9 @@ public static class MiniChartRegistryBootstrapper
             UsageMonitor.Core.Models.DeclarativeChartKind.MiniRingChart => MiniChartKind.MiniRingChart,
             UsageMonitor.Core.Models.DeclarativeChartKind.Ring => MiniChartKind.MiniRingChart,
             UsageMonitor.Core.Models.DeclarativeChartKind.MiniText => MiniChartKind.MiniText,
+            UsageMonitor.Core.Models.DeclarativeChartKind.MiniLineChart => MiniChartKind.MiniLineChart,
+            UsageMonitor.Core.Models.DeclarativeChartKind.MiniBarChart => MiniChartKind.MiniBarChart,
+            UsageMonitor.Core.Models.DeclarativeChartKind.MiniAreaChart => MiniChartKind.MiniAreaChart,
             UsageMonitor.Core.Models.DeclarativeChartKind.Line => MiniChartKind.MiniLineChart,
             UsageMonitor.Core.Models.DeclarativeChartKind.Bar => MiniChartKind.MiniBarChart,
             UsageMonitor.Core.Models.DeclarativeChartKind.HeatMap => MiniChartKind.MiniHeatMap,

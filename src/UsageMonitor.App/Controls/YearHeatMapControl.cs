@@ -335,26 +335,43 @@ public class YearHeatMapControl : FrameworkElement, IHoverTooltipProvider
             cols = colsCountMax;
         }
 
-        // 1) 铺空格网底
-        for (int c = 0; c < cols; c++)
-            for (int r = 0; r < rows; r++)
-                DrawCell(dc, gridLeft + c * step, gridTop + r * step, cell, EmptyCellBrush);
-
-        // 2) 叠加数据格 + 收集月份首列
-        var monthFirstCol = new Dictionary<int, int>();
+        // 1) 预计算数据格位置（修复1：避免空格网底与数据格双重绘制导致浅色主题下出现灰色边框）
+        var dataCellPositions = new HashSet<(int col, int row)>();
+        var dataCellDraws = new List<(double x, double y, YearHeatMapCell cellData, int col)>();
         foreach (var (date, cellData) in parsed)
         {
             int col = (int)((date - gridStartMonday).TotalDays / 7);
             if (col < 0 || col >= cols) continue;
             int dow = ((int)date.DayOfWeek + 6) % 7;
-            var x = gridLeft + col * step;
-            var y = gridTop + dow * step;
-            DrawCell(dc, x, y, cell, cellData.Background);
+            dataCellPositions.Add((col, dow));
+            dataCellDraws.Add((gridLeft + col * step, gridTop + dow * step, cellData, col));
+        }
+
+        // 2) 铺空格网底（仅绘制无数据的位置，避免反锯齿边缘透出底色形成边框）
+        for (int c = 0; c < cols; c++)
+            for (int r = 0; r < rows; r++)
+            {
+                if (dataCellPositions.Contains((c, r))) continue;
+                DrawCell(dc, gridLeft + c * step, gridTop + r * step, cell, EmptyCellBrush);
+            }
+
+        // 3) 叠加数据格 + 收集月份首列
+        // 修复3：Token<=0 的格子使用 EmptyCellBrush（随主题动态切换），避免硬编码颜色与主题不匹配
+        var monthFirstCol = new Dictionary<int, int>();
+        foreach (var (x, y, cellData, col) in dataCellDraws)
+        {
+            var bg = cellData.Token > 0 ? cellData.Background : EmptyCellBrush;
+            DrawCell(dc, x, y, cell, bg);
             _hitCells.Add((new Rect(x, y, cell, cell), cellData));
+        }
+        foreach (var (date, cellData) in parsed)
+        {
+            int col = (int)((date - gridStartMonday).TotalDays / 7);
+            if (col < 0 || col >= cols) continue;
             if (!monthFirstCol.ContainsKey(date.Month)) monthFirstCol[date.Month] = col;
         }
 
-        // 3) 月份标签
+        // 4) 月份标签
         foreach (var kv in monthFirstCol)
         {
             if (kv.Value >= cols) continue;
@@ -362,7 +379,7 @@ public class YearHeatMapControl : FrameworkElement, IHoverTooltipProvider
             dc.DrawText(t, new Point(gridLeft + kv.Value * step, 1));
         }
 
-        // 4) 底部"少 → 多"图例（req-018：按 ProviderId 走 HeatMapTierScale，色块数 4~6 动态）
+        // 5) 底部"少 → 多"图例（req-018：按 ProviderId 走 HeatMapTierScale，色块数 4~6 动态）
         DrawLegend(dc, gridLeft, gridTop + rows * step + 4, gridWidth, dpi, ProviderId);
     }
 
@@ -547,10 +564,10 @@ public class YearHeatMapControl : FrameworkElement, IHoverTooltipProvider
             tiers = UsageMonitor.App.Helpers.HeatMapTierScale.GetDeclaredDefaults(key)
                 ?? UsageMonitor.App.Helpers.HeatMapTierScale.GenericDefaults;
 
-        // 色块数组：首块 = "无用量"档（声明默认色阶 / HeatMapTierScale.GenericDefaults[0]），
-        // 与 EmptyCellBrush 视觉上区分（图例本身就是色阶提示，不是空格网底）。
-        var swatches = new Brush[tiers.Count + 1];
-        swatches[0] = tiers[0].ToBrush();
+        // 修复3：首块 = "无用量"档，使用 EmptyCellBrush（随主题切换），与网格空格视觉一致；
+        // 其余色块按声明/持久化色阶展示。
+        var swatches = new Brush[tiers.Count];
+        swatches[0] = EmptyCellBrush;
         for (int i = 1; i < tiers.Count; i++)
             swatches[i] = tiers[i].ToBrush();
 

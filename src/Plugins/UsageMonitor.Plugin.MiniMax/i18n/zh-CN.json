@@ -27,5 +27,7 @@
   "plugin.MiniMax.group.taskbar5h": "5h 限额",
   "plugin.MiniMax.group.taskbarWeekly": "本周限额",
   "plugin.MiniMax.mini.ring": "限额圆环",
-  "plugin.MiniMax.mini.text": "用量文本"
+  "plugin.MiniMax.mini.text": "用量文本",
+  "plugin.MiniMax.mini.bar": "每日 Token 柱状图",
+  "plugin.MiniMax.group.miniDailyTokens": "每日 Token"
 }

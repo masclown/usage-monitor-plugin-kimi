@@ -1,0 +1,173 @@
+{
+  "schemaVersion": 1,
+  "minSdkVersion": "0.36.0",
+  "providerId": "DeepSeek",
+  "displayName": "DeepSeek",
+  "meta": {
+    "version": "1.1.0",
+    "author": "UsageMonitor",
+    "description": "Query DeepSeek platform usage (balance / daily cost / requests / tokens)"
+  },
+  "credentialDomains": [ "platform.deepseek.com" ],
+  "loginConfig": {
+    "loginUrl": "https://platform.deepseek.com/sign_in",
+    "cookieDomainFilters": [ "platform.deepseek.com" ],
+    "loginTimeout": "00:03:00",
+    "uiButtonText": "i18n:plugin.DeepSeek.login.button",
+    "validateUrl": "https://platform.deepseek.com/usage",
+    "requiredCookieDomain": "platform.deepseek.com",
+    "loginUrlKeywords": [ "sign_in", "login", "signin", "sign-in" ],
+    "loginSuccessHost": "platform.deepseek.com",
+    "loggedInPathKeywords": [ "/usage", "/overview", "/top_up", "/billing" ],
+    "localStorageTokens": { "UserToken": "userToken" }
+  },
+  "configFields": [
+    { "key": "UserToken", "displayName": "i18n:plugin.DeepSeek.field.UserToken.name", "fieldType": "Password", "isRequired": false, "placeholder": "i18n:plugin.DeepSeek.field.UserToken.placeholder" }
+  ],
+  "errorGuidance": [
+    { "matchCodes": [ "credential_missing", "config_missing" ], "matchKeywords": [], "message": "i18n:plugin.DeepSeek.guidance.credential" },
+    { "matchCodes": [ "auth_invalid" ], "matchKeywords": [ "40002", "Missing Token", "401" ], "message": "i18n:plugin.DeepSeek.guidance.authInvalid" },
+    { "matchKeywords": [], "message": "i18n:plugin.DeepSeek.guidance.fallback" }
+  ],
+  "usageUrls": {
+    "zh-CN": "https://platform.deepseek.com/usage"
+  },
+  "fetch": {
+    "endpoints": [
+      {
+        "urlMatch": "get_user_summary",
+        "mode": "http",
+        "method": "GET",
+        "urlTemplate": "https://platform.deepseek.com/api/v0/users/get_user_summary",
+        "headers": {
+          "Authorization": "Bearer {config:UserToken}"
+        },
+        "fields": [
+          { "path": "$.data.biz_data.normal_wallets[0].balance", "target": "balance_amount", "transform": "parseNumber" },
+          { "path": "$.data.biz_data.bonus_wallets[0].balance", "target": "bonus_balance_amount", "transform": "parseNumber" },
+          { "path": "$.data.biz_data.total_available_token_estimation", "target": "available_token_estimation", "transform": "parseNumber" },
+          { "path": "$.data.biz_data.monthly_costs[0].amount", "target": "monthly_cost", "transform": "parseNumber" },
+          { "path": "$.data.biz_data.total_costs[0].amount", "target": "total_cost", "transform": "parseNumber" },
+          { "path": "$.data.biz_data.monthly_token_usage", "target": "monthly_token_usage", "transform": "parseNumber" }
+        ]
+      },
+      {
+        "urlMatch": "by_api_key/cost",
+        "mode": "http",
+        "method": "GET",
+        "urlTemplate": "https://platform.deepseek.com/api/v0/usage/by_api_key/cost?start={now:unixDay-30d}&end={now:unixDay}&tz=0",
+        "headers": {
+          "Authorization": "Bearer {config:UserToken}"
+        },
+        "arrays": [
+          {
+            "itemsPath": "$.data.biz_data.data[0].series",
+            "mode": "seriesPivot",
+            "seriesNameField": "model",
+            "nestedItems": "buckets",
+            "target": "daily_cost",
+            "itemFields": [
+              { "path": "$.cost", "target": "cost", "transform": "parseNumber", "elementType": "double" }
+            ]
+          }
+        ]
+      },
+      {
+        "urlMatch": "by_api_key/amount",
+        "mode": "http",
+        "method": "GET",
+        "urlTemplate": "https://platform.deepseek.com/api/v0/usage/by_api_key/amount?start={now:unixDay-30d}&end={now:unixDay}&tz=0",
+        "headers": {
+          "Authorization": "Bearer {config:UserToken}"
+        },
+        "arrays": [
+          {
+            "itemsPath": "$.data.biz_data.series",
+            "mode": "seriesPivot",
+            "nestedItems": "buckets",
+            "target": "daily_requests",
+            "itemFields": [
+              { "path": "$.usage.REQUEST", "target": "request_count", "transform": "parseNumber", "elementType": "double" }
+            ]
+          },
+          {
+            "itemsPath": "$.data.biz_data.series",
+            "mode": "seriesPivot",
+            "nestedItems": "buckets",
+            "target": "daily_tokens",
+            "itemFields": [
+              { "path": "$.usage.PROMPT_CACHE_MISS_TOKEN", "target": "cache_miss_token", "transform": "parseNumber", "elementType": "double" },
+              { "path": "$.usage.PROMPT_CACHE_HIT_TOKEN", "target": "cache_hit_token", "transform": "parseNumber", "elementType": "double" },
+              { "path": "$.usage.RESPONSE_TOKEN", "target": "response_token", "transform": "parseNumber", "elementType": "double" }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "card": {
+    "renderKinds": ["summary", "charts"],
+    "primaryMetric": "balance_amount",
+    "charts": [
+      {
+        "chartId": "ds.chart.balance_number",
+        "display": "i18n:plugin.DeepSeek.chart.balance_number",
+        "kind": "Number",
+        "defaultOrder": 1,
+        "dataGroups": [
+          { "id": "ds.number.balance", "display": "i18n:plugin.DeepSeek.group.numberBalance", "fields": [{ "fieldName": "balance_amount", "role": "Value" }] },
+          { "id": "ds.number.monthly_cost", "display": "i18n:plugin.DeepSeek.group.numberMonthlyCost", "fields": [{ "fieldName": "monthly_cost", "role": "Value" }] },
+          { "id": "ds.number.total_cost", "display": "i18n:plugin.DeepSeek.group.numberTotalCost", "fields": [{ "fieldName": "total_cost", "role": "Value" }] },
+          { "id": "ds.number.monthly_tokens", "display": "i18n:plugin.DeepSeek.group.numberMonthlyTokens", "fields": [{ "fieldName": "monthly_token_usage", "role": "Value" }] }
+        ]
+      },
+      {
+        "chartId": "ds.chart.daily_cost",
+        "display": "i18n:plugin.DeepSeek.chart.daily_cost",
+        "kind": "StackedBar",
+        "defaultOrder": 2,
+        "categoriesField": "daily_cost_categories",
+        "seriesNamesField": "daily_cost_series_names",
+        "valuesMatrixField": "daily_cost_matrix",
+        "colors": ["#FF810C", "#FFA10A", "#FFC104"],
+        "unit": "¥"
+      },
+      {
+        "chartId": "ds.chart.daily_requests",
+        "display": "i18n:plugin.DeepSeek.chart.daily_requests",
+        "kind": "Area",
+        "defaultOrder": 3,
+        "categoriesField": "daily_requests_categories",
+        "seriesNamesField": "daily_requests_series_names",
+        "valuesMatrixField": "daily_requests_matrix",
+        "unit": "次"
+      },
+      {
+        "chartId": "ds.chart.daily_tokens",
+        "display": "i18n:plugin.DeepSeek.chart.daily_tokens",
+        "kind": "StackedBar",
+        "defaultOrder": 4,
+        "categoriesField": "daily_tokens_categories",
+        "seriesNamesField": "daily_tokens_series_names",
+        "valuesMatrixField": "daily_tokens_matrix",
+        "colors": ["#0C70F3", "#60B3FE", "#A0DCFD"],
+        "unit": "tokens"
+      }
+    ]
+  },
+  "taskbar": {
+    "miniCharts": [
+      {
+        "chartId": "ds.mini.text",
+        "display": "i18n:plugin.DeepSeek.mini.text",
+        "kind": "MiniText",
+        "slicer": { "mode": "DataGroup", "interaction": "Scroll", "default": "ds.taskbar.balance" },
+        "tooltip": { "fields": ["__provider_name__", "balance_amount", "monthly_cost"] },
+        "dataGroups": [
+          { "id": "ds.taskbar.balance", "display": "i18n:plugin.DeepSeek.group.taskbarBalance", "fields": [{ "fieldName": "balance_amount", "role": "Value" }] },
+          { "id": "ds.taskbar.monthly", "display": "i18n:plugin.DeepSeek.group.taskbarMonthly", "fields": [{ "fieldName": "monthly_cost", "role": "Value" }] }
+        ]
+      }
+    ]
+  }
+}
