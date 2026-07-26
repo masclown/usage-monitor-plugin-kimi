@@ -234,14 +234,15 @@
           "timeRanges": ["Last7Days", "Last30Days"],
           "default": "Last30Days"
         },
-        "tooltip": { "fields": ["__date__", "daily_token_value"] },
+        "tooltip": { "fields": ["__date__", "daily_token_value", "daily_cache_hit_value"] },
         "dataGroups": [
           {
             "id": "mm.line.daily_tokens",
             "display": "每日 Token",
             "fields": [
               { "fieldName": "daily_token_date", "role": "Meta" },
-              { "fieldName": "daily_token_value", "role": "Value" }
+              { "fieldName": "daily_token_value", "role": "Value" },
+              { "fieldName": "daily_cache_hit_value", "role": "Value" }
             ]
           }
         ]

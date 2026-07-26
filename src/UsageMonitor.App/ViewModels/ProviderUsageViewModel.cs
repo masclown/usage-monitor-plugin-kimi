@@ -607,14 +607,16 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
     public IReadOnlyList<double> CardLineValues
     {
         get => _cardLineValues;
-        set { _cardLineValues = value ?? Array.Empty<double>(); OnPropertyChanged(); }
+        // 问题3：同步通知派生属性 EffectiveCardLineValues（XAML 实际绑定），否则周期切片后图表不刷新。
+        set { _cardLineValues = value ?? Array.Empty<double>(); OnPropertyChanged(); OnPropertyChanged(nameof(EffectiveCardLineValues)); }
     }
 
     /// <summary>卡片折线图的 Y 轴最大值。用量百分比场景为 100；每日 Token 场景为区间最大值（自适应）。</summary>
     public double CardLineMax
     {
         get => _cardLineMax;
-        set { _cardLineMax = value <= 0 ? 100 : value; OnPropertyChanged(); }
+        // 问题3：同步通知派生属性 EffectiveCardLineMax。
+        set { _cardLineMax = value <= 0 ? 100 : value; OnPropertyChanged(); OnPropertyChanged(nameof(EffectiveCardLineMax)); }
     }
 
     /// <summary>
@@ -639,9 +641,10 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
             {
                 CardLineValues = _historyValues;
                 CardLineMax = 100;
-                // req-007：非 DOM 模式无日期数据，清空 X 轴标签 / 周期切换 / tooltip 扩展。
+                // req-007：非 DOM 模式无日期数据，清空 X 轴标签 / tooltip 扩展；
+                // 问题3：周期切换能力改由声明驱动（Card.Line.Slicer(Period)），不再无条件关闭。
                 Dates = Array.Empty<string>();
-                SupportsPeriodSwitch = false;
+                SupportsPeriodSwitch = HasDeclaredPeriodSlicer;
                 ExtraTooltipLines = null;
             }
         }
@@ -655,7 +658,8 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
     public IReadOnlyList<string> Dates
     {
         get => _dates;
-        set { _dates = value ?? Array.Empty<string>(); OnPropertyChanged(); }
+        // 问题3：同步通知派生属性 EffectiveCardLineDates（XAML 实际绑定），保证周期切片后 X 轴同步刷新。
+        set { _dates = value ?? Array.Empty<string>(); OnPropertyChanged(); OnPropertyChanged(nameof(EffectiveCardLineDates)); }
     }
 
     /// <summary>折线图 hover tooltip 的扩展文本行（按换行拼接展示）。</summary>
@@ -747,26 +751,26 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
     }
 
     /// <summary>req-105：将勾选的 tooltip 字段（排除折线图原生字段）转为扩展文本行。
-    /// <para>「字段名称」虚拟字段 → 折线主值字段的显示名（静态行）；日期由控件标题逐点自处理；
-    /// 原生值字段 daily_token_value/daily_cache_hit_value 由控件逐点渲染，不在此生成静态行。</para>
+    /// <para>问题4：严格按用户保存的字段顺序生成——「字段名称」虚拟字段在其位置产生折线主值字段显示名行；
+    /// 日期由控件标题逐点自处理；原生值字段 daily_token_value/daily_cache_hit_value 由控件逐点渲染（控件侧同样按字段顺序插入）。</para>
     /// </summary>
     private IReadOnlyList<string>? BuildExtraTooltipLines(IReadOnlyList<string>? fields)
     {
         if (fields == null || fields.Count == 0) return null;
         var lines = new List<string>();
-        // 字段名称虚拟字段：折线主值字段的中文显示名（静态行）。
-        if (fields.Contains(TooltipFieldCatalog.FieldNameVirtual))
-        {
-            var lineChart = Provider?.Card?.Charts.FirstOrDefault(c => c.Kind == DeclarativeChartKind.Line);
-            var valueField = lineChart?.DataGroups.SelectMany(g => g.Fields).FirstOrDefault(f => f.Role == FieldRole.Value)?.FieldName;
-            if (valueField != null) lines.Add(TooltipFieldCatalog.GetDisplay(valueField));
-        }
-        // 其余非原生字段 → 静态“标签 值”行。
         foreach (var f in fields)
         {
-            if (f == TooltipFieldCatalog.FieldNameVirtual || f == TooltipFieldCatalog.DateVirtual) continue;
+            if (f == TooltipFieldCatalog.DateVirtual) continue;
             if (f == UsageMonitor.Core.Models.UsageFields.DailyTokenValue ||
                 f == UsageMonitor.Core.Models.UsageFields.DailyCacheHitValue) continue;
+            if (f == TooltipFieldCatalog.FieldNameVirtual)
+            {
+                // 字段名称虚拟字段：折线主值字段的中文显示名（在用户拖拽的位置产生静态行）。
+                var lineChart = Provider?.Card?.Charts.FirstOrDefault(c => c.Kind == DeclarativeChartKind.Line);
+                var valueField = lineChart?.DataGroups.SelectMany(g => g.Fields).FirstOrDefault(fd => fd.Role == FieldRole.Value)?.FieldName;
+                if (valueField != null) lines.Add(TooltipFieldCatalog.GetDisplay(valueField));
+                continue;
+            }
             var line = BuildTooltipFieldLine(f);
             if (line != null) lines.Add(line);
         }
@@ -952,6 +956,9 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         // req-105：同步折线图 tooltip 扩展行（配置/数值变更后即时生效）。
         RefreshLineTooltip();
 
+        // 问题3：折线图周期切片器由插件声明驱动（Card.Line.Slicer(Period)），配置/数据刷新后同步。
+        ApplyDeclaredPeriodSlicer();
+
         var orderedInstances = ResolveOrderedInstances(card, eff);
         var dividerIndex = eff.CollapseDividerIndex ?? card.CollapseDividerIndex ?? orderedInstances.Count;
         if (dividerIndex < 0) dividerIndex = 0;
@@ -1027,9 +1034,46 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         else if (slot.Kind == DeclarativeChartKind.Number)
         {
             slot.NumberData = BuildInstanceNumber(slot.ChartId, slot.InstanceId, card, eff);
+            // 问题1：数据概览（Number）tooltip 按用户勾选字段顺序生成（无勾选/无声明时为 null 不显示）。
+            slot.TooltipText = BuildNumberTooltipText(slot.ChartId, slot.InstanceId, card, eff);
             slot.EmptyHint = slot.NumberData != null ? null
                 : (HasVisibleGroups(slot.ChartId, slot.InstanceId, card, eff) ? "暂无数据，等待刷新…" : "未配置数据组，请在卡片管理中勾选");
         }
+    }
+
+    /// <summary>问题1：构建数据概览（Number 图表）的悬停提示文本——按用户勾选的 tooltip 字段顺序逐行生成。
+    /// <para>「字段名称」虚拟字段 → 图表显示名行；值字段 → “SDK 显示名 值”行（取不到值的字段跳过）。
+    /// 用户未配置时回退声明的 tooltip.fields；两者均无时返回 null（不显示 tooltip）。</para></summary>
+    private string? BuildNumberTooltipText(string chartId, string instanceId, CardDeclaration card, AccountCustomization eff)
+    {
+        var decl = card.Charts.FirstOrDefault(c => c.ChartId == chartId && c.Kind == DeclarativeChartKind.Number);
+        if (decl == null) return null;
+        var fields = ResolveInstanceTooltipFields(chartId, instanceId, eff) ?? decl.Tooltip?.Fields;
+        if (fields == null || fields.Count == 0) return null;
+        var lines = new List<string>();
+        foreach (var f in fields)
+        {
+            if (string.Equals(f, TooltipFieldCatalog.DateVirtual, StringComparison.OrdinalIgnoreCase)) continue;
+            if (string.Equals(f, TooltipFieldCatalog.FieldNameVirtual, StringComparison.OrdinalIgnoreCase))
+            {
+                // 字段名称行：优先声明的图表中文名（如 "数据概览"）。
+                lines.Add(!string.IsNullOrWhiteSpace(decl.Display) ? decl.Display! : chartId);
+                continue;
+            }
+            var valueText = ResolveFieldDisplay(f);
+            if (valueText != null) lines.Add($"{TooltipFieldCatalog.GetDisplay(f)} {valueText}");
+        }
+        return lines.Count > 0 ? string.Join("\n", lines) : null;
+    }
+
+    /// <summary>解析图表实例的 tooltip 字段配置（实例级优先，回退图表级；null = 用户未配置）。</summary>
+    private static IReadOnlyList<string>? ResolveInstanceTooltipFields(string chartId, string instanceId, AccountCustomization eff)
+    {
+        if (eff.VisibleTooltipFields == null) return null;
+        if (!string.Equals(instanceId, chartId, StringComparison.Ordinal) &&
+            eff.VisibleTooltipFields.TryGetValue(instanceId, out var inst) && inst != null)
+            return inst;
+        return eff.VisibleTooltipFields.TryGetValue(chartId, out var chart) ? chart : null;
     }
 
     /// <summary>按指定 Bar 图表实例的可见数据组构建进度条数据（并按数据组注入 req-105 tooltip 文本）。</summary>
@@ -1301,11 +1345,73 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
     }
     private IReadOnlyList<double> _dailyCacheHitPercents = Array.Empty<double>();
 
-    /// <summary>插件是否声明支持周期切换（req-007）。为 true 时卡片折线图右上角显示「近 7 天 / 近 30 天」按钮。</summary>
+    /// <summary>插件是否声明支持周期切换（req-007）。为 true 时卡片折线图右上角显示周期切片器按钮。</summary>
     public bool SupportsPeriodSwitch
     {
         get => _supportsPeriodSwitch;
         set { _supportsPeriodSwitch = value; OnPropertyChanged(); }
+    }
+
+    /// <summary>问题3：折线图周期切片器选项（由插件 slicer.timeRanges 声明派生；null = 未声明，控件回退内置两档）。</summary>
+    public IReadOnlyList<UsageMonitor.App.Controls.PeriodOption>? PeriodOptions
+    {
+        get => _periodOptions;
+        private set { if (!ReferenceEquals(_periodOptions, value)) { _periodOptions = value; OnPropertyChanged(); } }
+    }
+    private IReadOnlyList<UsageMonitor.App.Controls.PeriodOption>? _periodOptions;
+    // 声明默认周期只应用一次，避免每次刷新覆盖用户手动切换的周期。
+    private bool _periodInitializedFromDeclaration;
+
+    /// <summary>问题3：当前插件是否在 Card 声明中为折线图声明了 Period 模式切片器。</summary>
+    private bool HasDeclaredPeriodSlicer
+    {
+        get
+        {
+            var slicer = Provider?.Card?.Charts.FirstOrDefault(c => c.Kind == DeclarativeChartKind.Line)?.Slicer;
+            return slicer is { Mode: SlicerMode.Period } && slicer.TimeRanges.Count > 0;
+        }
+    }
+
+    /// <summary>
+    /// 问题3：把插件声明的折线图 Period 切片器（slicer.timeRanges / default）应用到 VM。
+    /// <para>声明存在 → SupportsPeriodSwitch=true + PeriodOptions 派生；首次应用时按 slicer.default 初始化
+    /// <see cref="CurrentPeriod"/> 并切片；无声明 → 关闭切片器。周期键与选项均由声明驱动，不再写死。</para>
+    /// </summary>
+    private void ApplyDeclaredPeriodSlicer()
+    {
+        var slicer = Provider?.Card?.Charts.FirstOrDefault(c => c.Kind == DeclarativeChartKind.Line)?.Slicer;
+        if (slicer is not { Mode: SlicerMode.Period } || slicer.TimeRanges.Count == 0)
+        {
+            PeriodOptions = null;
+            if (_supportsPeriodSwitch) SupportsPeriodSwitch = false;
+            return;
+        }
+
+        var options = new List<UsageMonitor.App.Controls.PeriodOption>();
+        foreach (var range in slicer.TimeRanges)
+        {
+            var option = UsageMonitor.App.Controls.ChartPeriods.FromTimeRange(range);
+            if (option != null && !options.Any(o => o.Period == option.Period)) options.Add(option);
+        }
+        PeriodOptions = options.Count > 0 ? options : null;
+        SupportsPeriodSwitch = options.Count > 0;
+
+        // 默认周期：仅首次应用声明时初始化，后续刷新不覆盖用户手动选择。
+        if (!_periodInitializedFromDeclaration && options.Count > 0)
+        {
+            _periodInitializedFromDeclaration = true;
+            string? defKey = null;
+            if (!string.IsNullOrEmpty(slicer.Default) && Enum.TryParse<TimeRange>(slicer.Default, true, out var tr))
+                defKey = UsageMonitor.App.Controls.ChartPeriods.FromTimeRange(tr)?.Period;
+            var target = defKey != null && options.Any(o => string.Equals(o.Period, defKey, StringComparison.OrdinalIgnoreCase))
+                ? defKey
+                : options[^1].Period;
+            if (!string.Equals(_currentPeriod, target, StringComparison.OrdinalIgnoreCase))
+            {
+                CurrentPeriod = target;
+                SliceCardLineByPeriod(target);
+            }
+        }
     }
 
     /// <summary>当前周期（req-007）。</summary>
@@ -1408,6 +1514,8 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(CardMetricBarData));
             OnPropertyChanged(nameof(CardMetricGridData));
             OnPropertyChanged(nameof(EffectiveCardLineValues));
+            // 问题3：Provider 注入后立即同步声明的折线图周期切片器（不等首次 RebuildChartSlots）。
+            ApplyDeclaredPeriodSlicer();
         }
     }
     private UsageMonitor.Core.Plugins.IUsageProvider? _provider;

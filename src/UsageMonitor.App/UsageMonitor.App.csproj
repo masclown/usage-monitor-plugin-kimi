@@ -9,13 +9,13 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
 
-    <!-- 项目版本号（0.33.0-beta）：Logo v3资源体系(UsageMonitor-v3.ico/png + ApplicationIcon exe图标 + 托盘NotifyIcon高分屏) / SettingsWindow.xaml.cs大幅增强(+199行) / MiniChartItemViewModel大幅增强(+144行) / ProviderUsageViewModel大幅增强(+129行) / MainWindow.xaml UI重构(+160行) / TaskbarWindow增强 / BugfixBatchTwentyTests(+204行)；用于程序集元数据 + 文件属性。 -->
+    <!-- 项目版本号（0.34.0-beta）：MiniLineChartControl大幅增强(+159行) / ProviderUsageViewModel大幅增强(+142行) / YearHeatMapControl增强(+81行) / RingChartControl增强(+50行) / ChartPeriods增强(+42行) / SettingsWindow与TaskbarWindow UI增强 / BugfixBatchEightTests(+151行)；用于程序集元数据 + 文件属性。 -->
     <!-- 显式设置 5 个属性，避免被 SDK 衍生规则变动影响。 -->
-    <Version>0.33.0-beta</Version>
-    <AssemblyVersion>0.33.0.0</AssemblyVersion>
-    <FileVersion>0.33.0.0</FileVersion>
-    <InformationalVersion>0.33.0-beta</InformationalVersion>
-    <ProductVersion>0.33.0-beta</ProductVersion>
+    <Version>0.34.0-beta</Version>
+    <AssemblyVersion>0.34.0.0</AssemblyVersion>
+    <FileVersion>0.34.0.0</FileVersion>
+    <InformationalVersion>0.34.0-beta</InformationalVersion>
+    <ProductVersion>0.34.0-beta</ProductVersion>
     <AssemblyTitle>UsageMonitor</AssemblyTitle>
     <Product>UsageMonitor</Product>
     <Company>UsageMonitor</Company>

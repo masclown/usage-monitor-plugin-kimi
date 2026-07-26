@@ -459,7 +459,10 @@ public class YearHeatMapControl : FrameworkElement, IHoverTooltipProvider
         e.Handled = true;
     }
 
-    /// <summary>将内部坐标映射为热力图日期及其数值。</summary>
+    /// <summary>将内部坐标映射为热力图日期及其数值。
+    /// <para>问题4：启用字段过滤时，内容行严格按用户保存的字段顺序生成（拖拽排序即时生效）；
+    /// 问题5：「字段名称」行仅在主值字段同时被勾选时展示（避免只勾对比字段时错误显示主值字段名）。</para>
+    /// </summary>
     public bool TryGetTooltip(Point position, out HoverTooltipData data)
     {
         data = default!;
@@ -469,45 +472,57 @@ public class YearHeatMapControl : FrameworkElement, IHoverTooltipProvider
             if (!hit.Bounds.Contains(position)) continue;
             _hoverIndex = i;
 
-            // req-105 三态语义（问题3）：TooltipFields == null → 不过滤（全部展示，向后兼容）；
-            // 非 null（含空集合）→ 白名单过滤：主值字段（TooltipValueField）控制数值行；
-            // 对比行（ComparisonText）由 TooltipComparisonField 控制（问题10）；
-            // 「字段名称」虚拟字段控制标签行；「日期」虚拟字段控制日期标题；全部未勾选时不弹 tooltip。
-            var fields = TooltipFields;
-            bool hasFilter = fields != null;
-            bool showValue = !hasFilter
-                || string.IsNullOrEmpty(TooltipValueField)
-                || fields!.Contains(TooltipValueField);
-            bool showName = hasFilter && fields!.Contains(UsageMonitor.App.Helpers.TooltipFieldCatalog.FieldNameVirtual)
-                && !string.IsNullOrEmpty(TooltipFieldLabel);
-            bool showDate = !hasFilter || fields!.Contains(UsageMonitor.App.Helpers.TooltipFieldCatalog.DateVirtual);
-            // 问题10：对比行独立受控——声明了对比字段时按其勾选状态；未声明时保持旧行为（跟随主值）。
-            bool showComparison = string.IsNullOrEmpty(TooltipComparisonField)
-                ? showValue
-                : (!hasFilter || fields!.Contains(TooltipComparisonField));
-
-            // 问题3：启用过滤且无任何可展示内容时直接不弹 tooltip。
-            if (hasFilter && !showValue && !showName && !showDate && !showComparison) return false;
-
             var value = string.IsNullOrWhiteSpace(hit.Cell.ValueText)
                 ? $"{hit.Cell.Percent:0.##}"
                 : hit.Cell.ValueText;
             var unit = string.IsNullOrWhiteSpace(hit.Cell.Unit) ? string.Empty : $" {hit.Cell.Unit}";
+            var valueLine = $"{value}{unit}";
 
-            // 标题：日期勾选时显示日期；否则字段名称勾选时回退主值字段标签（此时不再重复追加标签行，问题10 去重）。
-            var title = showDate ? hit.Cell.Day : (showName ? TooltipFieldLabel! : string.Empty);
-            bool nameUsedAsTitle = !showDate && showName;
-            // 数值行：主值字段未勾选时不展示数值。
-            var valueText = showValue ? $"{value}{unit}" : string.Empty;
-            // 详情：对比行（受 TooltipComparisonField 控制） + 字段名称行（仅在未充当标题时追加，避免显示两次）。
-            string? detail = showComparison && !string.IsNullOrEmpty(hit.Cell.ComparisonText) ? hit.Cell.ComparisonText : null;
-            if (showName && !nameUsedAsTitle)
-                detail = string.IsNullOrEmpty(detail) ? TooltipFieldLabel : $"{TooltipFieldLabel}\n{detail}";
+            // req-105 三态语义：TooltipFields == null → 不过滤（日期标题 + 主值 + 对比行，向后兼容）。
+            var fields = TooltipFields;
+            if (fields == null)
+            {
+                string? d = !string.IsNullOrEmpty(hit.Cell.ComparisonText) ? hit.Cell.ComparisonText : null;
+                data = new HoverTooltipData(hit.Cell.Day, valueLine, d);
+                return true;
+            }
 
-            // 无任何内容时不弹 tooltip（保险）。
-            if (string.IsNullOrEmpty(title) && string.IsNullOrEmpty(valueText) && string.IsNullOrEmpty(detail)) return false;
+            // 白名单过滤：按用户保存的字段顺序逐一生成内容行（问题4）。
+            bool showValue = string.IsNullOrEmpty(TooltipValueField) || fields.Contains(TooltipValueField);
+            var lines = new System.Collections.Generic.List<string>();
+            string title = string.Empty;
+            foreach (var f in fields)
+            {
+                if (string.Equals(f, UsageMonitor.App.Helpers.TooltipFieldCatalog.DateVirtual, StringComparison.OrdinalIgnoreCase))
+                {
+                    // 日期虚拟字段 → 标题行（呈现器固定在首行）。
+                    title = hit.Cell.Day;
+                }
+                else if (string.Equals(f, UsageMonitor.App.Helpers.TooltipFieldCatalog.FieldNameVirtual, StringComparison.OrdinalIgnoreCase))
+                {
+                    // 问题5：字段名称行 = 主值字段的显示名，仅在主值字段也被勾选时展示，名称与数值始终对应。
+                    if (showValue && !string.IsNullOrEmpty(TooltipFieldLabel))
+                        lines.Add(TooltipFieldLabel!);
+                }
+                else if (!string.IsNullOrEmpty(TooltipValueField) &&
+                         string.Equals(f, TooltipValueField, StringComparison.OrdinalIgnoreCase))
+                {
+                    lines.Add(valueLine);
+                }
+                else if (!string.IsNullOrEmpty(TooltipComparisonField) &&
+                         string.Equals(f, TooltipComparisonField, StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!string.IsNullOrEmpty(hit.Cell.ComparisonText)) lines.Add(hit.Cell.ComparisonText);
+                }
+            }
 
-            data = new HoverTooltipData(title, valueText, detail);
+            // 无任何可展示内容时不弹 tooltip（问题3）。
+            if (string.IsNullOrEmpty(title) && lines.Count == 0) return false;
+
+            // 首行内容进 Value 槽（加粗强调），其余进 Detail，保持用户拖拽顺序。
+            var valueSlot = lines.Count > 0 ? lines[0] : string.Empty;
+            string? detail = lines.Count > 1 ? string.Join("\n", lines.Skip(1)) : null;
+            data = new HoverTooltipData(title, valueSlot, detail);
             return true;
         }
         return false;

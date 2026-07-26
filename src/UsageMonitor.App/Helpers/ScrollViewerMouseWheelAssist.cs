@@ -78,6 +78,9 @@ namespace UsageMonitor.App.Helpers
         /// <summary>
         /// 从 <paramref name="source"/> 沿视觉树向上查找第一个位于宿主内部的 ScrollViewer。
         /// 可覆盖 ListBox / ListView / DataGrid 等 ItemsControl 内嵌的 ScrollViewer。
+        /// <para>问题8 闪退修复：事件源可能是 Run 等非 Visual 的 ContentElement（TextBlock 内联文本），
+        /// 直接调 VisualTreeHelper.GetParent 会抛 InvalidOperationException；
+        /// 非 Visual 节点改走 LogicalTreeHelper 上溯，直到回到视觉树。</para>
         /// </summary>
         private static ScrollViewer? FindInnerScrollViewer(DependencyObject? source, ScrollViewer host)
         {
@@ -86,7 +89,9 @@ namespace UsageMonitor.App.Helpers
             {
                 if (current is ScrollViewer sv)
                     return sv;
-                current = VisualTreeHelper.GetParent(current);
+                current = current is Visual or System.Windows.Media.Media3D.Visual3D
+                    ? VisualTreeHelper.GetParent(current)
+                    : LogicalTreeHelper.GetParent(current);
             }
             return null;
         }

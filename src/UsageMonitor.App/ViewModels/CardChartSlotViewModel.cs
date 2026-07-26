@@ -23,6 +23,7 @@ public class CardChartSlotViewModel : INotifyPropertyChanged
     private MetricBarData? _barData;
     private MetricGridData? _numberData;
     private string? _emptyHint;
+    private string? _tooltipText;
     private bool _isAboveDivider;
     private int _ordinal;
 
@@ -94,6 +95,13 @@ public class CardChartSlotViewModel : INotifyPropertyChanged
     {
         get => _numberData;
         set { if (!ReferenceEquals(_numberData, value)) { _numberData = value; OnPropertyChanged(); } }
+    }
+
+    /// <summary>问题1：槽位悬停提示文本（按用户勾选的 tooltip 字段顺序生成；null = 不显示 tooltip）。</summary>
+    public string? TooltipText
+    {
+        get => _tooltipText;
+        set { if (_tooltipText != value) { _tooltipText = value; OnPropertyChanged(); } }
     }
 
     /// <summary>空数据提示文本：图表所有数据组均未勾选时显示（非空时模板展示灰色提示而非图表内容）。</summary>

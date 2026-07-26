@@ -87,6 +87,10 @@ public partial class MainViewModel : INotifyPropertyChanged
         // 关闭窗口由 SettingsWindow 订阅 RequestCloseSettings 后执行（保存成功才关闭）。
         SaveAllSettingsCommand = new RelayCommand(() =>
         {
+            // 问题8：全局保存前先提交色阶编辑器（用量色阶 + 热力图色阶）的未落盘修改，
+            // 替代色阶设置页内分散的“保存设置”按钮（懒加载字段非 null 才提交，避免无谓初始化）。
+            _tierEditor?.SaveTierCommand.Execute(null);
+            _heatMapTierEditor?.SaveCommand.Execute(null);
             _configService.Save();
             if (string.IsNullOrEmpty(_configService.LastSaveError))
             {

@@ -88,6 +88,8 @@
                                             Size="38" StrokeThickness="3.5"
                                             TrackBrush="{DynamicResource TrackBrush}"
                                             ProgressBrush="{Binding TierBrush, Mode=OneWay}"
+                                            UseTierScale="True"
+                                            TierColorConfigs="{Binding Descriptor.ColorTier.Tiers, Mode=OneWay}"
                                             WarningThreshold="101" DangerThreshold="101"
                                             HorizontalAlignment="Center"
                                             VerticalAlignment="Top"
@@ -163,6 +165,25 @@
             <ScrollViewer HorizontalScrollBarVisibility="Auto"
                           VerticalScrollBarVisibility="Disabled"
                           Padding="0">
+                <!-- 问题7：自定义 ScrollViewer 模板——横向滚动条改为悬浮叠加（overlay）在内容底部，
+                     不再占用布局行高挤压/遮挡 mini 图表；高度压缩到 4px，半透明弱化存在感。 -->
+                <ScrollViewer.Template>
+                    <ControlTemplate TargetType="ScrollViewer">
+                        <Grid>
+                            <ScrollContentPresenter x:Name="PART_ScrollContentPresenter"
+                                                    CanContentScroll="{TemplateBinding CanContentScroll}"
+                                                    Content="{TemplateBinding Content}"
+                                                    ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                    Margin="{TemplateBinding Padding}" />
+                            <ScrollBar x:Name="PART_HorizontalScrollBar" Orientation="Horizontal"
+                                       VerticalAlignment="Bottom" Height="4" Opacity="0.65"
+                                       Minimum="0" Maximum="{TemplateBinding ScrollableWidth}"
+                                       ViewportSize="{TemplateBinding ViewportWidth}"
+                                       Value="{TemplateBinding HorizontalOffset}"
+                                       Visibility="{TemplateBinding ComputedHorizontalScrollBarVisibility}" />
+                        </Grid>
+                    </ControlTemplate>
+                </ScrollViewer.Template>
                 <ItemsControl ItemsSource="{Binding VisibleMiniCharts, Mode=OneWay}"
                               ItemTemplateSelector="{StaticResource MiniChartTemplateSelector}">
                     <ItemsControl.ItemsPanel>

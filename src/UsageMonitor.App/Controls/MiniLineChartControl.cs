@@ -103,6 +103,11 @@ public class MiniLineChartControl : FrameworkElement, IHoverTooltipProvider
         nameof(TooltipFields), typeof(IReadOnlyList<string>), typeof(MiniLineChartControl),
         new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
 
+    /// <summary>周期切片器选项列表（由插件 slicer.timeRanges 声明派生；null/空 = 回退内置"近 7 天 / 近 30 天"）。</summary>
+    public static readonly DependencyProperty PeriodOptionsProperty = DependencyProperty.Register(
+        nameof(PeriodOptions), typeof(IReadOnlyList<PeriodOption>), typeof(MiniLineChartControl),
+        new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
+
     /// <summary>
     /// 周期切换路由事件（req-007）：用户点击右上角"近 7 天 / 近 30 天"按钮时由控件 RaiseEvent，
     /// VM 收到后调用 <c>IUsageProvider.SetPeriodAsync</c> 并切换 <see cref="IsLoading"/>。
@@ -187,6 +192,17 @@ public class MiniLineChartControl : FrameworkElement, IHoverTooltipProvider
         get => (IReadOnlyList<string>?)GetValue(TooltipFieldsProperty);
         set => SetValue(TooltipFieldsProperty, value);
     }
+
+    /// <summary>周期切片器选项（插件声明驱动；null/空 = 内置两档向后兼容）。</summary>
+    public IReadOnlyList<PeriodOption>? PeriodOptions
+    {
+        get => (IReadOnlyList<PeriodOption>?)GetValue(PeriodOptionsProperty);
+        set => SetValue(PeriodOptionsProperty, value);
+    }
+
+    /// <summary>当前生效的周期选项列表（声明优先，回退内置默认两档）。</summary>
+    private IReadOnlyList<PeriodOption> EffectivePeriodOptions
+        => PeriodOptions is { Count: > 0 } po ? po : ChartPeriods.DefaultOptions;
 
     /// <summary>当前 hover 数据点索引</summary>
     private int _hoverIndex = -1;
@@ -351,8 +367,11 @@ public class MiniLineChartControl : FrameworkElement, IHoverTooltipProvider
     /// <summary>左侧/右侧 padding：折线两端留白（沿用 v1 风格的 padding + 半线宽）。</summary>
     private const double SidePadding = 4.0;
 
-    /// <summary>右上角周期按钮区宽度（容纳"近 7 天"和"近 30 天"两个分段按钮）。</summary>
-    private const double PeriodButtonRowWidth = 132.0;
+    /// <summary>右上角周期按钮单个分段的宽度（总宽 = 分段数 × 本值）。</summary>
+    private const double PeriodSegmentWidth = 66.0;
+
+    /// <summary>当前周期按钮区总宽（随声明的选项数自适应）。</summary>
+    private double PeriodButtonRowWidth => PeriodSegmentWidth * Math.Max(1, EffectivePeriodOptions.Count);
 
     /// <summary>右上角周期按钮高度。</summary>
     private const double PeriodButtonHeight = 22.0;
@@ -482,48 +501,57 @@ public class MiniLineChartControl : FrameworkElement, IHoverTooltipProvider
     }
 
     /// <summary>
-    /// 绘制右上角"近 7 天 / 近 30 天"分段按钮（req-007）。
+    /// 绘制右上角周期分段按钮（req-007；选项由插件声明的 <see cref="PeriodOptions"/> 驱动，不再写死两档）。
     /// 使用 <see cref="FormattedText"/> 绘制文字 + 背景矩形模拟分段样式；不引入 WPF RadioButton
     /// 子元素以避免 VisualTree 复杂度（命中测试在 <see cref="OnMouseLeftButtonDown"/> 中完成）。
     /// </summary>
     private void DrawPeriodButtons(DrawingContext dc, double width, double height)
     {
+        var options = EffectivePeriodOptions;
+        if (options.Count == 0) return;
+
         // 按钮区位于顶部 padding 右上角
+        var rowWidth = PeriodButtonRowWidth;
         var rowRight = width - PeriodButtonRightMargin;
-        var rowLeft = rowRight - PeriodButtonRowWidth;
+        var rowLeft = rowRight - rowWidth;
         var rowTop = PeriodButtonTopMargin;
-        var rowBottom = rowTop + PeriodButtonHeight;
-        var halfW = PeriodButtonRowWidth / 2.0;
+        var segW = rowWidth / options.Count;
 
         // 背景容器（圆角矩形，半透明）
         var containerBg = MakeTranslucent(ResolveThemeSurfaceAlt(), 0x55);
-        DrawRoundedRect(dc, new Rect(rowLeft, rowTop, PeriodButtonRowWidth, PeriodButtonHeight), 4, containerBg, border: ResolveThemeBorder());
+        DrawRoundedRect(dc, new Rect(rowLeft, rowTop, rowWidth, PeriodButtonHeight), 4, containerBg, border: ResolveThemeBorder());
 
         // 当前激活色（取自当前折线 brush，让按钮与折线视觉关联）
         var accent = SelectBrushForButtons();
         var inactiveText = ResolveThemeTextSecondary();
         var activeText = ResolveThemeOnAccent();
 
-        // 左半：近 7 天
-        var leftIsActive = string.Equals(CurrentPeriod, ChartPeriods.Week, StringComparison.OrdinalIgnoreCase);
-        DrawPeriodSegment(dc, new Rect(rowLeft, rowTop, halfW, PeriodButtonHeight),
-            "近 7 天", leftIsActive, accent, activeText, inactiveText, isLeftSegment: true);
-
-        // 右半：近 30 天
-        var rightIsActive = string.Equals(CurrentPeriod, ChartPeriods.Month, StringComparison.OrdinalIgnoreCase);
-        DrawPeriodSegment(dc, new Rect(rowLeft + halfW, rowTop, halfW, PeriodButtonHeight),
-            "近 30 天", rightIsActive, accent, activeText, inactiveText, isLeftSegment: false);
+        for (int i = 0; i < options.Count; i++)
+        {
+            var opt = options[i];
+            var isActive = string.Equals(CurrentPeriod, opt.Period, StringComparison.OrdinalIgnoreCase);
+            var side = i == 0 ? RoundedSide.Left : (i == options.Count - 1 ? RoundedSide.Right : (RoundedSide?)null);
+            DrawPeriodSegment(dc, new Rect(rowLeft + i * segW, rowTop, segW, PeriodButtonHeight),
+                opt.Label, isActive, accent, activeText, inactiveText, side);
+        }
     }
 
-    /// <summary>绘制单个分段按钮（半边）；激活时填充实心 + 反色文字，未激活时透明底 + 次级文字色。</summary>
-    /// <param name="isLeftSegment">true=左半按钮（左上/左下圆角），false=右半按钮（右上/右下圆角）</param>
+    /// <summary>绘制单个分段按钮；激活时填充实心 + 反色文字，未激活时透明底 + 次级文字色。</summary>
+    /// <param name="roundedSide">圆角侧：Left=首段，Right=尾段，null=中间段（无圆角）</param>
     private void DrawPeriodSegment(DrawingContext dc, Rect rect, string text,
-        bool isActive, Brush accent, Brush activeText, Brush inactiveText, bool isLeftSegment)
+        bool isActive, Brush accent, Brush activeText, Brush inactiveText, RoundedSide? roundedSide)
     {
         if (isActive)
         {
-            var path = BuildRoundedPath(rect, 4, isLeftSegment ? RoundedSide.Left : RoundedSide.Right);
-            dc.DrawGeometry(accent, null, path);
+            if (roundedSide.HasValue)
+            {
+                var path = BuildRoundedPath(rect, 4, roundedSide.Value);
+                dc.DrawGeometry(accent, null, path);
+            }
+            else
+            {
+                dc.DrawRectangle(accent, null, rect);
+            }
             DrawCenteredText(dc, text, rect, activeText, 11);
         }
         else
@@ -862,20 +890,24 @@ public class MiniLineChartControl : FrameworkElement, IHoverTooltipProvider
     private const double PeriodButtonHitPadding = 4.0;
 
     /// <summary>
-    /// req-007：根据点击位置判断命中哪个周期按钮（"7d" / "30d"），未命中返回 null。
+    /// req-007：根据点击位置判断命中哪个周期按钮（返回周期键如 "7d"），未命中返回 null。
     /// <para>
-    /// req-020：接受视觉矩形 ± <see cref="PeriodButtonHitPadding"/> 像素范围内的点击作为命中，
-    /// 避免“按钮太小”造成“近 30 天点不到”。点击未命中时也写一条 Info 日志供诊断。
+    /// 选项由 <see cref="EffectivePeriodOptions"/>（插件声明）驱动；req-020：接受视觉矩形 ± <see cref="PeriodButtonHitPadding"/>
+    /// 像素范围内的点击作为命中，避免“按钮太小”造成边缘点不到。
     /// </para>
     /// </summary>
     private string? HitTestPeriodButton(Point pos)
     {
+        var options = EffectivePeriodOptions;
+        if (options.Count == 0) return null;
+
         var width = ActualWidth;
+        var rowWidth = PeriodButtonRowWidth;
         var rowRight = width - PeriodButtonRightMargin;
-        var rowLeft = rowRight - PeriodButtonRowWidth;
+        var rowLeft = rowRight - rowWidth;
         var rowTop = PeriodButtonTopMargin;
         var rowBottom = rowTop + PeriodButtonHeight;
-        var halfW = PeriodButtonRowWidth / 2.0;
+        var segW = rowWidth / options.Count;
 
         // req-020：在视觉矩形基础上额外接受 ± padding 范围内的点击
         var pad = PeriodButtonHitPadding;
@@ -890,14 +922,13 @@ public class MiniLineChartControl : FrameworkElement, IHoverTooltipProvider
             return null;
         }
 
-        // req-020：pos.X 越界（负方向）但 Y 在范围内 → 默认落到 Week
-        if (pos.X < rowLeft) return ChartPeriods.Week;
-        // req-020：pos.X 越界（正方向）但 Y 在范围内 → 默认落到 Month
-        if (pos.X > rowRight) return ChartPeriods.Month;
+        // req-020：pos.X 越界（负方向）但 Y 在范围内 → 默认落到首段；正方向越界 → 尾段
+        if (pos.X < rowLeft) return options[0].Period;
+        if (pos.X > rowRight) return options[^1].Period;
 
-        // 左半 / 右半（视觉矩形内）
-        if (pos.X < rowLeft + halfW) return ChartPeriods.Week;
-        return ChartPeriods.Month;
+        // 按分段索引命中（视觉矩形内）
+        var segIndex = Math.Clamp((int)((pos.X - rowLeft) / segW), 0, options.Count - 1);
+        return options[segIndex].Period;
     }
 
     /// <summary>键盘方向键浏览折线数据点，Enter 重显当前点提示。</summary>
@@ -924,8 +955,10 @@ public class MiniLineChartControl : FrameworkElement, IHoverTooltipProvider
     }
 
     /// <summary>
-    /// 将控件内部坐标映射到 tooltip 数据（req-007：Title 优先取自 Dates，Detail 拼接 ExtraTooltipLines）。
-    /// req-034 修复：正确格式化数值（如 250.71M）并显示缓存命中率。
+    /// 将控件内部坐标映射到 tooltip 数据（req-007：Title 优先取自 Dates）。
+    /// <para>问题4：启用字段过滤时，详情行严格按用户保存的字段顺序生成：
+    /// 缓存命中行（daily_cache_hit_value）在其字段位置插入，其余非原生字段按同序消费
+    /// VM 注入的 <see cref="ExtraTooltipLines"/>（VM 侧同样按字段顺序生成）。</para>
     /// </summary>
     public bool TryGetTooltip(Point position, out HoverTooltipData data)
     {
@@ -934,7 +967,7 @@ public class MiniLineChartControl : FrameworkElement, IHoverTooltipProvider
         var index = GetIndex(position.X);
         var value = Values[index];
         var provider = string.IsNullOrWhiteSpace(ProviderName) ? "用量" : ProviderName;
-    
+        
         // req-105 三态语义（问题2/3）：TooltipFields == null → 不过滤（全部显示，向后兼容）；
         // 非 null（含空集合）→ 白名单过滤：__date__ 控制日期标题，daily_token_value 控制主值，
         // daily_cache_hit_value 控制缓存命中行；其余勾选字段由 VM 经 ExtraTooltipLines 注入。
@@ -942,9 +975,8 @@ public class MiniLineChartControl : FrameworkElement, IHoverTooltipProvider
         bool hasFilter = fields != null;
         bool showDate = !hasFilter || fields!.Contains(UsageMonitor.App.Helpers.TooltipFieldCatalog.DateVirtual);
         bool showValue = !hasFilter || fields!.Contains(UsageMonitor.Core.Models.UsageFields.DailyTokenValue);
-        bool showCacheHit = !hasFilter || fields!.Contains(UsageMonitor.Core.Models.UsageFields.DailyCacheHitValue);
-    
-        // Title：仅在「日期」字段启用时显示——优先 Dates[index]（真实日期），否则用旧的 "Provider · 第 N 点" 形式兜底
+        
+        // Title：仅在「日期」字段启用时显示——优先 Dates[index]（真实日期），否则用旧的 "Provider · 第 N 点" 形式兑底
         string title = string.Empty;
         if (showDate)
         {
@@ -953,29 +985,52 @@ public class MiniLineChartControl : FrameworkElement, IHoverTooltipProvider
             else
                 title = $"{provider} · 第 {index + 1} 点";
         }
-    
+        
         // req-034 修复：格式化数值（如 250.71M），不拼接单位
         var valueText = FormatTokenValue(value);
     
-        // Detail：合并 ExtraTooltipLines + 每日独立的缓存命中率
-        string? detail = null;
-        if (ExtraTooltipLines != null && ExtraTooltipLines.Count > 0)
-        {
-            detail = string.Join("\n", ExtraTooltipLines);
-        }
-        // req-034 修复：使用每日独立的缓存命中率
+        // 当日独立的缓存命中率（负值 = 无数据）
         double dayCacheHit = -1;
-        if (showCacheHit && DailyCacheHitPercents != null && index < DailyCacheHitPercents.Count)
+        if (DailyCacheHitPercents != null && index < DailyCacheHitPercents.Count)
             dayCacheHit = DailyCacheHitPercents[index];
-        if (dayCacheHit >= 0)
-        {
-            if (detail != null) detail += "\n";
-            detail += $"缓存命中 {dayCacheHit:0.00}%";
-        }
     
+        // Detail：无过滤时沿用旧顺序（扩展行 + 缓存命中）；有过滤时按字段顺序生成（问题4）。
+        string? detail = null;
+        if (!hasFilter)
+        {
+            if (ExtraTooltipLines != null && ExtraTooltipLines.Count > 0)
+                detail = string.Join("\n", ExtraTooltipLines);
+            if (dayCacheHit >= 0)
+            {
+                if (detail != null) detail += "\n";
+                detail += $"缓存命中 {dayCacheHit:0.00}%";
+            }
+        }
+        else
+        {
+            var lines = new List<string>();
+            var extra = ExtraTooltipLines;
+            int extraIdx = 0;
+            foreach (var f in fields!)
+            {
+                if (string.Equals(f, UsageMonitor.App.Helpers.TooltipFieldCatalog.DateVirtual, StringComparison.OrdinalIgnoreCase))
+                    continue; // 日期充当标题，不占详情行
+                if (string.Equals(f, UsageMonitor.Core.Models.UsageFields.DailyTokenValue, StringComparison.OrdinalIgnoreCase))
+                    continue; // 主值占用 Value 槽位
+                if (string.Equals(f, UsageMonitor.Core.Models.UsageFields.DailyCacheHitValue, StringComparison.OrdinalIgnoreCase))
+                {
+                    if (dayCacheHit >= 0) lines.Add($"缓存命中 {dayCacheHit:0.00}%");
+                    continue;
+                }
+                // 其余非原生字段（含「字段名称」虚拟字段）：按同序消费 VM 生成的扩展行
+                if (extra != null && extraIdx < extra.Count) lines.Add(extra[extraIdx++]);
+            }
+            detail = lines.Count > 0 ? string.Join("\n", lines) : null;
+        }
+        
         // 问题3：全部字段未勾选（无标题、无主值、无详情）时不弹 tooltip。
         if (string.IsNullOrEmpty(title) && !showValue && string.IsNullOrEmpty(detail)) return false;
-    
+        
         data = new HoverTooltipData(title, showValue ? valueText : string.Empty, detail);
         return true;
     }

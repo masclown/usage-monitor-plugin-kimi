@@ -450,6 +450,7 @@
                 CacheHitPercent="{Binding Owner.CacheHitPercent}"
                 DailyCacheHitPercents="{Binding Owner.DailyCacheHitPercents}"
                 SupportsPeriodSwitch="{Binding Owner.SupportsPeriodSwitch}"
+                PeriodOptions="{Binding Owner.PeriodOptions}"
                 CurrentPeriod="{Binding Owner.CurrentPeriod}"
                 IsLoading="{Binding Owner.IsLoading}"
                 TooltipFields="{Binding Owner.EffectiveLineTooltipFields}"
@@ -482,11 +483,13 @@
                 ProviderId="{Binding Owner.ProviderId}" />
         </DataTemplate>
 
-        <!-- 声明式图表槽位模板：数字（Number） -->
+        <!-- 声明式图表槽位模板：数字（Number）。问题1：ToolTip 绑定槽位 TooltipText（按用户勾选字段顺序生成；null 时不显示） -->
         <DataTemplate x:Key="SlotNumberTemplate">
             <Border Background="{DynamicResource SurfaceAltBrush}"
                     CornerRadius="{DynamicResource RadiusSmall}" Padding="12,8"
-                    Margin="0,0,0,8">
+                    Margin="0,0,0,8"
+                    ToolTip="{Binding TooltipText}"
+                    ToolTipService.InitialShowDelay="100">
                 <Grid>
                 <ItemsControl ItemsSource="{Binding NumberData.Items}">
                     <ItemsControl.ItemsPanel>
@@ -589,6 +592,7 @@
                     CacheHitPercent="{Binding CacheHitPercent}"
                     DailyCacheHitPercents="{Binding DailyCacheHitPercents}"
                     SupportsPeriodSwitch="{Binding SupportsPeriodSwitch}"
+                    PeriodOptions="{Binding PeriodOptions}"
                     CurrentPeriod="{Binding CurrentPeriod}"
                     IsLoading="{Binding IsLoading}"
                     PeriodChanged="OnLineChartPeriodChanged"

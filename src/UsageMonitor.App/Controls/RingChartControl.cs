@@ -152,6 +152,32 @@ public class RingChartControl : FrameworkElement, IHoverTooltipProvider
         new FrameworkPropertyMetadata(null,
             FrameworkPropertyMetadataOptions.AffectsRender));
 
+    /// <summary>问题6：是否启用色阶直驱模式——进度弧颜色每次重绘时直接按百分比命中色阶档位
+    /// （<see cref="TierColorConfigs"/> 私有档位优先，回退全局 UsageTierScale），不走 Warning/Danger 阈值链。
+    /// 任务栏迷你半圆环使用本模式，保证进度颜色严格跟随色阶设置。</summary>
+    public static readonly DependencyProperty UseTierScaleProperty = DependencyProperty.Register(
+        nameof(UseTierScale), typeof(bool), typeof(RingChartControl),
+        new FrameworkPropertyMetadata(false, FrameworkPropertyMetadataOptions.AffectsRender));
+
+    /// <summary>问题6：插件声明的私有色阶档位（null/空 = 回退全局 UsageTierScale 色阶）。仅 UseTierScale 模式消费。</summary>
+    public static readonly DependencyProperty TierColorConfigsProperty = DependencyProperty.Register(
+        nameof(TierColorConfigs), typeof(IReadOnlyList<UsageMonitor.Core.Models.UsageTierConfig>), typeof(RingChartControl),
+        new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
+
+    /// <summary>问题6：是否启用色阶直驱模式（CLR 包装）。</summary>
+    public bool UseTierScale
+    {
+        get => (bool)GetValue(UseTierScaleProperty);
+        set => SetValue(UseTierScaleProperty, value);
+    }
+
+    /// <summary>问题6：私有色阶档位（CLR 包装）。</summary>
+    public IReadOnlyList<UsageMonitor.Core.Models.UsageTierConfig>? TierColorConfigs
+    {
+        get => (IReadOnlyList<UsageMonitor.Core.Models.UsageTierConfig>?)GetValue(TierColorConfigsProperty);
+        set => SetValue(TierColorConfigsProperty, value);
+    }
+
     /// <summary>Provider 短名称</summary>
     public string ProviderName
     {
@@ -387,9 +413,23 @@ public class RingChartControl : FrameworkElement, IHoverTooltipProvider
         // REQ-003：当使用方卡 DataTemplate 装入本控件且未设置 MetricProviders 时，
         // 根据 DataContext 是否为 ProviderUsageViewModel 自动构造 5 个内置 IRingMetricProvider。
         DataContextChanged += OnDataContextChanged;
+        // 问题6：Loaded 时订阅全局色阶变更事件（UseTierScale 模式下色阶编辑即时重绘）
+        Loaded += OnControlLoaded;
         // req-063 B10：订阅 Unloaded 事件，控件卸载时停止内部计时器
         Unloaded += OnControlUnloaded;
     }
+
+    /// <summary>问题6：控件加载时订阅全局色阶变更，保证色阶设置保存/预览后进度弧即时重绘。</summary>
+    private void OnControlLoaded(object sender, RoutedEventArgs e)
+    {
+        // 先退再订，避免控件反复 Load 时重复订阅
+        UsageMonitor.App.Helpers.UsageTierScale.TierChanged -= OnGlobalTierChanged;
+        UsageMonitor.App.Helpers.UsageTierScale.TierChanged += OnGlobalTierChanged;
+    }
+
+    /// <summary>问题6：全局色阶变更 → 重绘（仅 UseTierScale 模式需要，其它模式重绘无副作用）。</summary>
+    private void OnGlobalTierChanged(object? sender, EventArgs e)
+        => Dispatcher.BeginInvoke(new Action(InvalidateVisual));
 
     /// <summary>REQ-003：根据 DataContext 自动构造内嵌 5 个 metric provider；遇到默认 Percent fallback 改走 ProviderUsageViewModel.UsagePercentage。</summary>
     private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
@@ -576,6 +616,8 @@ public class RingChartControl : FrameworkElement, IHoverTooltipProvider
         _stickyTimer = null;
         _switchAnimTimer?.Stop();
         _switchAnimTimer = null;
+        // 问题6：退订全局色阶变更事件，避免静态事件长期持有控件引用
+        UsageMonitor.App.Helpers.UsageTierScale.TierChanged -= OnGlobalTierChanged;
     }
 
     /// <summary>REQ-003：启动老虎机式数字切换动画。</summary>
@@ -737,7 +779,13 @@ public class RingChartControl : FrameworkElement, IHoverTooltipProvider
         if (percent < 0) percent = 0;
         if (percent > 100) percent = 100;
         Brush progressBrush;
-        if (percent <= 0)
+        if (UseTierScale)
+        {
+            // 问题6：色阶直驱模式——每次重绘时直接按当前百分比命中色阶档位（私有档位优先，
+            // 回退全局 UsageTierScale），不再依赖 Warning/Danger 阈值链与 ProgressBrush 绑定时序。
+            progressBrush = UsageMonitor.App.Helpers.UsageTierScale.ResolveBrush(TierColorConfigs, percent);
+        }
+        else if (percent <= 0)
         {
             progressBrush = ProgressBrush;
         }

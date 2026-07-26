@@ -801,18 +801,22 @@
                 </StackPanel>
             </StackPanel>
         </DataTemplate>
-        <!-- 色阶（用量色阶 + 热力图色阶） -->
+        <!-- 色阶（用量色阶 + 热力图色阶）。
+             问题8：根 StackPanel 不再整体切到 TierEditor，两个子区块各自绑定 TierEditor / HeatMapTierEditor；
+             此前内层 {Binding HeatMapTierEditor} 在 TierEditor 上解析失败，导致 Provider 下拉空、添加档位错投到用量色阶。
+             保存统一走底部全局「保存」按钮（SaveAllSettingsCommand 已包含两类色阶提交），移除页内重复的“保存设置”按钮。 -->
         <DataTemplate x:Key="SettingsSection_ColorTier">
-            <StackPanel Margin="4" DataContext="{Binding TierEditor}">
+            <StackPanel Margin="4">
                 <TextBlock Text="用量色阶" FontSize="{DynamicResource FontSizeTitle}" FontWeight="Bold"
                            Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,8" />
                 <TextBlock TextWrapping="Wrap" FontSize="12" Margin="0,0,0,16"
                            Foreground="{DynamicResource TextSecondaryBrush}" LineHeight="18">
-                    <Run Text="所有按已用百分比换色的地方（主进度条 / 周限额 / 视频赠送 / 托盘悬浮窗 / 热力图）会按这表实时取色。" />
+                    <Run Text="所有按已用百分比换色的地方（主进度条 / 周限额 / 视频赠送 / 托盘悬浮窗 / 任务栏迷你图）会按这表实时取色。" />
                     <LineBreak />
-                    <Run Text="调整后点 “保存设置” 才会写入 config.json；“应用预览” 仅为实时查看效果不落盘。" />
+                    <Run Text="调整后点底部 “保存” 才会写入 config.json；“应用预览” 仅为实时查看效果不落盘。" />
                 </TextBlock>
 
+                <StackPanel DataContext="{Binding TierEditor}">
                 <Grid Margin="0,0,0,6">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="40" />
@@ -876,16 +880,6 @@
                             Style="{StaticResource GhostButtonStyle}"
                             Margin="24,0,0,0" />
                 </StackPanel>
-
-                <Separator Margin="0,4,0,16" />
-
-                <StackPanel Orientation="Horizontal">
-                    <Button Content="保存设置" Padding="18,8"
-                            Command="{Binding SaveTierCommand}"
-                            Style="{StaticResource PrimaryButtonStyle}" />
-                    <TextBlock Text="（即时生效；下次启动按磁盘值恢复）" FontSize="12"
-                               VerticalAlignment="Center" Margin="12,0,0,0"
-                               Foreground="{DynamicResource TextTertiaryBrush}" />
                 </StackPanel>
 
                 <Separator Margin="0,20,0,20" />
@@ -895,7 +889,7 @@
                            Foreground="{DynamicResource TextSecondaryBrush}" LineHeight="18">
                     <Run Text="按 Token 绝对值分档（MiniMax 默认 6 档：0 / 20M / 100M / 200M / 300M），不同 Provider 独立色阶。" />
                     <LineBreak />
-                    <Run Text="调整后点&quot;保存设置&quot;才会写入 config.json；&quot;应用预览&quot;仅为实时查看效果不落盘。" />
+                    <Run Text="调整后点底部“保存”才会写入 config.json；“应用预览”仅为实时查看效果不落盘。" />
                 </TextBlock>
                 <StackPanel DataContext="{Binding HeatMapTierEditor}">
                     <TextBlock Text="Provider：" FontSize="13" FontWeight="SemiBold"
@@ -954,14 +948,8 @@
                         <Button Content="应用预览" Margin="0,0,8,0" Padding="14,6" Command="{Binding ApplyPreviewCommand}"
                                 Style="{StaticResource GhostButtonStyle}" />
                     </StackPanel>
-                    <Separator Margin="0,4,0,16" />
-                    <StackPanel Orientation="Horizontal">
-                        <Button Content="保存设置" Padding="18,8" Command="{Binding SaveCommand}"
-                                Style="{StaticResource PrimaryButtonStyle}" />
-                        <TextBlock Text="（即时生效；下次启动按磁盘值恢复）" FontSize="12"
-                                   VerticalAlignment="Center" Margin="12,0,0,0"
-                                   Foreground="{DynamicResource TextTertiaryBrush}" />
-                    </StackPanel>
+                    <TextBlock Text="修改完成后点设置窗口底部的「保存」按钮统一落盘（含用量色阶与热力图色阶）。" FontSize="12"
+                               Foreground="{DynamicResource TextTertiaryBrush}" Margin="0,0,0,4" />
                 </StackPanel>
             </StackPanel>
         </DataTemplate>
