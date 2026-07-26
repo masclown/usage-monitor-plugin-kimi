@@ -93,7 +93,7 @@ public class SeriesPivotExecutorTests
         var matrix = result.Extras["daily_cost_matrix"].Should().BeAssignableTo<List<List<double>>>().Subject;
 
         categories.Should().HaveCount(2);
-        categories[0].Should().MatchRegex(@"^\d{2}-\d{2}$"); // MM-dd 格式
+        categories[0].Should().MatchRegex(@"^\d{4}-\d{2}-\d{2}$"); // 问题9：yyyy-MM-dd 完整日期格式
         names.Should().BeEquivalentTo(new[] { "deepseek-chat & deepseek-reasoner", "deepseek-v4-flash" },
             c => c.WithStrictOrdering());
         matrix.Should().HaveCount(2);
@@ -282,7 +282,10 @@ public class SeriesPivotExecutorTests
         var stacked = manifest.Card.Charts.First(c => c.Kind == DeclarativeChartKind.StackedBar);
         stacked.CategoriesField.Should().Be("daily_cost_categories");
         stacked.ValuesMatrixField.Should().Be("daily_cost_matrix");
-        stacked.Colors.Should().NotBeEmpty();
+        // 问题7：移除自定义颜色声明，堆叠柱状图统一走宿主默认蓝色色板，保证同卡片多图颜色风格一致。
+        stacked.Colors.Should().BeEmpty();
+        // 问题12：时序图表声明泛化数据组（供卡片管理页展示/勾选）。
+        stacked.DataGroups.Should().NotBeEmpty();
     }
 
     /// <summary>定位 DeepSeek 声明包路径（输出目录或源码目录）。</summary>

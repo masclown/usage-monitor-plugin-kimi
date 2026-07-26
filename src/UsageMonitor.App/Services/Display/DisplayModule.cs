@@ -278,6 +278,9 @@ public sealed class DisplayModule : IDisplayModule
                     continue;
                 RebuildCardsForProvider(providerId);
             }
+            // 问题5：卡片拖拽排序仅变更 ProviderCardOrder（账号结构签名不变），
+            // 上方增量重建不会触发，这里无条件重排已启用卡片集合（仅重排现有 VM，开销低）。
+            RebuildEnabledCards();
         }
         finally
         {

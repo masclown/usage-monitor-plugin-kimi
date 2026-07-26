@@ -90,6 +90,10 @@ public static class HoverTooltipPresenter
         if (ActiveTooltips.TryGetValue(owner, out var existingHolder) && existingHolder.Tooltip is { } existingTip && existingTip.Tag is TooltipElements elems)
         {
             elems.TitleBlock.Text = data.Title;
+            // 问题1修复：Title 为空时折叠标题行，避免 tooltip 首行空白
+            elems.TitleBlock.Visibility = string.IsNullOrWhiteSpace(data.Title)
+                ? Visibility.Collapsed
+                : Visibility.Visible;
             elems.ValueBlock.Text = data.Value;
             if (elems.DetailBlock != null)
             {
@@ -110,11 +114,13 @@ public static class HoverTooltipPresenter
         var background = FindBrush(owner, "SurfaceAltBrush", Color.FromArgb(0xE8, 0x1F, 0x24, 0x30));
 
         var panel = new StackPanel { MinWidth = 92 };
+        // 问题1修复：Title 为空时不占位（折叠），避免 tooltip 首行空白
         var titleBlock = new TextBlock
         {
             Text = data.Title,
             FontSize = 10,
-            Foreground = titleBrush
+            Foreground = titleBrush,
+            Visibility = string.IsNullOrWhiteSpace(data.Title) ? Visibility.Collapsed : Visibility.Visible
         };
         panel.Children.Add(titleBlock);
         var valueBlock = new TextBlock

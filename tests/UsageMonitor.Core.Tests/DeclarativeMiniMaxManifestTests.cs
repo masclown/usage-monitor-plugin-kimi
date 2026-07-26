@@ -87,9 +87,9 @@ public class DeclarativeMiniMaxManifestTests
         e["weekly_used_percent"].Should().Be(83L);
         e["five_hour_reset_at"].Should().BeOfType<System.DateTime>();
         e["weekly_reset_at"].Should().BeOfType<System.DateTime>();
-        // 视频次数 + computed used=total-remains
-        e["five_hour_video_total"].Should().Be(3L);
-        e["five_hour_video_used"].Should().Be(0L);
+        // 视频次数 + computed used=total-remains（标准字段）
+        e["video_total_count"].Should().Be(3L);
+        e["video_used_count"].Should().Be(0L);
         e["weekly_video_used"].Should().Be(0L);
         // 总体
         e["total_days"].Should().Be(44L);

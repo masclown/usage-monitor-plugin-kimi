@@ -394,23 +394,20 @@ public class CardChartKindsContainsConverter : IValueConverter
 }
 
 /// <summary>
-/// 卡片图表槽位折叠可见性转换器：values[0]=卡片是否展开（IsDetailExpanded），values[1]=槽位是否位于折叠分界线之上（IsAboveDivider）。
-/// <para>展开态始终可见；折叠态仅分界线之上的槽位可见。用法（MultiBinding）：</para>
-/// <code>
-/// &lt;MultiBinding Converter="{StaticResource SlotCollapseVisibility}"&gt;
-///     &lt;Binding Path="Owner.IsDetailExpanded" /&gt;
-///     &lt;Binding Path="IsAboveDivider" /&gt;
-/// &lt;/MultiBinding&gt;
-/// </code>
+/// 卡片图表槽位折叠可见性转换器：values[0]=卡片是否展开（IsDetailExpanded），values[1]=槽位是否位于折叠分界线之上（IsAboveDivider），
+/// values[2]=槽位本身是否可见（IsSlotVisible，问题6：数据组全未勾选时为 false，可缺省=始终可见）。
+/// <para>展开态始终可见；折叠态仅分界线之上的槽位可见；IsSlotVisible=false 时无论展开与否都隐藏。</para>
 /// </summary>
 public class SlotCollapseVisibilityConverter : IMultiValueConverter
 {
-    /// <summary>展开或位于分界线之上时可见，否则折叠。</summary>
+    /// <summary>展开或位于分界线之上时可见，且槽位本身可见；否则折叠。</summary>
     public object Convert(object[] values, Type targetType, object parameter, CultureInfo culture)
     {
         bool isExpanded = values.Length > 0 && values[0] is bool e && e;
         bool isAboveDivider = values.Length > 1 && values[1] is bool a && a;
-        return (isExpanded || isAboveDivider) ? Visibility.Visible : Visibility.Collapsed;
+        // 问题6：槽位本身不可见（数据组全未勾选）时直接隐藏；缺省（未绑定）时视为可见。
+        bool isSlotVisible = values.Length <= 2 || values[2] is not bool sv || sv;
+        return ((isExpanded || isAboveDivider) && isSlotVisible) ? Visibility.Visible : Visibility.Collapsed;
     }
 
     /// <summary>不支持反向转换。</summary>

@@ -80,6 +80,27 @@ public class CardManageViewModel : INotifyPropertyChanged
         return node;
     }
 
+    /// <summary>问题11：持久化账号（卡片）顺序——按 AccountNodes 当前顺序提取去重 ProviderId 列表
+    /// 写入 <c>ProviderCardOrder</c> 并保存，触发 ConfigChanged → 主窗口按新顺序重建卡片。</summary>
+    internal void SaveAccountOrder()
+    {
+        try
+        {
+            var orderedProviders = AccountNodes
+                .Select(n => n.ProviderId)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+#pragma warning disable CS0618 // ProviderCardOrder 标记过时但仍是主窗口卡片排序的落点
+            _configService.Settings.ProviderCardOrder = orderedProviders;
+#pragma warning restore CS0618
+            _configService.Save();
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Error("CardManage", "保存账号（卡片）顺序失败", ex);
+        }
+    }
+
     /// <summary>
     /// 保存指定账号的图表配置到 ConfigService（统一走 SetCardChartConfiguration）。
     /// <para>遍历混合列表（图表实例 + 分界线）：勾选的图表实例按序写入 VisibleCharts（实例 ID），

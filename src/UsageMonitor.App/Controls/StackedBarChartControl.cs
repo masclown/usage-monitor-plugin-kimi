@@ -31,15 +31,15 @@ public class StackedBarChartControl : FrameworkElement, IHoverTooltipProvider
     private static readonly Typeface LabelTypeface = new(
         new FontFamily("Microsoft YaHei UI, Segoe UI"), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
 
-    /// <summary>默认色板（DeepSeek 风格橙/蓝渐变系列，无声明颜色时按索引分配）。</summary>
+    /// <summary>默认色板（问题7修复：统一蓝色渐变系列，保证同一卡片内多个堆叠柱状图颜色风格一致）。</summary>
     private static readonly Color[] DefaultPalette =
     {
-        Color.FromRgb(0xFF, 0x81, 0x0C), // 橙
-        Color.FromRgb(0xFF, 0xA1, 0x0A), // 橙黄
-        Color.FromRgb(0xFF, 0xC1, 0x04), // 黄
         Color.FromRgb(0x0C, 0x70, 0xF3), // 深蓝
         Color.FromRgb(0x60, 0xB3, 0xFE), // 中蓝
         Color.FromRgb(0xA0, 0xDC, 0xFD), // 浅蓝
+        Color.FromRgb(0x38, 0x8E, 0xF7), // 蓝
+        Color.FromRgb(0x82, 0xC4, 0xFA), // 淡蓝
+        Color.FromRgb(0xC0, 0xE8, 0xFE), // 极浅蓝
     };
 
     /// <summary>X 轴类别标签（如日期）。</summary>
@@ -264,9 +264,11 @@ public class StackedBarChartControl : FrameworkElement, IHoverTooltipProvider
                 var rect = new Rect(x0, y0, barW, segH);
                 // 最顶层段画圆角顶。
                 bool isTop = IsTopSegment(s, i, series, count);
-                if (isTop && segH > 3)
+                if (isTop && segH > 1)
                 {
-                    double r = Math.Min(barW / 2.0, 3.0);
+                    // 问题4：圆角半径自适应（取柱宽/段高/3px 三者最小），
+                    // 保证不同数值量级的图表（消费¥ vs Token）顶部圆角风格一致。
+                    double r = Math.Min(Math.Min(barW / 2.0, segH / 2.0), 3.0);
                     var geo = new RectangleGeometry(rect, r, r);
                     if (geo.CanFreeze) geo.Freeze();
                     dc.DrawGeometry(brush, null, geo);
@@ -286,15 +288,19 @@ public class StackedBarChartControl : FrameworkElement, IHoverTooltipProvider
             }
         }
 
-        // 类别标签（按可用宽度稀疏化，避免重叠）。
+        // 类别标签（按可用宽度稀疏化，避免重叠）。问题9：yyyy-MM-dd 缩短为 MM-dd 紧凑显示。
         int labelStep = Math.Max(1, (int)Math.Ceiling(count / Math.Max(1, plotW / 42)));
         for (int i = 0; i < count; i += labelStep)
         {
-            var label = MakeText(categories[i], textBrush, 9.5);
+            var label = MakeText(ShortenDateLabel(categories[i]), textBrush, 9.5);
             double lx = padLeft + slot * i + slot / 2.0 - label.Width / 2.0;
             dc.DrawText(label, new Point(Math.Max(0, lx), baseline + 4));
         }
     }
+
+    /// <summary>问题9：X 轴日期标签缩短——yyyy-MM-dd 取 MM-dd，其余原样返回（tooltip 仍用完整类别值）。</summary>
+    private static string ShortenDateLabel(string label)
+        => label.Length == 10 && label[4] == '-' && label[7] == '-' ? label.Substring(5) : label;
 
     /// <summary>判断某段是否为该柱的最顶层非零段（用于圆角顶绘制）。</summary>
     private static bool IsTopSegment(int seriesIdx, int catIdx, IReadOnlyList<ChartSeries> series, int count)
@@ -357,15 +363,17 @@ public class StackedBarChartControl : FrameworkElement, IHoverTooltipProvider
         int index = Math.Clamp((int)((position.X - _plotLeft) / (_plotW / categories.Count)), 0, categories.Count - 1);
         var unit = string.IsNullOrWhiteSpace(Unit) ? string.Empty : $" {Unit}";
 
-        // 构建各系列分项文本。
+        // 构建各系列分项文本。问题9/10：系列名（模型名）前缀是否显示由全局 tooltip 设置控制，
+        // 关闭后仅显示数值（避免模型名等英文标识占据 tooltip）。
         double total = 0;
         var parts = new List<string>();
+        var showName = UsageMonitor.App.Helpers.TooltipDisplaySettings.ShowFieldName;
         foreach (var s in series)
         {
             double v = s.Values != null && index < s.Values.Count ? Math.Max(0, s.Values[index]) : 0;
             total += v;
             if (v > 0)
-                parts.Add($"{s.Name} {FormatValue(v)}{unit}");
+                parts.Add(showName ? $"{s.Name} {FormatValue(v)}{unit}" : $"{FormatValue(v)}{unit}");
         }
 
         var title = categories[index];

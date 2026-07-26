@@ -148,6 +148,44 @@ public partial class MainViewModel : INotifyPropertyChanged
         }
     }
 
+    /// <summary>问题15：刷新间隔（分钟）——设置界面按分钟配置，内部仍以秒存储（1 分钟 = 60 秒）。</summary>
+    public int RefreshIntervalMinutes
+    {
+        get => Math.Max(1, _configService.Settings.RefreshIntervalSeconds / 60);
+        set
+        {
+            _configService.Settings.RefreshIntervalSeconds = Math.Clamp(value, 1, 60) * 60;
+            _configService.Save();
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(RefreshInterval)); // 状态栏秒数同步刷新
+        }
+    }
+    
+    /// <summary>问题10：图表 tooltip 数据前是否包含字段名称（设置界面开关，保存后即时同步到静态持有者）。</summary>
+    public bool TooltipShowFieldName
+    {
+        get => _configService.Settings.TooltipShowFieldName;
+        set
+        {
+            _configService.Settings.TooltipShowFieldName = value;
+            UsageMonitor.App.Helpers.TooltipDisplaySettings.ShowFieldName = value;
+            _configService.Save();
+            OnPropertyChanged();
+        }
+    }
+    
+    /// <summary>问题3：卡片图表槽位是否显示图表标题（设置界面开关，保存后重建图表槽位即时生效）。</summary>
+    public bool ShowChartTitle
+    {
+        get => _configService.Settings.ShowChartTitle;
+        set
+        {
+            _configService.Settings.ShowChartTitle = value;
+            _configService.Save();
+            OnPropertyChanged();
+        }
+    }
+
     /// <summary>
     /// req-072 U-18：上次刷新时间（HH:mm:ss 格式），用于底部状态栏显示。
     /// </summary>

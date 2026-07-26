@@ -78,6 +78,25 @@ public class MiniChartManageViewModel : INotifyPropertyChanged
         return node;
     }
 
+    /// <summary>问题13：持久化任务栏迷你图表顺序——按 AccountNodes 当前顺序提取去重 ProviderId 列表
+    /// 写入 <c>TaskbarMiniChartOrder</c> 并保存，触发 ConfigChanged → 任务栏按新顺序重建。</summary>
+    internal void SaveMiniAccountOrder()
+    {
+        try
+        {
+            var orderedProviders = AccountNodes
+                .Select(n => n.ProviderId)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            _configService.Settings.TaskbarMiniChartOrder = orderedProviders;
+            _configService.Save();
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Error("MiniChartManage", "保存任务栏迷你图表顺序失败", ex);
+        }
+    }
+
     /// <summary>保存指定账号的 mini 图表配置到 ConfigService（统一走 SetMiniChartConfiguration）。
     /// <para>仅持久化 Mini 专属字段：VisibleMiniCharts（启用列表，顺序即显示顺序）、
     /// VisibleMiniDataGroups、MiniDataGroupOrders、MiniTooltipFields（问题8）。</para>

@@ -364,6 +364,9 @@ public sealed class AreaChartAdapter : IUsageChart
             if (area.MaxValue.HasValue) Control.MaxValue = area.MaxValue.Value;
             Control.Unit = area.Unit;
             Control.SeriesName = area.SeriesName;
+            // 问题7：传递填充/平滑曲线开关。
+            Control.FillBelowLine = area.FillBelowLine;
+            Control.SmoothCurve = area.SmoothCurve;
         }
         if (theme != null)
         {

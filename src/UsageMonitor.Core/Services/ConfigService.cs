@@ -56,6 +56,12 @@ public class AppSettings
     /// <summary>托盘悬浮窗关闭延迟（毫秒）</summary>
     public int TrayTooltipHideDelayMs { get; set; } = 500;
 
+    /// <summary>问题10：图表 tooltip 的数据前是否包含字段名称（如“用量 197.42M” vs “197.42M”），默认开启。</summary>
+    public bool TooltipShowFieldName { get; set; } = true;
+    
+    /// <summary>问题3：卡片图表槽位是否显示图表标题（图表显示名），默认关闭（保持简洁外观）。</summary>
+    public bool ShowChartTitle { get; set; } = false;
+
     /// <summary>
     /// req-098：用户对每个 Provider 任务栏迷你图表的配置（key = ProviderId）。
     /// <para>
@@ -286,6 +292,12 @@ public class AppSettings
     /// </summary>
     [Obsolete("已由 AccountCustomizations 取代，仅保留读取兼容")]
     public List<string> ProviderCardOrder { get; set; } = new();
+
+    /// <summary>
+    /// 问题13：用户自定义的任务栏迷你图表显示顺序（ProviderId 列表）。
+    /// <para>空列表或缺失时回退到注册顺序；调整顺序后保存 → ConfigChanged → 任务栏按新顺序重建。</para>
+    /// </summary>
+    public List<string> TaskbarMiniChartOrder { get; set; } = new();
 
     // =====================================================================
     // REQ-104 多进度条与数字多排显示
@@ -729,6 +741,8 @@ public class ConfigService : IConfigService
             HistoryPointCount = _settings.HistoryPointCount,
             ShowTrayTooltip = _settings.ShowTrayTooltip,
             TrayTooltipHideDelayMs = _settings.TrayTooltipHideDelayMs,
+            TooltipShowFieldName = _settings.TooltipShowFieldName,
+            ShowChartTitle = _settings.ShowChartTitle,
             TrayTriggerWidth = _settings.TrayTriggerWidth,
             TrayTriggerHeight = _settings.TrayTriggerHeight,
             TrayTooltipWindowWidth = _settings.TrayTooltipWindowWidth,
@@ -759,6 +773,7 @@ public class ConfigService : IConfigService
             TrayTooltipTriggerRect = _settings.TrayTooltipTriggerRect,
             CookieRetentionDays = _settings.CookieRetentionDays,
             ProviderCardOrder = new List<string>(_settings.ProviderCardOrder),
+            TaskbarMiniChartOrder = new List<string>(_settings.TaskbarMiniChartOrder),
             SelectedProgressFields = new Dictionary<string, List<string>>(),
             SelectedMetricFields = new Dictionary<string, List<string>>(),
             ProviderChartOrder = new Dictionary<string, List<CardChartKind>>(),

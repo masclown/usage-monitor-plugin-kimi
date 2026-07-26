@@ -130,12 +130,16 @@ public sealed record StackedBarChartData(
 /// <param name="MaxValue">Y 轴上限（可空，缺省取序列最大值或 1）。</param>
 /// <param name="Unit">数值单位（供 tooltip 使用）。</param>
 /// <param name="SeriesName">系列名称（tooltip / 图例显示）。</param>
+/// <param name="FillBelowLine">问题7：是否填充曲线下方区域（默认 true）。</param>
+/// <param name="SmoothCurve">问题7：是否使用平滑曲线（默认 true）。</param>
 public sealed record AreaChartData(
     IReadOnlyList<double> Values,
     IReadOnlyList<string>? Categories = null,
     double? MaxValue = null,
     string? Unit = null,
-    string? SeriesName = null) : IChartData
+    string? SeriesName = null,
+    bool FillBelowLine = true,
+    bool SmoothCurve = true) : IChartData
 {
     /// <inheritdoc />
     public ChartKind Kind => ChartKind.Area;

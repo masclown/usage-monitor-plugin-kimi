@@ -87,8 +87,8 @@
                             </Border>
                             <Border VerticalAlignment="Center" Margin="6,0,0,0"
                                     Style="{StaticResource SubscriptionPillActiveStyle}"
-                                    Visibility="{Binding RenderKinds, Converter={StaticResource RenderKindToVisibility}, ConverterParameter=subscriptionTitle}">
-                                <!-- 问题17：订阅档位胶囊（如 TokenPlanMax-年度会员），与类型分开显示 -->
+                                    Visibility="{Binding ShowSubscriptionTier, Converter={StaticResource BoolToVisibility}}">
+                                <!-- 问题17：订阅档位胶囊（如 TokenPlanMax-年度会员），与类型分开显示；问题5：无真实档位时隐藏 -->
                                 <TextBlock Text="{Binding SubscriptionTier}"
                                            FontSize="11" FontWeight="SemiBold"
                                            Foreground="{DynamicResource AccentBrush}"
@@ -109,7 +109,7 @@
                         </Border>
                         <Border VerticalAlignment="Center" Margin="6,0,0,0"
                                 Style="{StaticResource SubscriptionPillActiveStyle}"
-                                Visibility="{Binding RenderKinds, Converter={StaticResource RenderKindToVisibility}, ConverterParameter=subscriptionTitle}">
+                                Visibility="{Binding ShowSubscriptionTier, Converter={StaticResource BoolToVisibility}}">
                             <TextBlock Text="{Binding SubscriptionTier}"
                                        FontSize="11" FontWeight="SemiBold"
                                        Foreground="{DynamicResource AccentBrush}"
@@ -580,6 +580,8 @@
                     Categories="{Binding AreaData.Categories}"
                     Unit="{Binding AreaData.Unit}"
                     SeriesName="{Binding AreaData.SeriesName}"
+                    FillBelowLine="{Binding AreaData.FillBelowLine}"
+                    SmoothCurve="{Binding AreaData.SmoothCurve}"
                     AreaBrush="{DynamicResource UsageLowBrush}"
                     StrokeBrush="{DynamicResource AccentBrush}"
                     TextBrush="{DynamicResource TextSecondaryBrush}" />
@@ -599,15 +601,21 @@
         </DataTemplate>
 
         <!-- 声明式图表槽位选择器模板：按 SlotKind 路由到具体图表子模板，
-             并按「卡片展开态 / 折叠分界线」决定槽位可见性。 -->
+             并按「卡片展开态 / 折叠分界线 / 槽位可见性」决定槽位可见性。问题3：顶部统一渲染图表标题头。 -->
         <DataTemplate x:Key="CardChartSlotTemplate">
-            <ContentControl Content="{Binding}">
-                <ContentControl.Visibility>
+            <StackPanel>
+                <StackPanel.Visibility>
                     <MultiBinding Converter="{StaticResource SlotCollapseVisibility}">
                         <Binding Path="Owner.IsDetailExpanded" />
                         <Binding Path="IsAboveDivider" />
+                        <Binding Path="IsSlotVisible" />
                     </MultiBinding>
-                </ContentControl.Visibility>
+                </StackPanel.Visibility>
+                <!-- 问题3：图表标题头（图表显示名），是否显示由窗口级 ShowChartTitle 设置控制；分界线槽位无显示名不占位 -->
+                <TextBlock Text="{Binding ChartDisplayName}" FontSize="12" FontWeight="SemiBold"
+                           Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,4"
+                           Visibility="{Binding DataContext.ShowChartTitle, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVisibility}}" />
+            <ContentControl Content="{Binding}">
                 <ContentControl.Style>
                     <Style TargetType="ContentControl">
                         <Style.Triggers>
@@ -640,6 +648,7 @@
                     </Style>
                 </ContentControl.Style>
             </ContentControl>
+            </StackPanel>
         </DataTemplate>
 
         <!-- 子模板 5：卡片图表区 -->
@@ -1013,7 +1022,7 @@
         </Grid>
 
         <!-- 底部状态栏 -->
-        <!-- req-072 U-18：底部状态栏扩充 - 增加上次刷新时间/刷新进度/错误计数胶囊 -->
+        <!-- req-072 U-18：底部状态栏（问题16修复：移除硬编码的“上次刷新”和“进度: 0%”，保留刷新间隔/插件数量/错误计数） -->
         <Border Grid.Row="2" Margin="0,14,0,0">
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                 <!-- 刷新间隔与插件数量 -->
@@ -1022,24 +1031,6 @@
                     <Run Text="{Binding RefreshInterval, Mode=OneWay, StringFormat={}{0}秒}" />
                     <Run Text="  |  插件数量: " />
                     <Run Text="{Binding EnabledUsages.Count, Mode=OneWay}" />
-                </TextBlock>
-
-                <!-- 分隔符 -->
-                <TextBlock Text="  |  " Foreground="{DynamicResource TextTertiaryBrush}" FontSize="12" VerticalAlignment="Center" />
-
-                <!-- 上次刷新时间 -->
-                <TextBlock Foreground="{DynamicResource TextTertiaryBrush}" FontSize="12" VerticalAlignment="Center">
-                    <Run Text="上次刷新: " />
-                    <Run Text="{Binding LastRefreshTime, Mode=OneWay}" />
-                </TextBlock>
-
-                <!-- 分隔符 -->
-                <TextBlock Text="  |  " Foreground="{DynamicResource TextTertiaryBrush}" FontSize="12" VerticalAlignment="Center" />
-
-                <!-- 刷新进度 -->
-                <TextBlock Foreground="{DynamicResource TextTertiaryBrush}" FontSize="12" VerticalAlignment="Center">
-                    <Run Text="进度: " />
-                    <Run Text="{Binding RefreshProgress, Mode=OneWay, StringFormat={}{0}%}" />
                 </TextBlock>
 
                 <!-- 错误计数胶囊（仅当有错误时显示） -->

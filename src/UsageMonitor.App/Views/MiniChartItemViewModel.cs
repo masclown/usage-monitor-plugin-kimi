@@ -76,6 +76,14 @@ public class MiniChartItemViewModel : INotifyPropertyChanged
         => VisibleDataGroupIds != null
            && VisibleDataGroupIds.Contains(MiniTooltipFieldCatalog.RefreshCountdownVirtual, StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>问题3：有效展示项总数 = 有效数据组数 + （勾选倒计时虚拟组时 +1）。
+    /// <para>倒计时作为与 5h/周用量百分比同层级的独立滚轮项参与循环切换。</para></summary>
+    public int EffectiveDisplayCount => EffectiveDataGroups.Count + (ShowCountdownInText ? 1 : 0);
+
+    /// <summary>问题3：当前滚轮位置是否停在倒计时虚拟项（索引 = 有效数据组数时为倒计时项）。</summary>
+    public bool IsCountdownSlot
+        => ShowCountdownInText && _currentDataGroupIndex == EffectiveDataGroups.Count;
+
     /// <summary>问馘11：宿主注入 VisibleDataGroupIds 后重新解析初始数据组索引（构造时尚未注入，需二次对齐）。</summary>
     public void ReinitializeDataGroupIndex() => _currentDataGroupIndex = ResolveInitialDataGroupIndex();
     
@@ -354,7 +362,12 @@ public class MiniChartItemViewModel : INotifyPropertyChanged
         {
             if (Descriptor.DataGroups is { Count: > 0 })
             {
-                var parts = new List<string>();
+                // 问题3：滚轮停在倒计时虚拟项时，仅展示倒计时（不再追加在当前组数值后方）
+                if (IsCountdownSlot)
+                {
+                    var cd = ResolveCountdownText();
+                    return string.IsNullOrWhiteSpace(cd) ? "倒计时 --" : cd!;
+                }
                 // 修复5：仅展示当前数据组（滚轮切换），与 mini 圆环图行为一致
                 var group = CurrentDataGroup;
                 if (group != null)
@@ -364,21 +377,26 @@ public class MiniChartItemViewModel : INotifyPropertyChanged
                     {
                         var v = ResolveMiniFieldValue(valueField);
                         var shortLabel = ResolveFieldShortLabel(valueField, group);
-                        parts.Add(v.HasValue ? $"{shortLabel} {v.Value:0}%" : $"{shortLabel} --");
+                        return v.HasValue ? $"{shortLabel} {v.Value:0}%" : $"{shortLabel} --";
                     }
                 }
-                // 问题12：倒计时段由虚拟数据组勾选控制
-                if (ShowCountdownInText)
-                {
-                    var countdown = UsageVm?.FiveHourCountdownText;
-                    if (!string.IsNullOrWhiteSpace(countdown) && countdown != "00:00:00") parts.Add(countdown!);
-                }
-                return string.Join(" ", parts);
+                // 无有效数据组（未勾选任何组）时不展示任何内容（与旧行为一致）
+                return string.Empty;
             }
             // 回退：无数据组声明时显示当前百分比（与旧模板 StringFormat 行为一致）
             var val = UsagePercent;
             return val.HasValue ? $"{val.Value:0}%" : "--";
         }
+    }
+
+    /// <summary>问题3：解析倒计时文本（优先当前数据组对应的 5h/周重置倒计时，回退刷新倒计时文案）。</summary>
+    private string? ResolveCountdownText()
+    {
+        if (UsageVm == null) return null;
+        var countdown = UsageVm.FiveHourCountdownText;
+        if (!string.IsNullOrWhiteSpace(countdown) && countdown != "00:00:00") return countdown;
+        if (!string.IsNullOrWhiteSpace(UsageVm.LastUpdateText)) return $"上次更新 {UsageVm.LastUpdateText}";
+        return null;
     }
 
     /// <summary>问题12：字段短标签（文本迷你图紧凑展示用，如 "5h" / "周"）；未知字段回退数据组显示名。</summary>
@@ -420,6 +438,8 @@ public class MiniChartItemViewModel : INotifyPropertyChanged
     {
         get
         {
+            // 问题3：滚轮停在倒计时虚拟项时不对应任何声明数据组
+            if (IsCountdownSlot) return null;
             var groups = EffectiveDataGroups;
             if (groups.Count == 0) return null;
             return groups[Math.Clamp(_currentDataGroupIndex, 0, groups.Count - 1)];
@@ -451,16 +471,18 @@ public class MiniChartItemViewModel : INotifyPropertyChanged
     public bool CycleDataGroup(int delta)
     {
         // 问题11：仅在用户勾选的有效数据组内循环，取消勾选的组不再参与滚轮切换。
-        var groups = EffectiveDataGroups;
-        if (groups.Count <= 1) return false;
+        // 问题3：循环范围 = 有效展示项总数（数据组 + 倒计时虚拟项），倒计时与 5h/周百分比同层级切换。
+        var total = EffectiveDisplayCount;
+        if (total <= 1) return false;
         // 循环索引（支持负数 delta；先钳位再循环，避免过滤后列表变短导致越界）
-        var current = Math.Clamp(_currentDataGroupIndex, 0, groups.Count - 1);
-        var newIndex = ((current + delta) % groups.Count + groups.Count) % groups.Count;
+        var current = Math.Clamp(_currentDataGroupIndex, 0, total - 1);
+        var newIndex = ((current + delta) % total + total) % total;
         if (newIndex == _currentDataGroupIndex) return false;
         _currentDataGroupIndex = newIndex;
         // 切组后全量通知：环 Percent、色阶画刷、tooltip 均随当前组重算
         OnPropertyChanged(nameof(CurrentDataGroupIndex));
         OnPropertyChanged(nameof(CurrentDataGroup));
+        OnPropertyChanged(nameof(IsCountdownSlot)); // 问题3：倒计时虚拟项切换通知
         OnPropertyChanged(nameof(CurrentDataGroupName));
         OnPropertyChanged(nameof(UsagePercent));
         OnPropertyChanged(nameof(TierBrush));

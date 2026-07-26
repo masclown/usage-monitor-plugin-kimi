@@ -9,13 +9,13 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
 
-    <!-- 项目版本号（0.37.0-beta）：MiniSeriesChartControl迷你序列图表控件(+473行) / ScreenColorPicker屏幕取色器(+196行) / MiniSeriesData数据模型(+89行) / StackedBarChartControl大幅增强(+289行) / AreaChartControl大幅增强(+223行) / ProviderUsageViewModel大幅增强(+205行) / DeclarativeCaptureExecutor增强(+144行) / DeepSeek纯声明式插件完整接入 / 大量测试新增(+590行)；用于程序集元数据 + 文件属性。 -->
+    <!-- 项目版本号（0.39.0-beta）：TooltipDisplaySettings新增(+13行) / AreaChartControl大幅增强(+88行) / MiniLineChartControl增强(+47行) / SettingsWindow.xaml.cs增强(+69行) / MiniChartItemViewModel增强(+48行) / MainViewModel增强(+38行) / ProviderUsageViewModel增强(+40行) / StackedBarChartControl增强(+28行) / 核心数据模型(CardDeclaration/ChartData/UsageFields)更新 / csproj图标资源分发策略调整；用于程序集元数据 + 文件属性。 -->
     <!-- 显式设置 5 个属性，避免被 SDK 衍生规则变动影响。 -->
-    <Version>0.37.0-beta</Version>
-    <AssemblyVersion>0.37.0.0</AssemblyVersion>
-    <FileVersion>0.37.0.0</FileVersion>
-    <InformationalVersion>0.37.0-beta</InformationalVersion>
-    <ProductVersion>0.37.0-beta</ProductVersion>
+    <Version>0.39.0-beta</Version>
+    <AssemblyVersion>0.39.0.0</AssemblyVersion>
+    <FileVersion>0.39.0.0</FileVersion>
+    <InformationalVersion>0.39.0-beta</InformationalVersion>
+    <ProductVersion>0.39.0-beta</ProductVersion>
     <AssemblyTitle>UsageMonitor</AssemblyTitle>
     <Product>UsageMonitor</Product>
     <Company>UsageMonitor</Company>
@@ -62,9 +62,9 @@
 
   <!--
     图标资源（分发准备）：
-    - 第三方服务商品牌 Logo 不再随包分发（规避商标再分发风险），改由 ProviderIconService
+    - 第三方服务商品牌 Logo 不随包分发（规避商标再分发风险），改由 ProviderIconService
       在首次运行时按服务商域名抓取 favicon，缓存到 %AppData%/UsageMonitor/icons。
-    - 仅保留本项目自有 Logo；用户如需离线自备第三方图标，可手动放入输出目录 Assets/Providers/{providerId}.png。
+    - 仅随包分发本项目自有 Logo（usage-monitor-logo.png / UsageMonitor-v3.ico）。
   -->
   <ItemGroup>
     <Content Include="Assets\Providers\usage-monitor-logo.png">

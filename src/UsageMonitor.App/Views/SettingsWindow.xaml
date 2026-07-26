@@ -72,7 +72,8 @@
             <TextBlock Text="{Binding GroupName}" Style="{StaticResource NavGroupHeaderStyle}" />
         </DataTemplate>
         <DataTemplate x:Key="NavItemTemplate">
-            <TextBlock Text="{Binding DisplayName}" FontSize="13" />
+            <TextBlock Text="{Binding DisplayName}" FontSize="13"
+                       Foreground="{DynamicResource TextPrimaryBrush}" />
         </DataTemplate>
         <helpers:SettingsNavigationTemplateSelector x:Key="NavTemplateSelector"
                                                      GroupHeaderTemplate="{StaticResource NavGroupHeaderTemplate}"
@@ -144,14 +145,14 @@
                                Foreground="{DynamicResource TextTertiaryBrush}" Margin="0,4,0,0" />
                 </StackPanel>
 
-                <!-- 刷新间隔。req-077 U-20：加单位后缀 + 范围提示 -->
+                <!-- 刷新间隔。问题15：改为按分钟配置（内部以秒存储） -->
                 <StackPanel Margin="0,0,0,16">
                     <TextBlock Text="{helpers:Loc settings.refresh.interval}" FontSize="13"
                                Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,4" />
                     <Grid HorizontalAlignment="Left" Width="180">
-                        <TextBox Text="{Binding RefreshInterval, UpdateSourceTrigger=PropertyChanged}"
+                        <TextBox Text="{Binding RefreshIntervalMinutes, UpdateSourceTrigger=PropertyChanged}"
                                  Margin="0,0,40,0" />
-                        <TextBlock Text="{helpers:Loc settings.refresh.unit.seconds}" HorizontalAlignment="Right" VerticalAlignment="Center"
+                        <TextBlock Text="{helpers:Loc settings.refresh.unit.minutes}" HorizontalAlignment="Right" VerticalAlignment="Center"
                                    Margin="0,0,12,0" FontSize="{DynamicResource FontSizeCaption}"
                                    Foreground="{DynamicResource TextTertiaryBrush}" IsHitTestVisible="False" />
                     </Grid>
@@ -161,6 +162,18 @@
                 </StackPanel>
 
                 <CheckBox Content="{helpers:Loc settings.autostart}" IsChecked="{Binding AutoStart}" Margin="0,0,0,12" />
+
+                <!-- 问题10：tooltip 数据前是否包含字段名称 -->
+                <CheckBox Content="{helpers:Loc settings.tooltip.showFieldName}" IsChecked="{Binding TooltipShowFieldName}" Margin="0,0,0,4" />
+                <TextBlock Text="{helpers:Loc settings.tooltip.showFieldName.hint}"
+                           FontSize="{DynamicResource FontSizeCaption}"
+                           Foreground="{DynamicResource TextTertiaryBrush}" Margin="22,0,0,12" />
+                
+                <!-- 问题3：卡片图表是否显示标题 -->
+                <CheckBox Content="{helpers:Loc settings.chart.showTitle}" IsChecked="{Binding ShowChartTitle}" Margin="0,0,0,4" />
+                <TextBlock Text="{helpers:Loc settings.chart.showTitle.hint}"
+                           FontSize="{DynamicResource FontSizeCaption}"
+                           Foreground="{DynamicResource TextTertiaryBrush}" Margin="22,0,0,12" />
 
                 <!-- req-fix-关闭最小化设置：关闭主窗口行为开关（勾选=最小化到托盘，取消=完全退出） -->
                 <CheckBox Content="关闭主窗口时最小化到托盘" IsChecked="{Binding MinimizeToTray}" Margin="0,0,0,4" />
@@ -475,7 +488,7 @@
                                                                     </Style>
                                                                 </Ellipse.Style>
                                                             </Ellipse>
-                                                            <TextBlock Text="Sub" FontSize="11" VerticalAlignment="Center" Margin="4,0,0,0"
+                                                            <TextBlock Text="登录态" FontSize="11" VerticalAlignment="Center" Margin="4,0,0,0"
                                                                        Foreground="{DynamicResource TextTertiaryBrush}" />
                                                         </StackPanel>
 
@@ -532,21 +545,31 @@
                             <Border Background="{DynamicResource SurfaceBrush}"
                                     CornerRadius="{DynamicResource RadiusCard}" Padding="14" Margin="0,0,0,10">
                                 <StackPanel>
-                                    <!-- 一级：账号行（logo + 账号名 + 展开箭头） -->
+                                    <!-- 一级：账号行（拖拽手柄 + logo + 账号名 + 展开箭头）。问题11：手柄拖拽调整主窗口卡片顺序 -->
                                     <Grid>
                                         <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
                                             <ColumnDefinition Width="Auto" />
                                             <ColumnDefinition Width="*" />
                                         </Grid.ColumnDefinitions>
 
+                                        <!-- 账号级拖拽手柄：拖动调整账号（卡片）顺序 -->
+                                        <TextBlock Grid.Column="0" Text="☰" FontSize="13" VerticalAlignment="Center"
+                                                   Foreground="{DynamicResource TextTertiaryBrush}" Margin="0,0,8,0"
+                                                   Cursor="SizeAll"
+                                                   Tag="{Binding}"
+                                                   PreviewMouseLeftButtonDown="OnAccountDragStart"
+                                                   PreviewMouseLeftButtonUp="OnAccountDragEnd"
+                                                   MouseMove="OnAccountDragMove" />
+
                                         <!-- Provider logo -->
-                                        <Image Grid.Column="0" Width="24" Height="24" Margin="0,0,10,0"
+                                        <Image Grid.Column="1" Width="24" Height="24" Margin="0,0,10,0"
                                                VerticalAlignment="Center"
                                                Source="{Binding IconPath}"
                                                Visibility="{Binding IconPath, Converter={StaticResource StringToVisibility}}" />
 
                                         <!-- 账号名 + 展开箭头 -->
-                                        <Button Grid.Column="1" HorizontalContentAlignment="Left"
+                                        <Button Grid.Column="2" HorizontalContentAlignment="Left"
                                                 Style="{StaticResource GhostButtonStyle}" Padding="4,6"
                                                 Click="OnAccountNodeToggleClick">
                                             <StackPanel Orientation="Horizontal">
@@ -1172,22 +1195,32 @@
                             <Border Background="{DynamicResource SurfaceBrush}"
                                     CornerRadius="{DynamicResource RadiusCard}" Padding="14" Margin="0,0,0,10">
                                 <StackPanel>
-                                    <!-- 一级：账号行（logo + 账号名 + 展开箭头 + 宽度覆盖） -->
+                                    <!-- 一级：账号行（拖拽手柄 + logo + 账号名 + 展开箭头 + 宽度覆盖）。问题13：手柄拖拽调整任务栏迷你图顺序 -->
                                     <Grid>
                                         <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
                                             <ColumnDefinition Width="Auto" />
                                             <ColumnDefinition Width="*" />
                                             <ColumnDefinition Width="Auto" />
                                         </Grid.ColumnDefinitions>
 
+                                        <!-- 账号级拖拽手柄：拖动调整任务栏迷你图顺序 -->
+                                        <TextBlock Grid.Column="0" Text="☰" FontSize="13" VerticalAlignment="Center"
+                                                   Foreground="{DynamicResource TextTertiaryBrush}" Margin="0,0,8,0"
+                                                   Cursor="SizeAll"
+                                                   Tag="{Binding}"
+                                                   PreviewMouseLeftButtonDown="OnMiniAccountDragStart"
+                                                   PreviewMouseLeftButtonUp="OnMiniAccountDragEnd"
+                                                   MouseMove="OnMiniAccountDragMove" />
+
                                         <!-- Provider logo -->
-                                        <Image Grid.Column="0" Width="24" Height="24" Margin="0,0,10,0"
+                                        <Image Grid.Column="1" Width="24" Height="24" Margin="0,0,10,0"
                                                VerticalAlignment="Center"
                                                Source="{Binding IconPath}"
                                                Visibility="{Binding IconPath, Converter={StaticResource StringToVisibility}}" />
 
                                         <!-- 账号名 + 展开箭头 -->
-                                        <Button Grid.Column="1" HorizontalContentAlignment="Left"
+                                        <Button Grid.Column="2" HorizontalContentAlignment="Left"
                                                 Style="{StaticResource GhostButtonStyle}" Padding="4,6"
                                                 Click="OnMiniAccountNodeToggleClick">
                                             <StackPanel Orientation="Horizontal">
@@ -1200,7 +1233,7 @@
                                         </Button>
 
                                         <!-- 宽度覆盖（留空 = 用插件声明/默认 120；40-400 有效） -->
-                                        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center">
                                             <TextBlock Text="宽度" FontSize="12" VerticalAlignment="Center"
                                                        Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,6,0" />
                                             <TextBox Text="{Binding Width, TargetNullValue='', UpdateSourceTrigger=PropertyChanged}"

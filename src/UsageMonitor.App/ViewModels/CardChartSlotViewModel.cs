@@ -149,6 +149,22 @@ public class CardChartSlotViewModel : INotifyPropertyChanged
         set { if (_emptyHint != value) { _emptyHint = value; OnPropertyChanged(); } }
     }
 
+    /// <summary>问题6：槽位本身是否可见——图表声明了数据组但全部未勾选时为 false（整个图表隐藏而非仅显示空提示）。</summary>
+    public bool IsSlotVisible
+    {
+        get => _isSlotVisible;
+        set { if (_isSlotVisible != value) { _isSlotVisible = value; OnPropertyChanged(); } }
+    }
+    private bool _isSlotVisible = true;
+
+    /// <summary>问题3：图表显示名（i18n 解析后，如“每日消费”），供槽位标题头展示；分界线槽位为空。</summary>
+    public string? ChartDisplayName
+    {
+        get => _chartDisplayName;
+        set { if (_chartDisplayName != value) { _chartDisplayName = value; OnPropertyChanged(); } }
+    }
+    private string? _chartDisplayName;
+
     public event PropertyChangedEventHandler? PropertyChanged;
 
     /// <summary>属性变更通知。</summary>

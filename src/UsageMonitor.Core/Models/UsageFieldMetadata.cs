@@ -202,6 +202,8 @@ public static class UsageFieldMetadataRegistry
             new(UsageFields.OutputToken, UsageFieldCategory.Detail, UsageFieldVisibility.Public, UsageFieldDataType.Token, "Field.OutputToken", "输出 Token"),
             new(UsageFields.CacheReadToken, UsageFieldCategory.Detail, UsageFieldVisibility.Public, UsageFieldDataType.Token, "Field.CacheReadToken", "缓存读取 Token"),
             new(UsageFields.CacheMissToken, UsageFieldCategory.Detail, UsageFieldVisibility.Public, UsageFieldDataType.Token, "Field.CacheMissToken", "缓存未命中 Token"),
+            new(UsageFields.CacheHitToken, UsageFieldCategory.Detail, UsageFieldVisibility.Public, UsageFieldDataType.Token, "Field.CacheHitToken", "缓存命中 Token"),
+            new(UsageFields.ResponseToken, UsageFieldCategory.Detail, UsageFieldVisibility.Public, UsageFieldDataType.Token, "Field.ResponseToken", "响应 Token"),
             new(UsageFields.RequestCount, UsageFieldCategory.Detail, UsageFieldVisibility.Public, UsageFieldDataType.Count, "Field.RequestCount", "请求次数"),
             new(UsageFields.RequestId, UsageFieldCategory.Detail, UsageFieldVisibility.Internal, UsageFieldDataType.Text, "Field.RequestId", "请求 ID（逐请求流水去重键）"),
             new(UsageFields.RequestClient, UsageFieldCategory.Detail, UsageFieldVisibility.Public, UsageFieldDataType.Text, "Field.RequestClient", "请求客户端（IDE/CLI 等）"),

@@ -67,7 +67,7 @@
             "nestedItems": "buckets",
             "target": "daily_cost",
             "itemFields": [
-              { "path": "$.cost", "target": "cost", "transform": "parseNumber", "elementType": "double" }
+              { "path": "$.cost", "target": "request_cost", "transform": "parseNumber", "elementType": "double" }
             ]
           }
         ]
@@ -103,10 +103,14 @@
           }
         ]
       }
+    ],
+    "computed": [
+      { "target": "subscription_type", "op": "constant", "value": "API" },
+      { "target": "subscription_active", "op": "constant", "value": true }
     ]
   },
   "card": {
-    "renderKinds": ["summary", "charts"],
+    "renderKinds": ["subscriptionTitle", "summary", "charts"],
     "primaryMetric": "balance_amount",
     "charts": [
       {
@@ -129,8 +133,10 @@
         "categoriesField": "daily_cost_categories",
         "seriesNamesField": "daily_cost_series_names",
         "valuesMatrixField": "daily_cost_matrix",
-        "colors": ["#FF810C", "#FFA10A", "#FFC104"],
-        "unit": "¥"
+        "unit": "¥",
+        "dataGroups": [
+          { "id": "ds.daily_cost.all", "display": "i18n:plugin.DeepSeek.group.dailyCostAll", "fields": [{ "fieldName": "request_cost", "role": "Value" }] }
+        ]
       },
       {
         "chartId": "ds.chart.daily_requests",
@@ -140,7 +146,10 @@
         "categoriesField": "daily_requests_categories",
         "seriesNamesField": "daily_requests_series_names",
         "valuesMatrixField": "daily_requests_matrix",
-        "unit": "次"
+        "unit": "次",
+        "dataGroups": [
+          { "id": "ds.daily_requests.all", "display": "i18n:plugin.DeepSeek.group.dailyRequestsAll", "fields": [{ "fieldName": "request_count", "role": "Value" }] }
+        ]
       },
       {
         "chartId": "ds.chart.daily_tokens",
@@ -150,8 +159,14 @@
         "categoriesField": "daily_tokens_categories",
         "seriesNamesField": "daily_tokens_series_names",
         "valuesMatrixField": "daily_tokens_matrix",
-        "colors": ["#0C70F3", "#60B3FE", "#A0DCFD"],
-        "unit": "tokens"
+        "unit": "tokens",
+        "dataGroups": [
+          { "id": "ds.daily_tokens.all", "display": "i18n:plugin.DeepSeek.group.dailyTokensAll", "fields": [
+            { "fieldName": "cache_miss_token", "role": "Value" },
+            { "fieldName": "cache_hit_token", "role": "Value" },
+            { "fieldName": "response_token", "role": "Value" }
+          ] }
+        ]
       }
     ]
   },

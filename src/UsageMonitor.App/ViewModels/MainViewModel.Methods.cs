@@ -156,6 +156,9 @@ public partial class MainViewModel : INotifyPropertyChanged
         // 与 App.xaml.cs 中 _configService.ConfigChanged 订阅互不冲突（多订阅者并行接收）。
         _configService.ConfigChanged += OnConfigChangedRefreshSettings;
 
+        // 问题10：启动时同步 tooltip 字段名称显示开关到静态持有者。
+        UsageMonitor.App.Helpers.TooltipDisplaySettings.ShowFieldName = _configService.Settings.TooltipShowFieldName;
+
         // req-028：启动全局每秒 DispatcherTimer，刷新托盘/悬浮窗/卡片的重置倒计时 + 到时自动刷新。
         // 必须在 Usages / EnabledUsages / PluginItems 都装配后启动；后续调用连动。
         StartResetCountdownTimer();
@@ -450,6 +453,8 @@ public partial class MainViewModel : INotifyPropertyChanged
     /// </summary>
     private void OnConfigChangedRefreshSettings(object? sender, EventArgs e)
     {
+        // 问题10：同步 tooltip 字段名称显示开关到静态持有者（供图表控件构建 tooltip 时读取）。
+        UsageMonitor.App.Helpers.TooltipDisplaySettings.ShowFieldName = _configService.Settings.TooltipShowFieldName;
         OnPropertyChanged(nameof(RefreshInterval));
         OnPropertyChanged(nameof(ShowInTaskbar));
         OnPropertyChanged(nameof(ShowTrayTooltip));

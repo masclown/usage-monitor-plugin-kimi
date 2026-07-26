@@ -170,7 +170,7 @@ public class DeclarativeCaptureExecutorTests
               {
                 "itemsPath": "$.model_remains", "matchField": "model_name", "matchValue": "video",
                 "fields": [
-                  { "path": "$.current_interval_total_count", "target": "five_hour_video_total", "transform": "parseNumber" },
+                  { "path": "$.current_interval_total_count", "target": "video_total_count", "transform": "parseNumber" },
                   { "path": "$.current_weekly_total_count", "target": "weekly_video_total", "transform": "parseNumber" }
                 ]
               }
@@ -215,7 +215,7 @@ public class DeclarativeCaptureExecutorTests
     {
         var r = RunFinds();
         r.Extras["five_hour_used_percent"].Should().Be(3L);
-        r.Extras["five_hour_video_total"].Should().Be(3L);
+        r.Extras["video_total_count"].Should().Be(3L);
         r.Extras["weekly_video_total"].Should().Be(21L);
     }
 
@@ -243,7 +243,7 @@ public class DeclarativeCaptureExecutorTests
         "endpoints": [
           { "urlMatch": "remains_percent", "finds": [
             { "itemsPath": "$.model_remains", "matchField": "model_name", "matchValue": "video", "fields": [
-              { "path": "$.current_interval_total_count", "target": "five_hour_video_total", "transform": "parseNumber" },
+              { "path": "$.current_interval_total_count", "target": "video_total_count", "transform": "parseNumber" },
               { "path": "$.current_interval_remains_count", "target": "five_hour_video_remaining", "transform": "parseNumber" }
             ]}
           ]}
@@ -252,7 +252,7 @@ public class DeclarativeCaptureExecutorTests
           { "urlMatch": "usage_summary", "itemsPath": "$.date_model_usage", "op": "weightedAvg", "valuePath": "$.cache_hit_percent", "valueTransform": "parsePercent", "weightPath": "$.total_token", "target": "cache_hit_percent_agg" }
         ],
         "computed": [
-          { "target": "five_hour_video_used", "op": "subtract", "operands": ["five_hour_video_total", "five_hour_video_remaining"] }
+          { "target": "video_used_count", "op": "subtract", "operands": ["video_total_count", "five_hour_video_remaining"] }
         ]
       }
     }
@@ -272,7 +272,7 @@ public class DeclarativeCaptureExecutorTests
         };
         var r = DeclarativeCaptureExecutor.Execute(manifest!.Fetch, captured);
         // 视频 used = total(3) - remains(2) = 1
-        r.Extras["five_hour_video_used"].Should().Be(1L);
+        r.Extras["video_used_count"].Should().Be(1L);
         // 加权平均 = (100*90 + 300*98)/400 = 96.0
         System.Convert.ToDouble(r.Extras["cache_hit_percent_agg"]).Should().BeApproximately(96.0, 0.001);
     }

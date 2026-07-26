@@ -118,6 +118,30 @@ public class AreaChartControl : FrameworkElement, IHoverTooltipProvider
         set => SetValue(StrokeBrushProperty, value);
     }
 
+    /// <summary>问题7：是否填充曲线下方区域（面积效果），默认 true；关闭后仅显示平滑曲线。</summary>
+    public static readonly DependencyProperty FillBelowLineProperty = DependencyProperty.Register(
+        nameof(FillBelowLine), typeof(bool), typeof(AreaChartControl),
+        new FrameworkPropertyMetadata(true, FrameworkPropertyMetadataOptions.AffectsRender));
+
+    /// <summary>问题7：是否填充曲线下方区域。</summary>
+    public bool FillBelowLine
+    {
+        get => (bool)GetValue(FillBelowLineProperty);
+        set => SetValue(FillBelowLineProperty, value);
+    }
+
+    /// <summary>问题7：是否使用平滑曲线（样条插值），默认 true（对齐 DeepSeek 用量页曲线风格）。</summary>
+    public static readonly DependencyProperty SmoothCurveProperty = DependencyProperty.Register(
+        nameof(SmoothCurve), typeof(bool), typeof(AreaChartControl),
+        new FrameworkPropertyMetadata(true, FrameworkPropertyMetadataOptions.AffectsRender));
+
+    /// <summary>问题7：是否使用平滑曲线。</summary>
+    public bool SmoothCurve
+    {
+        get => (bool)GetValue(SmoothCurveProperty);
+        set => SetValue(SmoothCurveProperty, value);
+    }
+
     /// <summary>文字画笔。</summary>
     public static readonly DependencyProperty TextBrushProperty = DependencyProperty.Register(
         nameof(TextBrush), typeof(Brush), typeof(AreaChartControl),
@@ -184,7 +208,8 @@ public class AreaChartControl : FrameworkElement, IHoverTooltipProvider
         // 无数据时显示空态提示。
         if (values == null || values.Count == 0)
         {
-            var empty = MakeText("暂无数据", textBrush, 13);
+            // 问题8：空态文案走 i18n。
+            var empty = MakeText(UsageMonitor.Core.Services.I18n.T("chart.empty"), textBrush, 13);
             dc.DrawText(empty, new Point((width - empty.Width) / 2, (height - empty.Height) / 2));
             _count = 0;
             return;
@@ -217,22 +242,23 @@ public class AreaChartControl : FrameworkElement, IHoverTooltipProvider
             points[i] = new Point(x, y);
         }
 
-        // 面积填充几何（数据折线 + 底边封闭）。
-        var areaGeo = new StreamGeometry();
-        using (var ctx = areaGeo.Open())
+        // 问题7：面积填充几何（平滑曲线/折线 + 底边封闭），仅在 FillBelowLine 开启时绘制。
+        if (FillBelowLine)
         {
-            ctx.BeginFigure(new Point(points[0].X, baseline), true, true);
-            foreach (var p in points)
-                ctx.LineTo(p, true, true);
-            ctx.LineTo(new Point(points[count - 1].X, baseline), true, true);
+            var areaGeo = new StreamGeometry();
+            using (var ctx = areaGeo.Open())
+            {
+                ctx.BeginFigure(new Point(points[0].X, baseline), true, true);
+                BuildCurveSegments(ctx, points, SmoothCurve);
+                ctx.LineTo(new Point(points[count - 1].X, baseline), true, true);
+            }
+            areaGeo.Freeze();
+            // 渐变填充画笔（AreaBrush 优先；缺省用主题色渐变）。
+            Brush fill = AreaBrush ?? BuildDefaultGradient();
+            dc.DrawGeometry(fill, null, areaGeo);
         }
-        areaGeo.Freeze();
 
-        // 渐变填充画笔（AreaBrush 优先；缺省用主题色渐变）。
-        Brush fill = AreaBrush ?? BuildDefaultGradient();
-        dc.DrawGeometry(fill, null, areaGeo);
-
-        // 顶边线。
+        // 顶边线（问题7：平滑曲线/折线可配）。
         var strokeColor = (StrokeBrush as SolidColorBrush)?.Color ?? DefaultAreaColor;
         var strokePen = new Pen(StrokeBrush ?? new SolidColorBrush(DefaultAreaColor), 1.8);
         if (strokePen.CanFreeze) strokePen.Freeze();
@@ -240,8 +266,7 @@ public class AreaChartControl : FrameworkElement, IHoverTooltipProvider
         using (var ctx = lineGeo.Open())
         {
             ctx.BeginFigure(points[0], false, false);
-            for (int i = 1; i < count; i++)
-                ctx.LineTo(points[i], true, true);
+            BuildCurveSegments(ctx, points, SmoothCurve);
         }
         lineGeo.Freeze();
         dc.DrawGeometry(null, strokePen, lineGeo);
@@ -267,7 +292,7 @@ public class AreaChartControl : FrameworkElement, IHoverTooltipProvider
             int labelStep = Math.Max(1, (int)Math.Ceiling(labelCount / Math.Max(1, plotW / 42)));
             for (int i = 0; i < labelCount; i += labelStep)
             {
-                var label = MakeText(categories[i], textBrush, 9.5);
+                var label = MakeText(ShortenDateLabel(categories[i]), textBrush, 9.5);
                 double lx = (count > 1 ? padLeft + plotW * i / (count - 1) : padLeft + plotW / 2) - label.Width / 2;
                 dc.DrawText(label, new Point(Math.Max(0, lx), baseline + 3));
             }
@@ -318,4 +343,33 @@ public class AreaChartControl : FrameworkElement, IHoverTooltipProvider
     private static FormattedText MakeText(string text, Brush brush, double size) => new(
         text, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, LabelTypeface,
         size, brush, VisualTreeHelper.GetDpi(new DrawingVisual()).PixelsPerDip);
+
+    /// <summary>问题9：X 轴日期标签缩短——yyyy-MM-dd 取 MM-dd，其余原样返回（tooltip 仍用完整类别值）。</summary>
+    private static string ShortenDateLabel(string label)
+        => label.Length == 10 && label[4] == '-' && label[7] == '-' ? label.Substring(5) : label;
+
+    /// <summary>问题7：向 StreamGeometryContext 追加数据点间的线段——
+    /// smooth=true 时用 Catmull-Rom 样条转 Bezier 生成平滑曲线（对齐 DeepSeek 用量页），否则直线连接。</summary>
+    private static void BuildCurveSegments(StreamGeometryContext ctx, Point[] points, bool smooth)
+    {
+        int count = points.Length;
+        if (count < 2) return;
+        if (!smooth)
+        {
+            for (int i = 1; i < count; i++)
+                ctx.LineTo(points[i], true, true);
+            return;
+        }
+        // Catmull-Rom 转三次 Bezier：张力 1/6，端点重复取首/末点。
+        for (int i = 0; i < count - 1; i++)
+        {
+            var p0 = points[Math.Max(0, i - 1)];
+            var p1 = points[i];
+            var p2 = points[i + 1];
+            var p3 = points[Math.Min(count - 1, i + 2)];
+            var c1 = new Point(p1.X + (p2.X - p0.X) / 6.0, p1.Y + (p2.Y - p0.Y) / 6.0);
+            var c2 = new Point(p2.X - (p3.X - p1.X) / 6.0, p2.Y - (p3.Y - p1.Y) / 6.0);
+            ctx.BezierTo(c1, c2, p2, true, true);
+        }
+    }
 }

@@ -64,7 +64,7 @@
           {
             "itemsPath": "$.model_remains", "matchField": "model_name", "matchValue": "video",
             "fields": [
-              { "path": "$.current_interval_total_count", "target": "five_hour_video_total", "transform": "parseNumber" },
+              { "path": "$.current_interval_total_count", "target": "video_total_count", "transform": "parseNumber" },
               { "path": "$.current_interval_remains_count", "target": "five_hour_video_remaining", "transform": "parseNumber" },
               { "path": "$.current_weekly_total_count", "target": "weekly_video_total", "transform": "parseNumber" },
               { "path": "$.current_weekly_remains_count", "target": "weekly_video_remaining", "transform": "parseNumber" }
@@ -145,7 +145,7 @@
       { "urlMatch": "usage_summary", "itemsPath": "$.date_model_usage", "op": "weightedAvg", "valuePath": "$.cache_hit_percent", "valueTransform": "parsePercent", "weightPath": "$.total_token", "target": "cache_hit_percent" }
     ],
     "computed": [
-      { "target": "five_hour_video_used", "op": "subtract", "operands": ["five_hour_video_total", "five_hour_video_remaining"] },
+      { "target": "video_used_count", "op": "subtract", "operands": ["video_total_count", "five_hour_video_remaining"] },
       { "target": "weekly_video_used", "op": "subtract", "operands": ["weekly_video_total", "weekly_video_remaining"] },
       { "target": "subscription_type", "op": "splitBefore", "operands": ["subscription_raw"], "separators": "·・•", "whenPresent": "subscription_raw" },
       { "target": "subscription_tier", "op": "splitAfter", "operands": ["subscription_raw"], "separators": "·・•", "whenPresent": "subscription_raw" },

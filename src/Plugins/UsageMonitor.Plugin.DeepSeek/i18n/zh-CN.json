@@ -15,5 +15,8 @@
   "plugin.DeepSeek.group.numberMonthlyTokens": "本月 Token",
   "plugin.DeepSeek.group.taskbarBalance": "余额",
   "plugin.DeepSeek.group.taskbarMonthly": "月消费",
+  "plugin.DeepSeek.group.dailyCostAll": "每日消费（按模型）",
+  "plugin.DeepSeek.group.dailyRequestsAll": "API 请求（按模型）",
+  "plugin.DeepSeek.group.dailyTokensAll": "Token 用量（按模型）",
   "plugin.DeepSeek.mini.text": "余额文本"
 }

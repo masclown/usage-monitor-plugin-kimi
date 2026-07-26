@@ -136,6 +136,12 @@ public sealed class ChartDeclaration
 
     /// <summary>数值单位提示（"¥"/"tokens"/"次"），供 tooltip / 轴标签使用。</summary>
     public string? Unit { get; init; }
+
+    /// <summary>问题7：面积图是否填充曲线下方区域（可空；缺省 true）。仅 Area 图表生效。</summary>
+    public bool? FillBelowLine { get; init; }
+
+    /// <summary>问题7：面积图是否使用平滑曲线（可空；缺省 true）。仅 Area 图表生效。</summary>
+    public bool? SmoothCurve { get; init; }
 }
 
 /// <summary>

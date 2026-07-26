@@ -50,6 +50,7 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
     private string _subscriptionType = "Token Plan";
     private string _subscriptionTier = "订阅";
     private bool _isSubscriptionActive;
+    private bool _showSubscriptionTier;
     private double _primaryBarPercent;
     private double _weeklyBarPercent;
     private string _primaryResetText = "--";
@@ -366,6 +367,10 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
 
     /// <summary>是否已订阅（按后端 combo_id 是否存在判断）</summary>
     public bool IsSubscriptionActive { get => _isSubscriptionActive; set { _isSubscriptionActive = value; OnPropertyChanged(); } }
+
+    /// <summary>问题5：是否展示订阅档位胶囊（仅当插件声明/拓取出真实档位数据时为 true；
+    /// DeepSeek 等仅有订阅类型（API）而无具体档位的插件不显示第二个“订阅”占位胶囊）。</summary>
+    public bool ShowSubscriptionTier { get => _showSubscriptionTier; set { _showSubscriptionTier = value; OnPropertyChanged(); } }
 
     /// <summary>5h 限额进度条已使用百分比（0-100）</summary>
     public double PrimaryBarPercent { get => _primaryBarPercent; set { _primaryBarPercent = value; OnPropertyChanged(); } }
@@ -1109,6 +1114,8 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
             var baseId = StripInstanceSuffix(instanceId);
             if (!declaredById.TryGetValue(baseId, out var decl)) continue;
             var slot = new CardChartSlotViewModel(this, instanceId, baseId, decl.Kind, i, i < dividerIndex);
+            // 问题3：图表显示名（i18n 解析后）供槽位标题头展示。
+            slot.ChartDisplayName = decl.Display;
             RefreshSlotData(slot, card, eff);
             CardChartSlots.Add(slot);
         }
@@ -1152,6 +1159,8 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
     /// <para>问题8：空态提示区分两种原因——数据组全部未勾选 vs 数据尚未到达（刷新后自动恢复）。</para></summary>
     private void RefreshSlotData(CardChartSlotViewModel slot, CardDeclaration card, AccountCustomization eff)
     {
+        // 问题6：图表声明了数据组但全部未勾选时隐藏整个槽位（而非仅显示空提示）。
+        slot.IsSlotVisible = ResolveSlotVisible(slot.ChartId, slot.InstanceId, card, eff);
         if (slot.Kind == DeclarativeChartKind.Bar)
         {
             slot.BarData = BuildInstanceBars(slot.ChartId, slot.InstanceId, card, eff);
@@ -1201,7 +1210,8 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
             var color = i < decl.Colors.Count ? decl.Colors[i] : null;
             seriesList.Add(new UsageMonitor.Core.Models.ChartSeries(name, matrix[i], color));
         }
-        return new UsageMonitor.Core.Models.StackedBarChartData(categories, seriesList, decl.Unit, decl.Display);
+        // 问题6修复：不在图表内部渲染标题（图表名称已由卡片槽位头部展示，其他图表类型均不绘制内嵌标题，保持一致）
+        return new UsageMonitor.Core.Models.StackedBarChartData(categories, seriesList, decl.Unit, Title: null);
     }
 
     /// <summary>从声明的 pivot 字段构建面积图数据（取矩阵首行，或单系列 parallel 数据）。</summary>
@@ -1221,7 +1231,9 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         var namesKey2 = decl.SeriesNamesField;
         var names = !string.IsNullOrEmpty(namesKey2) ? ReadStringList(_latestExtras, namesKey2!) : new List<string>();
         var seriesName = names.Count > 0 ? names[0] : decl.Display;
-        return new UsageMonitor.Core.Models.AreaChartData(values, categories, Unit: decl.Unit, SeriesName: seriesName);
+        // 问题7：传递声明的填充/平滑曲线开关（缺省 true）。
+        return new UsageMonitor.Core.Models.AreaChartData(values, categories, Unit: decl.Unit, SeriesName: seriesName,
+            FillBelowLine: decl.FillBelowLine ?? true, SmoothCurve: decl.SmoothCurve ?? true);
     }
 
     /// <summary>从 extras 读取值矩阵（List&lt;List&lt;double&gt;&gt;，兼容可枚举形态）。</summary>
@@ -1427,6 +1439,17 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
     {
         var decl = card.Charts.FirstOrDefault(c => c.ChartId == chartId);
         if (decl == null || decl.DataGroups.Count == 0) return false;
+        var groups = ResolveInstanceDataGroups(chartId, instanceId, eff);
+        if (groups == null) return true; // 未配置 = 全部可见
+        return decl.DataGroups.Any(g => groups.Contains(g.Id));
+    }
+
+    /// <summary>问题6：判断槽位本身是否应该可见——未声明数据组的图表（pivot 类）始终可见；
+    /// 声明了数据组时，未配置（全部可见）或至少勾选一个 → 可见；全部未勾选 → 隐藏。</summary>
+    private static bool ResolveSlotVisible(string chartId, string instanceId, CardDeclaration card, AccountCustomization eff)
+    {
+        var decl = card.Charts.FirstOrDefault(c => c.ChartId == chartId);
+        if (decl == null || decl.DataGroups.Count == 0) return true; // 未声明数据组 → 始终可见
         var groups = ResolveInstanceDataGroups(chartId, instanceId, eff);
         if (groups == null) return true; // 未配置 = 全部可见
         return decl.DataGroups.Any(g => groups.Contains(g.Id));
@@ -2043,6 +2066,8 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
         var subTier = S("subscription_tier");
         if (string.IsNullOrWhiteSpace(subTier)) subTier = S("subscription_title"); // 兼容旧数据（仅档位）
         SubscriptionType = !string.IsNullOrWhiteSpace(subType) ? subType : "Token Plan";
+        // 问题5：仅在存在真实档位数据时展示档位胶囊（避免 DeepSeek 等显示“订阅”占位）
+        ShowSubscriptionTier = !string.IsNullOrWhiteSpace(subTier);
         SubscriptionTier = !string.IsNullOrWhiteSpace(subTier) ? subTier : "订阅";
         SubscriptionTitle = $"{SubscriptionType} · {SubscriptionTier}";
 
@@ -2067,8 +2092,8 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
             : "已登录";
 
         // 6. 视频赠送 5h + 周。
-        var v5Used = L("five_hour_video_used");
-        var v5Total = L("five_hour_video_total");
+        var v5Used = L(UsageMonitor.Core.Models.UsageFields.VideoUsedCount);
+        var v5Total = L(UsageMonitor.Core.Models.UsageFields.VideoTotalCount);
         VideoQuotaText = v5Total > 0 ? $"{v5Used}/{v5Total}" : "--";
         VideoIntervalPercent = v5Total > 0 ? Math.Min(100, 100.0 * v5Used / v5Total) : 0;
         var vwUsed = L("weekly_video_used");
@@ -2295,7 +2320,12 @@ public class ProviderUsageViewModel : INotifyPropertyChanged
                 // 仅在对应字段被勾选时展示（YearHeatMapControl.TooltipComparisonField 控制）。
                 ValueText = dayCacheHit >= 0 ? $"{dayCacheHit:0.00}%" : "--",
                 Unit = "",
-                ComparisonText = token > 0 ? $"用量 {FormatTokens(token)}" : string.Empty
+                // 问题2/10：对比行（每日 Token 用量）是否带“用量”字段名前缀由全局 tooltip 设置控制，与折线图主值逻辑对齐。问题8：前缀走 i18n。
+                ComparisonText = token > 0
+                    ? (UsageMonitor.App.Helpers.TooltipDisplaySettings.ShowFieldName
+                        ? $"{UsageMonitor.Core.Services.I18n.T("chart.tooltip.usage")} {FormatTokens(token)}"
+                        : FormatTokens(token))
+                    : string.Empty
             });
         }
         OnPropertyChanged(nameof(EffectiveHeatMapCells));

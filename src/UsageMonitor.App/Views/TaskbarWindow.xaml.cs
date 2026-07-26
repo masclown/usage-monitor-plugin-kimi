@@ -212,6 +212,18 @@ public partial class TaskbarWindow : Window
         // 问题11：注入可见数据组后重新对齐初始数据组索引（构造时尚未注入）。
         foreach (var item in result)
             item.ReinitializeDataGroupIndex();
+        // 问题13：按用户配置的任务栏迷你图表顺序排序（未配置的追加到末尾，保持注册顺序）。
+        var order = _configService.Settings.TaskbarMiniChartOrder;
+        if (order is { Count: > 0 })
+        {
+            result = result
+                .OrderBy(item =>
+                {
+                    var idx = order.FindIndex(p => string.Equals(p, item.ProviderId, StringComparison.OrdinalIgnoreCase));
+                    return idx < 0 ? int.MaxValue : idx;
+                })
+                .ToList();
+        }
         return result;
     }
 

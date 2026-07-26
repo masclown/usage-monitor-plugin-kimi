@@ -49,6 +49,11 @@ public class MiniLineChartControl : FrameworkElement, IHoverTooltipProvider
         nameof(StrokeThickness), typeof(double), typeof(MiniLineChartControl),
         new FrameworkPropertyMetadata(1.8, FrameworkPropertyMetadataOptions.AffectsRender));
 
+    /// <summary>问题7：是否填充折线下方区域（渐变面积效果），默认 true。</summary>
+    public static readonly DependencyProperty FillBelowLineProperty = DependencyProperty.Register(
+        nameof(FillBelowLine), typeof(bool), typeof(MiniLineChartControl),
+        new FrameworkPropertyMetadata(true, FrameworkPropertyMetadataOptions.AffectsRender));
+
     /// <summary>Provider 短名称，用于 tooltip 标题</summary>
     public static readonly DependencyProperty ProviderNameProperty = DependencyProperty.Register(
         nameof(ProviderName), typeof(string), typeof(MiniLineChartControl),
@@ -253,6 +258,13 @@ public class MiniLineChartControl : FrameworkElement, IHoverTooltipProvider
         set => SetValue(StrokeThicknessProperty, value);
     }
 
+    /// <summary>问题7：是否填充折线下方区域（渐变面积效果）。</summary>
+    public bool FillBelowLine
+    {
+        get => (bool)GetValue(FillBelowLineProperty);
+        set => SetValue(FillBelowLineProperty, value);
+    }
+
     /// <summary>低用量颜色</summary>
     public Brush LowBrush
     {
@@ -452,19 +464,22 @@ public class MiniLineChartControl : FrameworkElement, IHoverTooltipProvider
         var brush = SelectBrush(values[values.Count - 1]);
         var baseline = plotTop + plotHeight;
 
-        // 1) 面积填充（折线 → 右下 → 左下 闭合），同色低透明
-        var areaFill = MakeTranslucent(brush, 0x33);
-        var area = new StreamGeometry { FillRule = FillRule.EvenOdd };
-        using (var ctx = area.Open())
+        // 1) 面积填充（折线 → 右下 → 左下 闭合），同色低透明。问题7：由 FillBelowLine 控制是否填充。
+        if (FillBelowLine)
         {
-            ctx.BeginFigure(new Point(points[0].X, baseline), true, true);
-            ctx.LineTo(points[0], true, false);
-            for (int i = 1; i < points.Length; i++)
-                ctx.LineTo(points[i], true, false);
-            ctx.LineTo(new Point(points[^1].X, baseline), true, false);
+            var areaFill = MakeTranslucent(brush, 0x33);
+            var area = new StreamGeometry { FillRule = FillRule.EvenOdd };
+            using (var ctx = area.Open())
+            {
+                ctx.BeginFigure(new Point(points[0].X, baseline), true, true);
+                ctx.LineTo(points[0], true, false);
+                for (int i = 1; i < points.Length; i++)
+                    ctx.LineTo(points[i], true, false);
+                ctx.LineTo(new Point(points[^1].X, baseline), true, false);
+            }
+            area.Freeze();
+            dc.DrawGeometry(areaFill, null, area);
         }
-        area.Freeze();
-        dc.DrawGeometry(areaFill, null, area);
 
         // 2) 折线
         var line = new StreamGeometry();
@@ -986,8 +1001,10 @@ public class MiniLineChartControl : FrameworkElement, IHoverTooltipProvider
                 title = $"{provider} · 第 {index + 1} 点";
         }
         
-        // req-034 修复：格式化数值（如 250.71M），不拼接单位
-        var valueText = FormatTokenValue(value);
+        // req-034 修复：格式化数值（如 250.71M）。问题2/10：是否带“用量”字段名前缀由全局 tooltip 设置控制（与热力图对比行逻辑一致）。问题8：前缀走 i18n。
+        var valueText = UsageMonitor.App.Helpers.TooltipDisplaySettings.ShowFieldName
+            ? $"{UsageMonitor.Core.Services.I18n.T("chart.tooltip.usage")} {FormatTokenValue(value)}"
+            : FormatTokenValue(value);
     
         // 当日独立的缓存命中率（负值 = 无数据）
         double dayCacheHit = -1;
@@ -1003,7 +1020,7 @@ public class MiniLineChartControl : FrameworkElement, IHoverTooltipProvider
             if (dayCacheHit >= 0)
             {
                 if (detail != null) detail += "\n";
-                detail += $"缓存命中 {dayCacheHit:0.00}%";
+                detail += $"{UsageMonitor.Core.Services.I18n.T("chart.tooltip.cacheHit")} {dayCacheHit:0.00}%";
             }
         }
         else
@@ -1019,7 +1036,7 @@ public class MiniLineChartControl : FrameworkElement, IHoverTooltipProvider
                     continue; // 主值占用 Value 槽位
                 if (string.Equals(f, UsageMonitor.Core.Models.UsageFields.DailyCacheHitValue, StringComparison.OrdinalIgnoreCase))
                 {
-                    if (dayCacheHit >= 0) lines.Add($"缓存命中 {dayCacheHit:0.00}%");
+                    if (dayCacheHit >= 0) lines.Add($"{UsageMonitor.Core.Services.I18n.T("chart.tooltip.cacheHit")} {dayCacheHit:0.00}%");
                     continue;
                 }
                 // 其余非原生字段（含「字段名称」虚拟字段）：按同序消费 VM 生成的扩展行

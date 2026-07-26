@@ -435,6 +435,16 @@ public static class DeclarativeCaptureExecutor
         extras[$"{arr.Target}_categories"] = categories;
         extras[$"{arr.Target}_series_names"] = seriesNames;
         extras[$"{arr.Target}_matrix"] = matrix;
+
+        // 列和（每日跨系列合计）写入标准字段数组，供历史存储 / tooltip 消费。
+        if (valueField != null && !string.IsNullOrEmpty(valueField.Target))
+        {
+            var colSums = new List<double>(new double[categories.Count]);
+            foreach (var row in matrix)
+                for (int c = 0; c < row.Count && c < colSums.Count; c++)
+                    colSums[c] += row[c];
+            extras[valueField.Target] = colSums;
+        }
     }
 
     /// <summary>字段枢轴：每个 ItemField 成为一个系列，值跨所有系列对象求和（如 token 类型分层聚合全模型）。</summary>
@@ -459,9 +469,10 @@ public static class DeclarativeCaptureExecutor
             foreach (var bucket in buckets.EnumerateArray())
             {
                 cats.Add(ExtractBucketCategory(bucket, idx));
-                // 确保矩阵列数与桶数对齐。
-                while (matrix[0].Count <= idx)
-                    for (int f = 0; f < fieldCount; f++) matrix[f].Add(0);
+                // 确保矩阵列数与桶数对齐：逐行防御性扩展，
+                // 避免依赖"所有行始终等长"的隐式约定（任何一行长度不足都会导致下方 matrix[f][idx] 越界）。
+                for (int f = 0; f < fieldCount; f++)
+                    while (matrix[f].Count <= idx) matrix[f].Add(0);
 
                 for (int f = 0; f < fieldCount; f++)
                     matrix[f][idx] += ExtractBucketValue(bucket, arr.ItemFields[f]);
@@ -475,6 +486,17 @@ public static class DeclarativeCaptureExecutor
         extras[$"{arr.Target}_categories"] = categories;
         extras[$"{arr.Target}_series_names"] = seriesNames;
         extras[$"{arr.Target}_matrix"] = matrix;
+
+        // 列和（每日跨模型合计）写入标准字段数组，供历史存储 / tooltip 消费。
+        for (int f = 0; f < fieldCount; f++)
+        {
+            var target = arr.ItemFields[f].Target;
+            if (string.IsNullOrEmpty(target)) continue;
+            var colSums = new List<double>(new double[catCount]);
+            for (int c = 0; c < matrix[f].Count && c < colSums.Count; c++)
+                colSums[c] = matrix[f][c]; // 字段枢轴每行已是跨模型求和，直接取行值
+            extras[target] = colSums;
+        }
     }
 
     /// <summary>从桶对象按声明的值字段提取数值（导航 + 转换器）。</summary>
@@ -490,7 +512,9 @@ public static class DeclarativeCaptureExecutor
         catch { return 0; }
     }
 
-    /// <summary>从桶对象提取类别标签：优先 time/timestamp/date 字段（Unix 秒/毫秒 → MM-dd），否则用序号。</summary>
+    /// <summary>从桶对象提取类别标签：优先 time/timestamp/date 字段（Unix 秒/毫秒 → yyyy-MM-dd），否则用序号。
+    /// <para>问题9：统一产出完整日期 yyyy-MM-dd（与热力图 tooltip 一致），
+    /// X 轴标签由宿主控件绘制时自行缩短为 MM-dd，tooltip 保留完整日期。</para></summary>
     private static string ExtractBucketCategory(JsonElement bucket, int index)
     {
         foreach (var key in new[] { "time", "timestamp", "date" })
@@ -498,15 +522,15 @@ public static class DeclarativeCaptureExecutor
             if (!bucket.TryGetProperty(key, out var el)) continue;
             var raw = ToRaw(el);
             if (raw == null) continue;
-            // 日期字符串（yyyy-MM-dd 等）直接截取 MM-dd。
+            // 日期字符串（yyyy-MM-dd 等）保留完整日期（截取前 10 位）。
             if (el.ValueKind == JsonValueKind.String)
-                return raw.Length >= 10 ? raw.Substring(5, 5) : raw;
-            // Unix 时间戳（秒或毫秒）转 MM-dd。
+                return raw.Length >= 10 ? raw.Substring(0, 10) : raw;
+            // Unix 时间戳（秒或毫秒）转完整日期 yyyy-MM-dd。
             if (long.TryParse(raw, NumberStyles.Any, CultureInfo.InvariantCulture, out var ts))
             {
                 if (ts > 1_000_000_000_000) ts /= 1000; // 毫秒 → 秒
                 var dt = DateTimeOffset.FromUnixTimeSeconds(ts).LocalDateTime;
-                return dt.ToString("MM-dd");
+                return dt.ToString("yyyy-MM-dd");
             }
         }
         return (index + 1).ToString();

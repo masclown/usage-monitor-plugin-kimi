@@ -15,5 +15,8 @@
   "plugin.DeepSeek.group.numberMonthlyTokens": "Monthly Tokens",
   "plugin.DeepSeek.group.taskbarBalance": "Balance",
   "plugin.DeepSeek.group.taskbarMonthly": "Monthly",
+  "plugin.DeepSeek.group.dailyCostAll": "Daily Cost (by model)",
+  "plugin.DeepSeek.group.dailyRequestsAll": "API Requests (by model)",
+  "plugin.DeepSeek.group.dailyTokensAll": "Token Usage (by model)",
   "plugin.DeepSeek.mini.text": "Balance Text"
 }

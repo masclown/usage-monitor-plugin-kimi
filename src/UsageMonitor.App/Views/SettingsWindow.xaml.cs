@@ -752,11 +752,12 @@ public partial class SettingsWindow : Window
             return;
         }
 
-        // 用 ContextMenu 展示可添加图表
+        // 用 ContextMenu 展示可添加图表。问题10：菜单项显示 i18n 解析后的图表名（而非原始 chartId，避免暴露 mm./ds. 前缀）
         var menu = new ContextMenu();
         foreach (var chart in node.AvailableCharts)
         {
-            var item = new MenuItem { Header = chart.ChartId, Tag = chart };
+            var header = !string.IsNullOrWhiteSpace(chart.Display) ? chart.Display! : chart.ChartId;
+            var item = new MenuItem { Header = header, Tag = chart };
             item.Click += (_, _) => node.AddChartCommand.Execute(chart);
             menu.Items.Add(item);
         }
@@ -829,6 +830,70 @@ public partial class SettingsWindow : Window
     {
         var hit = VisualTreeHelper.HitTest(itemsControl, pos);
         return hit?.VisualHit == null ? null : FindAncestorDataContext<ViewModels.CardChartListItem>(hit.VisualHit);
+    }
+
+    // --- 问题11：账号（卡片）级拖拽排序，调整后持久化并重建主窗口卡片顺序 ---
+    private ViewModels.AccountNode? _accountDragSource;
+    private System.Windows.Point _accountDragStartPos;
+
+    /// <summary>问题11：账号拖拽开始（记录拖拽源并捕获鼠标）。</summary>
+    private void OnAccountDragStart(object sender, MouseButtonEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is ViewModels.AccountNode node)
+        {
+            _accountDragSource = node;
+            _accountDragStartPos = e.GetPosition(null);
+            if (sender is IInputElement input) input.CaptureMouse();
+        }
+    }
+
+    /// <summary>问题11：账号拖拽结束（释放捕获 + 清空拖拽源）。</summary>
+    private void OnAccountDragEnd(object sender, MouseButtonEventArgs e)
+    {
+        ReleaseDragCapture(sender);
+        _accountDragSource = null;
+    }
+
+    /// <summary>问题11：账号拖拽移动（同一账号列表内拖放排序，保存后主窗口按新顺序重建卡片）。</summary>
+    private void OnAccountDragMove(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        if (_accountDragSource == null) return;
+        if (e.LeftButton != MouseButtonState.Pressed) { ReleaseDragCapture(sender); _accountDragSource = null; return; }
+        if (!ExceedsDragThreshold(_accountDragStartPos, e)) return;
+        PerformDragReorder(sender, _accountDragSource, e,
+            _ => (DataContext as ViewModels.MainViewModel)?.CardManage.SaveAccountOrder());
+    }
+
+    // --- 问题13：任务栏迷你图表账号级拖拽排序，调整后持久化并重建任务栏顺序 ---
+    private ViewModels.MiniAccountNode? _miniAccountDragSource;
+    private System.Windows.Point _miniAccountDragStartPos;
+
+    /// <summary>问题13：迷你图表账号拖拽开始（记录拖拽源并捕获鼠标）。</summary>
+    private void OnMiniAccountDragStart(object sender, MouseButtonEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is ViewModels.MiniAccountNode node)
+        {
+            _miniAccountDragSource = node;
+            _miniAccountDragStartPos = e.GetPosition(null);
+            if (sender is IInputElement input) input.CaptureMouse();
+        }
+    }
+
+    /// <summary>问题13：迷你图表账号拖拽结束（释放捕获 + 清空拖拽源）。</summary>
+    private void OnMiniAccountDragEnd(object sender, MouseButtonEventArgs e)
+    {
+        ReleaseDragCapture(sender);
+        _miniAccountDragSource = null;
+    }
+
+    /// <summary>问题13：迷你图表账号拖拽移动（同一列表内拖放排序，保存后任务栏按新顺序重建）。</summary>
+    private void OnMiniAccountDragMove(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        if (_miniAccountDragSource == null) return;
+        if (e.LeftButton != MouseButtonState.Pressed) { ReleaseDragCapture(sender); _miniAccountDragSource = null; return; }
+        if (!ExceedsDragThreshold(_miniAccountDragStartPos, e)) return;
+        PerformDragReorder(sender, _miniAccountDragSource, e,
+            _ => (DataContext as ViewModels.MainViewModel)?.MiniChartManage.SaveMiniAccountOrder());
     }
 
     // --- S2：数据组拖拽排序 ---

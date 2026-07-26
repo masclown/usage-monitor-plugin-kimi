@@ -286,6 +286,12 @@ public static class UsageFields
     /// <summary>缓存未命中 Token</summary>
     public const string CacheMissToken = "cache_miss_token";
 
+    /// <summary>缓存命中 Token（DeepSeek PROMPT_CACHE_HIT_TOKEN）</summary>
+    public const string CacheHitToken = "cache_hit_token";
+
+    /// <summary>响应 Token（DeepSeek RESPONSE_TOKEN）</summary>
+    public const string ResponseToken = "response_token";
+
     /// <summary>请求次数</summary>
     public const string RequestCount = "request_count";
 
