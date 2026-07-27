@@ -1,0 +1,263 @@
+{
+  "schemaVersion": 1,
+  "minSdkVersion": "0.40.0",
+  "providerId": "Kimi",
+  "displayName": "Kimi",
+  "meta": {
+    "version": "1.1.0",
+    "author": "UsageMonitor",
+    "description": "Query Kimi membership usage (total / 5h / 7d windows, Chat/Code split, booster wallet, daily credit usage)"
+  },
+  "credentialDomains": [ "kimi.com", "www.kimi.com" ],
+  "loginConfig": {
+    "loginUrl": "https://www.kimi.com/membership/subscription?tab=quota",
+    "cookieDomainFilters": [ "kimi.com", "www.kimi.com" ],
+    "loginTimeout": "00:03:00",
+    "uiButtonText": "i18n:plugin.Kimi.login.button",
+    "validateUrl": "https://www.kimi.com/membership/subscription?tab=quota",
+    "requiredCookieDomain": "kimi.com",
+    "loginUrlKeywords": [ "login", "signin", "sign-in", "passport" ],
+    "loginSuccessHost": "www.kimi.com",
+    "loggedInPathKeywords": [ "/membership", "/code", "/chat" ],
+    "localStorageTokens": { "AccessToken": "access_token" }
+  },
+  "configFields": [
+    { "key": "AccessToken", "displayName": "i18n:plugin.Kimi.field.AccessToken.name", "fieldType": "Password", "isRequired": false, "placeholder": "i18n:plugin.Kimi.field.AccessToken.placeholder" }
+  ],
+  "errorGuidance": [
+    { "matchCodes": [ "credential_missing", "config_missing" ], "matchKeywords": [], "message": "i18n:plugin.Kimi.guidance.credential" },
+    { "matchCodes": [ "auth_invalid", "data_empty" ], "matchKeywords": [ "401", "REASON_INVALID_AUTH_TOKEN" ], "message": "i18n:plugin.Kimi.guidance.authInvalid" },
+    { "matchKeywords": [], "message": "i18n:plugin.Kimi.guidance.fallback" }
+  ],
+  "usageUrls": {
+    "zh-CN": "https://www.kimi.com/membership/subscription?tab=quota",
+    "en-US": "https://www.kimi.com/membership/subscription?tab=quota"
+  },
+  "fetch": {
+    "endpoints": [
+      {
+        "urlMatch": "GetSubscriptionStats",
+        "mode": "http",
+        "method": "POST",
+        "urlTemplate": "https://www.kimi.com/apiv2/kimi.gateway.membership.v2.MembershipService/GetSubscriptionStats",
+        "headers": {
+          "Authorization": "Bearer {config:AccessToken}"
+        },
+        "bodyTemplate": "{}",
+        "fields": [
+          { "path": "$.subscriptionBalance.amountUsedRatio", "target": "total_used_percent", "transform": "parsePercent" },
+          { "path": "$.subscriptionBalance.kimiCodeUsedRatio", "target": "code_used_percent", "transform": "parsePercent" },
+          { "path": "$.subscriptionBalance.expireTime", "target": "total_quota_reset_at", "transform": "parseDateTime" },
+          { "path": "$.ratelimitCode5h.ratio", "target": "five_hour_used_percent", "transform": "parsePercent" },
+          { "path": "$.ratelimitCode5h.resetTime", "target": "five_hour_reset_at", "transform": "parseDateTime" },
+          { "path": "$.ratelimitCode7d.ratio", "target": "seven_day_used_percent", "transform": "parsePercent" },
+          { "path": "$.ratelimitCode7d.resetTime", "target": "seven_day_reset_at", "transform": "parseDateTime" },
+          { "path": "$.boosterWallets[0].moneyLeft.priceInCents", "target": "booster_balance", "transform": "centsToUnit" },
+          { "path": "$.boosterWallets[0].monthlyUsed.priceInCents", "target": "booster_monthly_used", "transform": "centsToUnit" }
+        ]
+      },
+      {
+        "urlMatch": "GetSubscription",
+        "mode": "http",
+        "method": "POST",
+        "urlTemplate": "https://www.kimi.com/apiv2/kimi.gateway.membership.v2.MembershipService/GetSubscription",
+        "headers": {
+          "Authorization": "Bearer {config:AccessToken}"
+        },
+        "bodyTemplate": "{}",
+        "fields": [
+          { "path": "$.subscription.goods.title", "target": "subscription_tier", "transform": "trim" },
+          { "path": "$.subscription.goods.membershipLevel", "target": "subscription_level", "transform": "trim" },
+          { "path": "$.subscription.goods.amounts[0].priceInCents", "target": "subscription_price", "transform": "centsToUnit" },
+          { "path": "$.subscription.nextBillingTime", "target": "subscription_next_billing_at", "transform": "parseDate" },
+          { "path": "$.subscription.currentEndTime", "target": "subscription_end_at", "transform": "parseDate" }
+        ]
+      },
+      {
+        "urlMatch": "ListBalanceActions",
+        "mode": "http",
+        "method": "POST",
+        "urlTemplate": "https://www.kimi.com/apiv2/kimi.gateway.membership.v2.MembershipService/ListBalanceActions",
+        "headers": {
+          "Authorization": "Bearer {config:AccessToken}"
+        },
+        "bodyTemplate": "{\"page_size\":100,\"filter\":{\"unit\":\"UNIT_CREDIT\",\"balance_types\":[\"SUBSCRIPTION\"]}}",
+        "pagination": {
+          "nextTokenPath": "$.nextPageToken",
+          "tokenParam": "page_token",
+          "itemsProperty": "actions",
+          "maxPages": 20
+        },
+        "arrays": [
+          {
+            "itemsPath": "$.actions",
+            "mode": "groupPivot",
+            "seriesNameField": "feature",
+            "target": "daily_credit",
+            "itemFields": [
+              { "path": "$.items[0].amountRatio", "target": "daily_credit_percent", "transform": "parsePercent", "elementType": "double" }
+            ]
+          },
+          {
+            "itemsPath": "$.actions",
+            "mode": "objects",
+            "target": "request_detail",
+            "itemFields": [
+              { "path": "$.id", "target": "request_id", "transform": "trim" },
+              { "path": "$.timestamp", "target": "occurred_at", "transform": "trim" },
+              { "path": "$.feature", "target": "channel", "transform": "trim" },
+              { "path": "$.items[0].amountRatio", "target": "used_percent", "transform": "parsePercent" }
+            ]
+          }
+        ]
+      }
+    ],
+    "computed": [
+      { "target": "five_hour_used_percent", "op": "constant", "value": 0, "whenPresent": "five_hour_reset_at", "onlyIfAbsent": true },
+      { "target": "seven_day_used_percent", "op": "constant", "value": 0, "whenPresent": "seven_day_reset_at", "onlyIfAbsent": true },
+      { "target": "code_used_percent", "op": "constant", "value": 0, "whenPresent": "total_used_percent", "onlyIfAbsent": true },
+      { "target": "chat_used_percent", "op": "subtract", "operands": [ "total_used_percent", "code_used_percent" ], "whenPresent": "total_used_percent" },
+      { "target": "total_amount", "op": "constant", "value": 100, "whenPresent": "total_used_percent" },
+      { "target": "subscription_type", "op": "constant", "value": "Membership", "whenPresent": "subscription_tier" },
+      { "target": "subscription_active", "op": "constant", "value": true, "whenPresent": "subscription_tier" }
+    ],
+    "accountId": { "urlMatch": "GetSubscription", "path": "$.subscription.subscriptionId" }
+  },
+  "card": {
+    "renderKinds": [ "subscriptionTitle", "summary", "charts" ],
+    "primaryMetric": "total_used_percent",
+    "baseInfo": {
+      "fields": [
+        { "fieldName": "subscription_type", "role": "Meta" },
+        { "fieldName": "subscription_tier", "role": "Meta" },
+        { "fieldName": "five_hour_reset_at", "role": "Reset" }
+      ]
+    },
+    "charts": [
+      {
+        "chartId": "km.chart.usage_bar",
+        "display": "i18n:plugin.Kimi.chart.usage_bar",
+        "kind": "Bar",
+        "defaultOrder": 1,
+        "slicer": { "mode": "DataGroup", "interaction": "Scroll", "default": "km.bar.total" },
+        "tooltip": { "fields": [ "__field_name__", "total_used_percent", "chat_used_percent", "code_used_percent", "five_hour_used_percent", "seven_day_used_percent" ] },
+        "colorTiers": { "ref": "global:usage-tier-default" },
+        "dataGroups": [
+          {
+            "id": "km.bar.total",
+            "display": "i18n:plugin.Kimi.group.barTotal",
+            "fields": [
+              { "fieldName": "total_used_percent", "role": "Value" },
+              { "fieldName": "total_quota_reset_at", "role": "Reset" }
+            ]
+          },
+          {
+            "id": "km.bar.5h",
+            "display": "i18n:plugin.Kimi.group.bar5h",
+            "fields": [
+              { "fieldName": "five_hour_used_percent", "role": "Value" },
+              { "fieldName": "five_hour_reset_at", "role": "Reset" }
+            ]
+          },
+          {
+            "id": "km.bar.7d",
+            "display": "i18n:plugin.Kimi.group.bar7d",
+            "fields": [
+              { "fieldName": "seven_day_used_percent", "role": "Value" },
+              { "fieldName": "seven_day_reset_at", "role": "Reset" }
+            ]
+          }
+        ]
+      },
+      {
+        "chartId": "km.chart.daily_credit",
+        "display": "i18n:plugin.Kimi.chart.daily_credit",
+        "kind": "StackedBar",
+        "defaultOrder": 3,
+        "categoriesField": "daily_credit_categories",
+        "seriesNamesField": "daily_credit_series_names",
+        "valuesMatrixField": "daily_credit_matrix",
+        "detailGroupBy": "channel",
+        "detailValueField": "used_percent",
+        "detailOp": "sum",
+        "unit": "%",
+        "colors": ["#1A88FF", "#FF810C", "#7C4DFF", "#00BFA5"],
+        "dataGroups": [
+          { "id": "km.daily_credit.all", "display": "i18n:plugin.Kimi.group.dailyCreditAll", "fields": [
+            { "fieldName": "daily_credit_percent", "role": "Value" }
+          ] }
+        ]
+      },
+      {
+        "chartId": "km.chart.usage_split",
+        "display": "i18n:plugin.Kimi.chart.usage_split",
+        "kind": "StackedProgress",
+        "defaultOrder": 2,
+        "unit": "%",
+        "colors": ["#B8C4CE", "#1A88FF"],
+        "tooltip": { "fields": [ "chat_used_percent", "code_used_percent", "total_used_percent" ] },
+        "dataGroups": [
+          {
+            "id": "km.split.total",
+            "display": "i18n:plugin.Kimi.group.splitTotal",
+            "fields": [
+              { "fieldName": "chat_used_percent", "role": "Value" },
+              { "fieldName": "code_used_percent", "role": "Value" },
+              { "fieldName": "total_amount", "role": "Upper" },
+              { "fieldName": "total_quota_reset_at", "role": "Reset" }
+            ]
+          }
+        ]
+      },
+      {
+        "chartId": "km.chart.overview_number",
+        "display": "i18n:plugin.Kimi.chart.overview_number",
+        "kind": "Number",
+        "defaultOrder": 4,
+        "tooltip": { "fields": [ "chat_used_percent", "code_used_percent", "booster_balance", "booster_monthly_used", "subscription_price" ] },
+        "dataGroups": [
+          { "id": "km.number.chat", "display": "i18n:plugin.Kimi.group.numberChat", "fields": [ { "fieldName": "chat_used_percent", "role": "Value" } ] },
+          { "id": "km.number.code", "display": "i18n:plugin.Kimi.group.numberCode", "fields": [ { "fieldName": "code_used_percent", "role": "Value" } ] },
+          { "id": "km.number.booster", "display": "i18n:plugin.Kimi.group.numberBooster", "fields": [ { "fieldName": "booster_balance", "role": "Value" } ] },
+          { "id": "km.number.booster_monthly", "display": "i18n:plugin.Kimi.group.numberBoosterMonthly", "fields": [ { "fieldName": "booster_monthly_used", "role": "Value" } ] },
+          { "id": "km.number.price", "display": "i18n:plugin.Kimi.group.numberPrice", "fields": [ { "fieldName": "subscription_price", "role": "Value" } ] }
+        ]
+      }
+    ]
+  },
+  "taskbar": {
+    "baseInfo": {
+      "fields": [
+        { "fieldName": "subscription_tier", "role": "Meta" },
+        { "fieldName": "five_hour_reset_at", "role": "Reset" }
+      ]
+    },
+    "miniCharts": [
+      {
+        "chartId": "km.mini.ring",
+        "display": "i18n:plugin.Kimi.mini.ring",
+        "kind": "MiniRingChart",
+        "slicer": { "mode": "DataGroup", "interaction": "Scroll", "default": "km.taskbar.total" },
+        "tooltip": { "fields": [ "__provider_name__", "total_used_percent", "five_hour_used_percent", "seven_day_used_percent", "__refresh_countdown__" ] },
+        "colorTiers": { "ref": "global:usage-tier-default" },
+        "dataGroups": [
+          { "id": "km.taskbar.total", "display": "i18n:plugin.Kimi.group.taskbarTotal", "fields": [ { "fieldName": "total_used_percent", "role": "Value" } ] },
+          { "id": "km.taskbar.5h", "display": "i18n:plugin.Kimi.group.taskbar5h", "fields": [ { "fieldName": "five_hour_used_percent", "role": "Value" } ] },
+          { "id": "km.taskbar.7d", "display": "i18n:plugin.Kimi.group.taskbar7d", "fields": [ { "fieldName": "seven_day_used_percent", "role": "Value" } ] }
+        ]
+      },
+      {
+        "chartId": "km.mini.text",
+        "display": "i18n:plugin.Kimi.mini.text",
+        "kind": "MiniText",
+        "slicer": { "mode": "DataGroup", "interaction": "Scroll", "default": "km.taskbar.total" },
+        "tooltip": { "fields": [ "__provider_name__", "total_used_percent", "five_hour_used_percent", "seven_day_used_percent", "__refresh_countdown__" ] },
+        "dataGroups": [
+          { "id": "km.taskbar.total", "display": "i18n:plugin.Kimi.group.taskbarTotal", "fields": [ { "fieldName": "total_used_percent", "role": "Value" } ] },
+          { "id": "km.taskbar.5h", "display": "i18n:plugin.Kimi.group.taskbar5h", "fields": [ { "fieldName": "five_hour_used_percent", "role": "Value" } ] },
+          { "id": "km.taskbar.7d", "display": "i18n:plugin.Kimi.group.taskbar7d", "fields": [ { "fieldName": "seven_day_used_percent", "role": "Value" } ] }
+        ]
+      }
+    ]
+  }
+}

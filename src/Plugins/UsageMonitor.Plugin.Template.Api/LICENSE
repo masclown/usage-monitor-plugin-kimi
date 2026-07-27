@@ -1,9 +1,0 @@
-Apache License 2.0
-
-本插件模板（UsageMonitor.Plugin.Template.Api）作为 UsageMonitor 插件 SDK 的一部分，
-按 Apache License, Version 2.0 授权，许可证全文见仓库根目录的 LICENSE-APACHE。
-
-你可以自由复制本模板开发自己的第三方插件，无需受主程序 BSL-1.1 的商用限制约束
-（主程序许可见仓库根目录 LICENSE）。
-
-Copyright 2026 UsageMonitor Project
