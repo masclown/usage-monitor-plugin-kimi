@@ -180,6 +180,11 @@
         "detailGroupBy": "channel",
         "detailValueField": "used_percent",
         "detailOp": "sum",
+        "seriesDisplayNames": {
+          "FEATURE_CODING": "Code",
+          "FEATURE_SWARM": "Agent Swarm",
+          "FEATURE_CHAT": "K2.6"
+        },
         "unit": "%",
         "colors": ["#1A88FF", "#FF810C", "#7C4DFF", "#00BFA5"],
         "dataGroups": [
