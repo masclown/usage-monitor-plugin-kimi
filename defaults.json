@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "minSdkVersion": "0.40.0",
+  "minSdkVersion": "0.48.0",
   "providerId": "Kimi",
   "displayName": "Kimi",
   "meta": {
@@ -79,14 +79,18 @@
         "method": "POST",
         "urlTemplate": "https://www.kimi.com/apiv2/kimi.gateway.membership.v2.MembershipService/ListBalanceActions",
         "headers": {
-          "Authorization": "Bearer {config:AccessToken}"
+          "Authorization": "Bearer {config:AccessToken}",
+          "connect-protocol-version": "1"
         },
         "bodyTemplate": "{\"page_size\":100,\"filter\":{\"unit\":\"UNIT_CREDIT\",\"balance_types\":[\"SUBSCRIPTION\"]}}",
         "pagination": {
+          "mode": "nextToken",
           "nextTokenPath": "$.nextPageToken",
           "tokenParam": "page_token",
           "itemsProperty": "actions",
-          "maxPages": 20
+          "maxPages": 60,
+          "maxPagesTemplate": "{config:MaxPages}",
+          "stopWhenKnownField": "id"
         },
         "arrays": [
           {
@@ -106,6 +110,7 @@
               { "path": "$.id", "target": "request_id", "transform": "trim" },
               { "path": "$.timestamp", "target": "occurred_at", "transform": "trim" },
               { "path": "$.feature", "target": "channel", "transform": "trim" },
+              { "path": "$.feature", "target": "task_type", "transform": "trim" },
               { "path": "$.items[0].amountRatio", "target": "used_percent", "transform": "parsePercent" }
             ]
           }
