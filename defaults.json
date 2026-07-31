@@ -140,8 +140,8 @@
     },
     "charts": [
       {
-        "chartId": "km.chart.usage_bar",
-        "display": "i18n:plugin.Kimi.chart.usage_bar",
+        "chartId": "km.chart.quotaUsage",
+        "display": "i18n:plugin.Kimi.chart.quotaUsage",
         "kind": "Bar",
         "defaultOrder": 1,
         "slicer": { "mode": "DataGroup", "interaction": "Scroll", "default": "km.bar.total" },
@@ -150,7 +150,7 @@
         "dataGroups": [
           {
             "id": "km.bar.total",
-            "display": "i18n:plugin.Kimi.group.barTotal",
+            "display": "i18n:plugin.Kimi.group.totalQuota",
             "fields": [
               { "fieldName": "total_used_percent", "role": "Value" },
               { "fieldName": "total_quota_reset_at", "role": "Reset" }
@@ -158,7 +158,7 @@
           },
           {
             "id": "km.bar.5h",
-            "display": "i18n:plugin.Kimi.group.bar5h",
+            "display": "i18n:plugin.Kimi.group.quota5h",
             "fields": [
               { "fieldName": "five_hour_used_percent", "role": "Value" },
               { "fieldName": "five_hour_reset_at", "role": "Reset" }
@@ -166,7 +166,7 @@
           },
           {
             "id": "km.bar.7d",
-            "display": "i18n:plugin.Kimi.group.bar7d",
+            "display": "i18n:plugin.Kimi.group.quota7d",
             "fields": [
               { "fieldName": "seven_day_used_percent", "role": "Value" },
               { "fieldName": "seven_day_reset_at", "role": "Reset" }
@@ -175,32 +175,8 @@
         ]
       },
       {
-        "chartId": "km.chart.daily_credit",
-        "display": "i18n:plugin.Kimi.chart.daily_credit",
-        "kind": "StackedBar",
-        "defaultOrder": 3,
-        "categoriesField": "daily_credit_categories",
-        "seriesNamesField": "daily_credit_series_names",
-        "valuesMatrixField": "daily_credit_matrix",
-        "detailGroupBy": "channel",
-        "detailValueField": "used_percent",
-        "detailOp": "sum",
-        "seriesDisplayNames": {
-          "FEATURE_CODING": "Code",
-          "FEATURE_SWARM": "Agent Swarm",
-          "FEATURE_CHAT": "K2.6"
-        },
-        "unit": "%",
-        "colors": ["#1A88FF", "#FF810C", "#7C4DFF", "#00BFA5"],
-        "dataGroups": [
-          { "id": "km.daily_credit.all", "display": "i18n:plugin.Kimi.group.dailyCreditAll", "fields": [
-            { "fieldName": "daily_credit_percent", "role": "Value" }
-          ] }
-        ]
-      },
-      {
-        "chartId": "km.chart.usage_split",
-        "display": "i18n:plugin.Kimi.chart.usage_split",
+        "chartId": "km.chart.usageSplit",
+        "display": "i18n:plugin.Kimi.chart.usageSplit",
         "kind": "StackedProgress",
         "defaultOrder": 2,
         "unit": "%",
@@ -220,17 +196,57 @@
         ]
       },
       {
-        "chartId": "km.chart.overview_number",
-        "display": "i18n:plugin.Kimi.chart.overview_number",
-        "kind": "Number",
+        "chartId": "km.chart.dailyCredit",
+        "display": "i18n:plugin.Kimi.chart.dailyCredit",
+        "kind": "StackedBar",
+        "defaultOrder": 3,
+        "categoriesField": "daily_credit_categories",
+        "seriesNamesField": "daily_credit_series_names",
+        "valuesMatrixField": "daily_credit_matrix",
+        "detailGroupBy": "channel",
+        "detailValueField": "used_percent",
+        "detailOp": "sum",
+        "seriesDisplayNames": {
+          "FEATURE_CODING": "Code",
+          "FEATURE_SWARM": "Agent Swarm",
+          "FEATURE_CHAT": "K2.6"
+        },
+        "unit": "%",
+        "colors": ["#1A88FF", "#FF810C", "#7C4DFF", "#00BFA5"],
+        "dataGroups": [
+          { "id": "km.dailyCredit.feature", "display": "i18n:plugin.Kimi.group.dailyCreditFeature", "fields": [
+            { "fieldName": "daily_credit_percent", "role": "Value" }
+          ] }
+        ]
+      },
+      {
+        "chartId": "km.chart.creditTrend",
+        "display": "i18n:plugin.Kimi.chart.creditTrend",
+        "kind": "Curve",
         "defaultOrder": 4,
+        "categoriesField": "daily_credit_categories",
+        "seriesNamesField": "daily_credit_series_names",
+        "valuesMatrixField": "daily_credit_matrix",
+        "unit": "%",
+        "colors": ["#1A88FF", "#FF810C", "#7C4DFF"],
+        "dataGroups": [
+          { "id": "km.creditTrend.feature", "display": "i18n:plugin.Kimi.group.dailyCreditFeature", "fields": [
+            { "fieldName": "daily_credit_percent", "role": "Value" }
+          ] }
+        ]
+      },
+      {
+        "chartId": "km.chart.overview",
+        "display": "i18n:plugin.Kimi.chart.overview",
+        "kind": "Number",
+        "defaultOrder": 5,
         "tooltip": { "fields": [ "chat_used_percent", "code_used_percent", "booster_balance", "booster_monthly_used", "subscription_price" ] },
         "dataGroups": [
-          { "id": "km.number.chat", "display": "i18n:plugin.Kimi.group.numberChat", "fields": [ { "fieldName": "chat_used_percent", "role": "Value" } ] },
-          { "id": "km.number.code", "display": "i18n:plugin.Kimi.group.numberCode", "fields": [ { "fieldName": "code_used_percent", "role": "Value" } ] },
-          { "id": "km.number.booster", "display": "i18n:plugin.Kimi.group.numberBooster", "fields": [ { "fieldName": "booster_balance", "role": "Value" } ] },
-          { "id": "km.number.booster_monthly", "display": "i18n:plugin.Kimi.group.numberBoosterMonthly", "fields": [ { "fieldName": "booster_monthly_used", "role": "Value" } ] },
-          { "id": "km.number.price", "display": "i18n:plugin.Kimi.group.numberPrice", "fields": [ { "fieldName": "subscription_price", "role": "Value" } ] }
+          { "id": "km.group.chatUsage", "display": "i18n:plugin.Kimi.group.chatUsage", "fields": [ { "fieldName": "chat_used_percent", "role": "Value" } ] },
+          { "id": "km.group.codeUsage", "display": "i18n:plugin.Kimi.group.codeUsage", "fields": [ { "fieldName": "code_used_percent", "role": "Value" } ] },
+          { "id": "km.group.boosterBalance", "display": "i18n:plugin.Kimi.group.boosterBalance", "fields": [ { "fieldName": "booster_balance", "role": "Value" } ] },
+          { "id": "km.group.boosterMonthly", "display": "i18n:plugin.Kimi.group.boosterMonthly", "fields": [ { "fieldName": "booster_monthly_used", "role": "Value" } ] },
+          { "id": "km.group.price", "display": "i18n:plugin.Kimi.group.price", "fields": [ { "fieldName": "subscription_price", "role": "Value" } ] }
         ]
       }
     ]
