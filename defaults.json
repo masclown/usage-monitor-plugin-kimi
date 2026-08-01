@@ -6,7 +6,9 @@
   "meta": {
     "version": "1.1.0",
     "author": "UsageMonitor",
-    "description": "Query Kimi membership usage (total / 5h / 7d windows, Chat/Code split, booster wallet, daily credit usage)"
+    "description": "Query Kimi membership usage (total / 5h / 7d windows, Chat/Code split, booster wallet, daily credit usage)",
+    "iconUrl": "https://raw.githubusercontent.com/MoonshotAI/kimi-code/main/docs/.vitepress/theme/Kimi.png",
+    "iconUrlDark": "https://raw.githubusercontent.com/MoonshotAI/kimi-code/main/docs/.vitepress/theme/Kimi.png"
   },
   "credentialDomains": [ "kimi.com", "www.kimi.com" ],
   "loginConfig": {
