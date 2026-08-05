@@ -89,8 +89,7 @@
           "tokenParam": "page_token",
           "itemsProperty": "actions",
           "maxPages": 60,
-          "maxPagesTemplate": "{config:MaxPages}",
-          "stopWhenKnownField": "id"
+          "maxPagesTemplate": "{config:MaxPages}"
         },
         "arrays": [
           {
@@ -110,7 +109,6 @@
     ],
     "computed": [
       { "target": "five_hour_used_percent", "op": "constant", "value": 0, "whenPresent": "five_hour_reset_at", "onlyIfAbsent": true },
-      { "target": "code_used_percent", "op": "constant", "value": 0, "whenPresent": "total_used_percent", "onlyIfAbsent": true },
       { "target": "chat_used_percent", "op": "subtract", "operands": [ "total_used_percent", "code_used_percent" ], "whenPresent": "total_used_percent" },
       { "target": "total_amount", "op": "constant", "value": 100, "whenPresent": "total_used_percent" },
       { "target": "booster_used_amount", "op": "subtract", "operands": [ "booster_total_amount", "balance_amount" ], "whenPresent": "booster_total_amount" },
@@ -197,6 +195,14 @@
         "categoriesField": "daily_credit_categories",
         "seriesNamesField": "daily_credit_series_names",
         "valuesMatrixField": "daily_credit_matrix",
+        "detailGroupBy": "channel",
+        "detailValueField": "used_percent",
+        "detailOp": "sum",
+        "seriesDisplayNames": {
+          "FEATURE_CODING": "Code",
+          "FEATURE_SWARM": "Agent Swarm",
+          "FEATURE_CHAT": "K2.6"
+        },
         "unit": "%",
         "colors": ["#1A88FF", "#FF810C", "#7C4DFF"],
         "dataGroups": [
