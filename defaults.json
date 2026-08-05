@@ -24,7 +24,7 @@
     "localStorageTokens": { "AccessToken": "access_token" }
   },
   "configFields": [
-    { "key": "AccessToken", "displayName": "i18n:plugin.Kimi.field.AccessToken.name", "fieldType": "Password", "isRequired": false, "placeholder": "i18n:plugin.Kimi.field.AccessToken.placeholder" }
+    { "key": "ApiKey", "displayName": "i18n:plugin.Kimi.field.ApiKey.name", "fieldType": "Password", "isRequired": false, "placeholder": "i18n:plugin.Kimi.field.ApiKey.placeholder" }
   ],
   "errorGuidance": [
     { "matchCodes": [ "credential_missing", "config_missing" ], "matchKeywords": [], "message": "i18n:plugin.Kimi.guidance.credential" },
@@ -49,13 +49,12 @@
         "fields": [
           { "path": "$.subscriptionBalance.amountUsedRatio", "target": "total_used_percent", "transform": "parsePercent" },
           { "path": "$.subscriptionBalance.kimiCodeUsedRatio", "target": "code_used_percent", "transform": "parsePercent" },
-          { "path": "$.subscriptionBalance.expireTime", "target": "total_quota_reset_at", "transform": "parseDateTime" },
+          { "path": "$.subscriptionBalance.expireTime", "target": "quota_period_end_at", "transform": "parseDateTime" },
           { "path": "$.ratelimitCode5h.ratio", "target": "five_hour_used_percent", "transform": "parsePercent" },
           { "path": "$.ratelimitCode5h.resetTime", "target": "five_hour_reset_at", "transform": "parseDateTime" },
-          { "path": "$.ratelimitCode7d.ratio", "target": "seven_day_used_percent", "transform": "parsePercent" },
-          { "path": "$.ratelimitCode7d.resetTime", "target": "seven_day_reset_at", "transform": "parseDateTime" },
-          { "path": "$.boosterWallets[0].moneyLeft.priceInCents", "target": "booster_balance", "transform": "centsToUnit" },
-          { "path": "$.boosterWallets[0].monthlyUsed.priceInCents", "target": "booster_monthly_used", "transform": "centsToUnit" }
+          { "path": "$.boosterWallets[0].moneyLeft.priceInCents", "target": "balance_amount", "transform": "centsToUnit" },
+          { "path": "$.boosterWallets[0].moneyTotal.priceInCents", "target": "booster_total_amount", "transform": "centsToUnit" },
+          { "path": "$.boosterWallets[0].monthlyUsed.priceInCents", "target": "monthly_cost", "transform": "centsToUnit" }
         ]
       },
       {
@@ -69,7 +68,6 @@
         "bodyTemplate": "{}",
         "fields": [
           { "path": "$.subscription.goods.title", "target": "subscription_tier", "transform": "trim" },
-          { "path": "$.subscription.goods.membershipLevel", "target": "subscription_level", "transform": "trim" },
           { "path": "$.subscription.goods.amounts[0].priceInCents", "target": "subscription_price", "transform": "centsToUnit" },
           { "path": "$.subscription.nextBillingTime", "target": "subscription_next_billing_at", "transform": "parseDate" },
           { "path": "$.subscription.currentEndTime", "target": "subscription_end_at", "transform": "parseDate" }
@@ -97,15 +95,6 @@
         "arrays": [
           {
             "itemsPath": "$.actions",
-            "mode": "groupPivot",
-            "seriesNameField": "feature",
-            "target": "daily_credit",
-            "itemFields": [
-              { "path": "$.items[0].amountRatio", "target": "daily_credit_percent", "transform": "parsePercent", "elementType": "double" }
-            ]
-          },
-          {
-            "itemsPath": "$.actions",
             "mode": "objects",
             "target": "request_detail",
             "itemFields": [
@@ -121,11 +110,11 @@
     ],
     "computed": [
       { "target": "five_hour_used_percent", "op": "constant", "value": 0, "whenPresent": "five_hour_reset_at", "onlyIfAbsent": true },
-      { "target": "seven_day_used_percent", "op": "constant", "value": 0, "whenPresent": "seven_day_reset_at", "onlyIfAbsent": true },
       { "target": "code_used_percent", "op": "constant", "value": 0, "whenPresent": "total_used_percent", "onlyIfAbsent": true },
       { "target": "chat_used_percent", "op": "subtract", "operands": [ "total_used_percent", "code_used_percent" ], "whenPresent": "total_used_percent" },
       { "target": "total_amount", "op": "constant", "value": 100, "whenPresent": "total_used_percent" },
-      { "target": "subscription_type", "op": "constant", "value": "Membership", "whenPresent": "subscription_tier" },
+      { "target": "booster_used_amount", "op": "subtract", "operands": [ "booster_total_amount", "balance_amount" ], "whenPresent": "booster_total_amount" },
+      { "target": "total_cost", "op": "add", "operands": [ "subscription_price", "booster_used_amount" ], "whenPresent": "booster_used_amount" },
       { "target": "subscription_active", "op": "constant", "value": true, "whenPresent": "subscription_tier" }
     ],
     "accountId": { "urlMatch": "GetSubscription", "path": "$.subscription.subscriptionId" }
@@ -135,7 +124,6 @@
     "primaryMetric": "total_used_percent",
     "baseInfo": {
       "fields": [
-        { "fieldName": "subscription_type", "role": "Meta" },
         { "fieldName": "subscription_tier", "role": "Meta" },
         { "fieldName": "five_hour_reset_at", "role": "Reset" }
       ]
@@ -147,32 +135,19 @@
         "kind": "Bar",
         "defaultOrder": 1,
         "slicer": { "mode": "DataGroup", "interaction": "Scroll", "default": "km.bar.total" },
-        "tooltip": { "fields": [ "__field_name__", "total_used_percent", "chat_used_percent", "code_used_percent", "five_hour_used_percent", "seven_day_used_percent" ] },
+        "tooltip": { "fields": [ "__field_name__", "total_used_percent", "chat_used_percent", "code_used_percent", "five_hour_used_percent" ] },
         "colorTiers": { "ref": "global:usage-tier-default" },
         "dataGroups": [
           {
-            "id": "km.bar.total",
+            "id": "sdk.template.quotaTotal",
             "display": "i18n:plugin.Kimi.group.totalQuota",
             "fields": [
               { "fieldName": "total_used_percent", "role": "Value" },
-              { "fieldName": "total_quota_reset_at", "role": "Reset" }
+              { "fieldName": "quota_period_end_at", "role": "Reset" }
             ]
           },
           {
-            "id": "km.bar.5h",
-            "display": "i18n:plugin.Kimi.group.quota5h",
-            "fields": [
-              { "fieldName": "five_hour_used_percent", "role": "Value" },
-              { "fieldName": "five_hour_reset_at", "role": "Reset" }
-            ]
-          },
-          {
-            "id": "km.bar.7d",
-            "display": "i18n:plugin.Kimi.group.quota7d",
-            "fields": [
-              { "fieldName": "seven_day_used_percent", "role": "Value" },
-              { "fieldName": "seven_day_reset_at", "role": "Reset" }
-            ]
+            "id": "sdk.template.quota5h"
           }
         ]
       },
@@ -186,14 +161,7 @@
         "tooltip": { "fields": [ "chat_used_percent", "code_used_percent", "total_used_percent" ] },
         "dataGroups": [
           {
-            "id": "km.split.total",
-            "display": "i18n:plugin.Kimi.group.splitTotal",
-            "fields": [
-              { "fieldName": "chat_used_percent", "role": "Value" },
-              { "fieldName": "code_used_percent", "role": "Value" },
-              { "fieldName": "total_amount", "role": "Upper" },
-              { "fieldName": "total_quota_reset_at", "role": "Reset" }
-            ]
+            "id": "sdk.template.usageSplit"
           }
         ]
       },
@@ -216,7 +184,7 @@
         "unit": "%",
         "colors": ["#1A88FF", "#FF810C", "#7C4DFF", "#00BFA5"],
         "dataGroups": [
-          { "id": "km.dailyCredit.feature", "display": "i18n:plugin.Kimi.group.dailyCreditFeature", "fields": [
+          { "id": "sdk.template.dailyCreditPercent", "display": "i18n:plugin.Kimi.group.dailyCreditFeature", "fields": [
             { "fieldName": "daily_credit_percent", "role": "Value" }
           ] }
         ]
@@ -232,7 +200,7 @@
         "unit": "%",
         "colors": ["#1A88FF", "#FF810C", "#7C4DFF"],
         "dataGroups": [
-          { "id": "km.creditTrend.feature", "display": "i18n:plugin.Kimi.group.dailyCreditFeature", "fields": [
+          { "id": "sdk.template.dailyCreditPercent", "display": "i18n:plugin.Kimi.group.dailyCreditFeature", "fields": [
             { "fieldName": "daily_credit_percent", "role": "Value" }
           ] }
         ]
@@ -242,13 +210,14 @@
         "display": "i18n:plugin.Kimi.chart.overview",
         "kind": "Number",
         "defaultOrder": 5,
-        "tooltip": { "fields": [ "chat_used_percent", "code_used_percent", "booster_balance", "booster_monthly_used", "subscription_price" ] },
+        "tooltip": { "fields": [ "chat_used_percent", "code_used_percent", "balance_amount", "monthly_cost", "total_cost", "subscription_price" ] },
         "dataGroups": [
-          { "id": "km.group.chatUsage", "display": "i18n:plugin.Kimi.group.chatUsage", "fields": [ { "fieldName": "chat_used_percent", "role": "Value" } ] },
-          { "id": "km.group.codeUsage", "display": "i18n:plugin.Kimi.group.codeUsage", "fields": [ { "fieldName": "code_used_percent", "role": "Value" } ] },
-          { "id": "km.group.boosterBalance", "display": "i18n:plugin.Kimi.group.boosterBalance", "fields": [ { "fieldName": "booster_balance", "role": "Value" } ] },
-          { "id": "km.group.boosterMonthly", "display": "i18n:plugin.Kimi.group.boosterMonthly", "fields": [ { "fieldName": "booster_monthly_used", "role": "Value" } ] },
-          { "id": "km.group.price", "display": "i18n:plugin.Kimi.group.price", "fields": [ { "fieldName": "subscription_price", "role": "Value" } ] }
+          { "id": "sdk.template.chatUsage", "display": "i18n:plugin.Kimi.group.chatUsage", "fields": [ { "fieldName": "chat_used_percent", "role": "Value" } ] },
+          { "id": "sdk.template.codeUsage", "display": "i18n:plugin.Kimi.group.codeUsage", "fields": [ { "fieldName": "code_used_percent", "role": "Value" } ] },
+          { "id": "sdk.template.balanceAmount", "display": "i18n:plugin.Kimi.group.boosterBalance", "fields": [ { "fieldName": "balance_amount", "role": "Value" } ] },
+          { "id": "sdk.template.monthlyCost", "display": "i18n:plugin.Kimi.group.boosterMonthly", "fields": [ { "fieldName": "monthly_cost", "role": "Value" } ] },
+          { "id": "sdk.template.totalCost", "display": "i18n:plugin.Kimi.group.totalCost", "fields": [ { "fieldName": "total_cost", "role": "Value" } ] },
+          { "id": "sdk.template.subscriptionPrice", "display": "i18n:plugin.Kimi.group.price", "fields": [ { "fieldName": "subscription_price", "role": "Value" } ] }
         ]
       }
     ]
@@ -266,12 +235,11 @@
         "display": "i18n:plugin.Kimi.mini.ring",
         "kind": "MiniRingChart",
         "slicer": { "mode": "DataGroup", "interaction": "Scroll", "default": "km.taskbar.total" },
-        "tooltip": { "fields": [ "__provider_name__", "total_used_percent", "five_hour_used_percent", "seven_day_used_percent", "__refresh_countdown__" ] },
+        "tooltip": { "fields": [ "__provider_name__", "total_used_percent", "five_hour_used_percent", "__refresh_countdown__" ] },
         "colorTiers": { "ref": "global:usage-tier-default" },
         "dataGroups": [
-          { "id": "km.taskbar.total", "display": "i18n:plugin.Kimi.group.taskbarTotal", "fields": [ { "fieldName": "total_used_percent", "role": "Value" } ] },
-          { "id": "km.taskbar.5h", "display": "i18n:plugin.Kimi.group.taskbar5h", "fields": [ { "fieldName": "five_hour_used_percent", "role": "Value" } ] },
-          { "id": "km.taskbar.7d", "display": "i18n:plugin.Kimi.group.taskbar7d", "fields": [ { "fieldName": "seven_day_used_percent", "role": "Value" } ] }
+          { "id": "sdk.template.quotaTotal", "display": "i18n:plugin.Kimi.group.taskbarTotal", "fields": [ { "fieldName": "total_used_percent", "role": "Value" } ] },
+          { "id": "sdk.template.quota5h" }
         ]
       },
       {
@@ -279,11 +247,10 @@
         "display": "i18n:plugin.Kimi.mini.text",
         "kind": "MiniText",
         "slicer": { "mode": "DataGroup", "interaction": "Scroll", "default": "km.taskbar.total" },
-        "tooltip": { "fields": [ "__provider_name__", "total_used_percent", "five_hour_used_percent", "seven_day_used_percent", "__refresh_countdown__" ] },
+        "tooltip": { "fields": [ "__provider_name__", "total_used_percent", "five_hour_used_percent", "__refresh_countdown__" ] },
         "dataGroups": [
-          { "id": "km.taskbar.total", "display": "i18n:plugin.Kimi.group.taskbarTotal", "fields": [ { "fieldName": "total_used_percent", "role": "Value" } ] },
-          { "id": "km.taskbar.5h", "display": "i18n:plugin.Kimi.group.taskbar5h", "fields": [ { "fieldName": "five_hour_used_percent", "role": "Value" } ] },
-          { "id": "km.taskbar.7d", "display": "i18n:plugin.Kimi.group.taskbar7d", "fields": [ { "fieldName": "seven_day_used_percent", "role": "Value" } ] }
+          { "id": "sdk.template.quotaTotal", "display": "i18n:plugin.Kimi.group.taskbarTotal", "fields": [ { "fieldName": "total_used_percent", "role": "Value" } ] },
+          { "id": "sdk.template.quota5h" }
         ]
       }
     ]

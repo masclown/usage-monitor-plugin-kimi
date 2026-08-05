@@ -1,9 +1,9 @@
 {
   "plugin.Kimi.login.button": "🌐 Get Kimi Login",
-  "plugin.Kimi.field.AccessToken.name": "Kimi AccessToken",
-  "plugin.Kimi.field.AccessToken.placeholder": "Click 'Get Login' above to auto-fill; or manually paste localStorage.access_token value",
-  "plugin.Kimi.guidance.credential": "Please click 'Get Login' in settings to login to Kimi (www.kimi.com), token will be auto-filled",
-  "plugin.Kimi.guidance.authInvalid": "Kimi login token is invalid or expired, please get a new login",
+  "plugin.Kimi.field.ApiKey.name": "API Key",
+  "plugin.Kimi.field.ApiKey.placeholder": "Enter Kimi API Key",
+  "plugin.Kimi.guidance.credential": "Please click 'Get Login' in settings to login to Kimi (www.kimi.com); fill API Key below for API Key auth",
+  "plugin.Kimi.guidance.authInvalid": "Kimi login state or API Key is invalid or expired, please re-fetch login or check API Key",
   "plugin.Kimi.guidance.fallback": "Please check Kimi plugin configuration",
 
   "plugin.Kimi.chart.overview": "Kimi Overview",
@@ -16,15 +16,12 @@
   "plugin.Kimi.group.codeUsage": "Code Usage",
   "plugin.Kimi.group.boosterBalance": "Booster Balance",
   "plugin.Kimi.group.boosterMonthly": "Booster Monthly Used",
+  "plugin.Kimi.group.totalCost": "Total Cost",
   "plugin.Kimi.group.price": "Subscription Price",
   "plugin.Kimi.group.totalQuota": "Total Quota",
-  "plugin.Kimi.group.quota5h": "5h Quota",
-  "plugin.Kimi.group.quota7d": "7d Quota",
   "plugin.Kimi.group.splitTotal": "Total Usage (Kimi + Code)",
   "plugin.Kimi.group.dailyCreditFeature": "Daily Credit (by Feature)",
   "plugin.Kimi.group.taskbarTotal": "Total Usage",
-  "plugin.Kimi.group.taskbar5h": "5h (Code)",
-  "plugin.Kimi.group.taskbar7d": "7d (Code)",
 
   "plugin.Kimi.mini.ring": "Usage Ring",
   "plugin.Kimi.mini.text": "Usage Text"

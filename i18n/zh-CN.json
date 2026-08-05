@@ -1,9 +1,9 @@
 {
   "plugin.Kimi.login.button": "🌐 获取 Kimi 登录态",
-  "plugin.Kimi.field.AccessToken.name": "Kimi AccessToken",
-  "plugin.Kimi.field.AccessToken.placeholder": "点上方「获取登录态」自动填充；或手动粘贴 localStorage.access_token 的值",
-  "plugin.Kimi.guidance.credential": "请在设置界面点击「获取登录态」登录 Kimi（www.kimi.com），令牌将自动填充",
-  "plugin.Kimi.guidance.authInvalid": "Kimi 登录令牌无效或已过期，请重新获取登录态",
+  "plugin.Kimi.field.ApiKey.name": "API Key",
+  "plugin.Kimi.field.ApiKey.placeholder": "请输入 Kimi API Key",
+  "plugin.Kimi.guidance.credential": "请在设置界面点击「获取登录态」登录 Kimi（www.kimi.com），令牌将自动填充；如需 API Key 鉴权请填写下方字段",
+  "plugin.Kimi.guidance.authInvalid": "Kimi 登录态或 API Key 无效或已过期，请重新获取登录态或检查 API Key",
   "plugin.Kimi.guidance.fallback": "请检查 Kimi 插件配置",
 
   "plugin.Kimi.chart.overview": "Kimi概览",
@@ -16,15 +16,12 @@
   "plugin.Kimi.group.codeUsage": "Code用量",
   "plugin.Kimi.group.boosterBalance": "加油包余额",
   "plugin.Kimi.group.boosterMonthly": "加油包本月消费",
+  "plugin.Kimi.group.totalCost": "累计消费",
   "plugin.Kimi.group.price": "订阅价格",
   "plugin.Kimi.group.totalQuota": "总配额",
-  "plugin.Kimi.group.quota5h": "5h配额",
-  "plugin.Kimi.group.quota7d": "7天配额",
   "plugin.Kimi.group.splitTotal": "总用量（Kimi + Code）",
   "plugin.Kimi.group.dailyCreditFeature": "每日额度（按功能）",
   "plugin.Kimi.group.taskbarTotal": "总用量",
-  "plugin.Kimi.group.taskbar5h": "5h（Code）",
-  "plugin.Kimi.group.taskbar7d": "7天（Code）",
 
   "plugin.Kimi.mini.ring": "用量圆环",
   "plugin.Kimi.mini.text": "用量文本"
