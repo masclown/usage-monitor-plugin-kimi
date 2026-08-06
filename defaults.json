@@ -21,7 +21,8 @@
     "loginUrlKeywords": [ "login", "signin", "sign-in", "passport" ],
     "loginSuccessHost": "www.kimi.com",
     "loggedInPathKeywords": [ "/membership", "/code", "/chat" ],
-    "localStorageTokens": { "AccessToken": "access_token", "RefreshToken": "refresh_token" }
+    "localStorageTokens": { "AccessToken": "access_token", "RefreshToken": "refresh_token" },
+    "supportsHeadlessLogin": true
   },
   "configFields": [
     { "key": "ApiKey", "displayName": "i18n:plugin.Kimi.field.ApiKey.name", "fieldType": "Password", "isRequired": false, "placeholder": "i18n:plugin.Kimi.field.ApiKey.placeholder" }
