@@ -11,6 +11,12 @@
     "iconUrlDark": "https://raw.githubusercontent.com/MoonshotAI/kimi-code/main/docs/.vitepress/theme/Kimi.png"
   },
   "credentialDomains": [ "kimi.com", "www.kimi.com" ],
+  "metadata": {
+    "supportedBuckets": [ "hour", "day", "week", "month" ],
+    "fallbackBucket": "day",
+    "supportedTables": [ 1, 2 ],
+    "availableSlicerFields": [ "model_name", "channel" ]
+  },
   "loginConfig": {
     "loginUrl": "https://www.kimi.com/membership/subscription?tab=quota",
     "cookieDomainFilters": [ "kimi.com", "www.kimi.com" ],
