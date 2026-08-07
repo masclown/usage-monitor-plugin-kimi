@@ -11,6 +11,8 @@
   "plugin.Kimi.chart.usageSplit": "Usage Split",
   "plugin.Kimi.chart.dailyCredit": "Daily Credit",
   "plugin.Kimi.chart.creditTrend": "Credit Trend",
+  "plugin.Kimi.chart.requestStatusCount": "Request Status Distribution",
+  "plugin.Kimi.chart.todayHeatmap": "Today Usage Heatmap",
 
   "plugin.Kimi.group.chatUsage": "Kimi Usage",
   "plugin.Kimi.group.codeUsage": "Code Usage",
@@ -19,10 +21,25 @@
   "plugin.Kimi.group.totalCost": "Total Cost",
   "plugin.Kimi.group.price": "Subscription Price",
   "plugin.Kimi.group.totalQuota": "Total Quota",
+  "plugin.Kimi.group.fiveHourQuota": "5h Quota",
+  "plugin.Kimi.group.weeklyQuota": "Weekly Quota",
   "plugin.Kimi.group.splitTotal": "Total Usage (Kimi + Code)",
   "plugin.Kimi.group.dailyCreditFeature": "Daily Credit (by Feature)",
   "plugin.Kimi.group.taskbarTotal": "Total Usage",
+  "plugin.Kimi.group.taskbar5h": "5h Usage",
+  "plugin.Kimi.group.taskbarWeekly": "Weekly Usage",
+  "plugin.Kimi.group.taskbarTodayUsed": "Today Total Requests",
+  "plugin.Kimi.group.requestStatusCount": "By Status Code Count",
+  "plugin.Kimi.group.dailyPercent": "Daily Usage Percent",
+
+  "plugin.Kimi.status.success": "Success",
+  "plugin.Kimi.status.forbidden": "Forbidden/Rate Limited",
+  "plugin.Kimi.status.tooManyRequests": "Rate Limited",
+  "plugin.Kimi.status.serverError": "Server Error",
 
   "plugin.Kimi.mini.ring": "Usage Ring",
-  "plugin.Kimi.mini.text": "Usage Text"
+  "plugin.Kimi.mini.text": "Usage Text",
+  "plugin.Kimi.mini.line": "Credit Trend Line",
+
+  "plugin.Kimi.unit.count": "req"
 }
