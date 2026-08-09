@@ -268,12 +268,8 @@
         "detailGroupBy": "request_status",
         "detailOp": "count",
         "detailValueField": "request_id",
-        "seriesDisplayNames": {
-          "200": "i18n:plugin.Kimi.status.success",
-          "403": "i18n:plugin.Kimi.status.forbidden",
-          "429": "i18n:plugin.Kimi.status.tooManyRequests",
-          "500": "i18n:plugin.Kimi.status.serverError"
-        },
+        // 剔除无状态码流水（ListBalanceActions 无 httpStatusCode → request_status 为 NULL），只统计真实状态码。
+        "excludeNullGroupValues": true,
         "unit": "i18n:plugin.Kimi.unit.count",
         "colors": ["#2ADB5C", "#F77234", "#FFC104", "#F14124"],
         "slicer": { "mode": "Period", "default": "1d" },

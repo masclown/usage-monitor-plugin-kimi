@@ -32,11 +32,6 @@
   "plugin.Kimi.group.requestStatusCount": "By Status Code Count",
   "plugin.Kimi.group.dailyPercent": "Daily Usage Percent",
 
-  "plugin.Kimi.status.success": "Success",
-  "plugin.Kimi.status.forbidden": "Forbidden/Rate Limited",
-  "plugin.Kimi.status.tooManyRequests": "Rate Limited",
-  "plugin.Kimi.status.serverError": "Server Error",
-
   "plugin.Kimi.mini.ring": "Usage Ring",
   "plugin.Kimi.mini.text": "Usage Text",
   "plugin.Kimi.mini.line": "Credit Trend Line",

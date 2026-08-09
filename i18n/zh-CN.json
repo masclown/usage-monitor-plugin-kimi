@@ -32,11 +32,6 @@
   "plugin.Kimi.group.requestStatusCount": "按状态码计数",
   "plugin.Kimi.group.dailyPercent": "每日用量百分比",
 
-  "plugin.Kimi.status.success": "成功",
-  "plugin.Kimi.status.forbidden": "鉴权/限流",
-  "plugin.Kimi.status.tooManyRequests": "限流",
-  "plugin.Kimi.status.serverError": "服务异常",
-
   "plugin.Kimi.mini.ring": "用量圆环",
   "plugin.Kimi.mini.text": "用量文本",
   "plugin.Kimi.mini.line": "额度趋势线",
