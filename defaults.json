@@ -165,6 +165,13 @@
     "renderKinds": [ "subscriptionTitle", "summary", "charts" ],
     "primaryMetric": "total_used_percent",
     "collapseDividerIndex": 7,
+    "trayTooltip": {
+      "rows": [
+        { "fieldName": "__provider_name__" },
+        { "kind": "bar", "chartRef": "km.chart.quotaUsage" },
+        { "fieldName": "__refresh_countdown__" }
+      ]
+    },
     "baseInfo": {
       "fields": [
         { "fieldName": "subscription_tier", "role": "Meta" },
