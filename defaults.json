@@ -360,6 +360,70 @@
             ]
           }
         ]
+      },
+      // ===== Curve 类型（snapshot 数据源） =====
+      {
+        "chartId": "km.chart.totalUsedTrend",
+        "display": "i18n:plugin.Kimi.chart.totalUsedTrend",
+        "kind": "Curve",
+        "defaultOrder": 8,
+        "slicer": {
+          "mode": "Period",
+          "position": "TopRight",
+          "interaction": "Button",
+          "timeRanges": ["Last7Days", "Last15Days", "Last30Days"],
+          "default": "Last30Days"
+        },
+        "tooltip": { "fields": ["__date__", "total_used_percent"] },
+        "dataGroups": [{
+          "id": "sdk.template.totalUsage",
+          "fields": [
+            { "fieldName": "recorded_at", "role": "Meta" },
+            { "fieldName": "total_used_percent", "role": "Value" }
+          ]
+        }]
+      },
+      {
+        "chartId": "km.chart.fiveHourUsedTrend",
+        "display": "i18n:plugin.Kimi.chart.fiveHourUsedTrend",
+        "kind": "Curve",
+        "defaultOrder": 9,
+        "slicer": {
+          "mode": "Period",
+          "position": "TopRight",
+          "interaction": "Button",
+          "timeRanges": ["Last7Days", "Last15Days", "Last30Days"],
+          "default": "Last30Days"
+        },
+        "tooltip": { "fields": ["__date__", "five_hour_used_percent"] },
+        "dataGroups": [{
+          "id": "sdk.template.quota5h",
+          "fields": [
+            { "fieldName": "recorded_at", "role": "Meta" },
+            { "fieldName": "five_hour_used_percent", "role": "Value" }
+          ]
+        }]
+      },
+      {
+        "chartId": "km.chart.weeklyUsedTrend",
+        "display": "i18n:plugin.Kimi.chart.weeklyUsedTrend",
+        "kind": "Curve",
+        "defaultOrder": 10,
+        "slicer": {
+          "mode": "Period",
+          "position": "TopRight",
+          "interaction": "Button",
+          "timeRanges": ["Last7Days", "Last15Days", "Last30Days"],
+          "default": "Last30Days"
+        },
+        "tooltip": { "fields": ["__date__", "weekly_used_percent"] },
+        "dataGroups": [{
+          "id": "sdk.template.quotaWeekly",
+          "fields": [
+            { "fieldName": "recorded_at", "role": "Meta" },
+            { "fieldName": "weekly_used_percent", "role": "Value" }
+          ]
+        }]
       }
     ]
   },

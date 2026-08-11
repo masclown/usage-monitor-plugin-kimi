@@ -13,6 +13,9 @@
   "plugin.Kimi.chart.creditTrend": "额度趋势",
   "plugin.Kimi.chart.requestStatusCount": "请求状态分布",
   "plugin.Kimi.chart.todayHeatmap": "今日用量热力图",
+  "plugin.Kimi.chart.totalUsedTrend": "总用量趋势",
+  "plugin.Kimi.chart.fiveHourUsedTrend": "5h用量趋势",
+  "plugin.Kimi.chart.weeklyUsedTrend": "周用量趋势",
 
   "plugin.Kimi.group.chatUsage": "Kimi用量",
   "plugin.Kimi.group.codeUsage": "Code用量",

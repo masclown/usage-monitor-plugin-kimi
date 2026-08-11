@@ -13,6 +13,9 @@
   "plugin.Kimi.chart.creditTrend": "Credit Trend",
   "plugin.Kimi.chart.requestStatusCount": "Request Status Distribution",
   "plugin.Kimi.chart.todayHeatmap": "Today Usage Heatmap",
+  "plugin.Kimi.chart.totalUsedTrend": "Total Usage Trend",
+  "plugin.Kimi.chart.fiveHourUsedTrend": "5h Usage Trend",
+  "plugin.Kimi.chart.weeklyUsedTrend": "Weekly Usage Trend",
 
   "plugin.Kimi.group.chatUsage": "Kimi Usage",
   "plugin.Kimi.group.codeUsage": "Code Usage",
