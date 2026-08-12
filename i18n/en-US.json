@@ -4,6 +4,7 @@
   "plugin.Kimi.field.ApiKey.placeholder": "Enter Kimi API Key",
   "plugin.Kimi.guidance.credential": "Please click 'Get Login' in settings to login to Kimi (www.kimi.com); fill API Key below for API Key auth",
   "plugin.Kimi.guidance.authInvalid": "Kimi login state or API Key is invalid or expired, please re-fetch login or check API Key",
+  "plugin.Kimi.guidance.networkUnreachable": "Cannot reach Kimi APIs, please check network or proxy/VPN settings",
   "plugin.Kimi.guidance.fallback": "Please check Kimi plugin configuration",
 
   "plugin.Kimi.chart.overview": "Kimi Overview",

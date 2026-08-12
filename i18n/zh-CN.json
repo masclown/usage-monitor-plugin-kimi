@@ -4,6 +4,7 @@
   "plugin.Kimi.field.ApiKey.placeholder": "请输入 Kimi API Key",
   "plugin.Kimi.guidance.credential": "请在设置界面点击「获取登录态」登录 Kimi（www.kimi.com），令牌将自动填充；如需 API Key 鉴权请填写下方字段",
   "plugin.Kimi.guidance.authInvalid": "Kimi 登录态或 API Key 无效或已过期，请重新获取登录态或检查 API Key",
+  "plugin.Kimi.guidance.networkUnreachable": "网络无法访问 Kimi 接口，请检查网络连接、代理/VPN 是否正常",
   "plugin.Kimi.guidance.fallback": "请检查 Kimi 插件配置",
 
   "plugin.Kimi.chart.overview": "Kimi概览",

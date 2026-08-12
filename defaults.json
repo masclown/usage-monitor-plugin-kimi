@@ -36,6 +36,7 @@
   "errorGuidance": [
     { "matchCodes": [ "credential_missing", "config_missing" ], "matchKeywords": [], "message": "i18n:plugin.Kimi.guidance.credential" },
     { "matchCodes": [ "auth_invalid", "data_empty" ], "matchKeywords": [ "401", "REASON_INVALID_AUTH_TOKEN" ], "message": "i18n:plugin.Kimi.guidance.authInvalid" },
+    { "matchCodes": [ "network_unreachable", "network_error", "timeout" ], "matchKeywords": [], "message": "i18n:plugin.Kimi.guidance.networkUnreachable" },
     { "matchKeywords": [], "message": "i18n:plugin.Kimi.guidance.fallback" }
   ],
   "usageUrls": {
@@ -77,7 +78,6 @@
         "bodyTemplate": "{}",
         "fields": [
           { "path": "$.subscription.goods.title", "target": "subscription_tier", "transform": "trim" },
-          { "path": "$.subscription.goods.amounts[0].priceInCents", "target": "subscription_price", "transform": "centsToUnit" },
           { "path": "$.subscription.currentEndTime", "target": "subscription_end_at", "transform": "toIso8601Utc" }
         ]
       },
@@ -152,9 +152,9 @@
     "computed": [
       { "target": "five_hour_used_percent", "op": "constant", "value": 0, "whenPresent": "five_hour_reset_at", "onlyIfAbsent": true },
       { "target": "chat_used_percent", "op": "subtract", "operands": [ "total_used_percent", "code_used_percent" ], "whenPresent": "total_used_percent" },
-      { "target": "total_amount", "op": "constant", "value": 100, "whenPresent": "total_used_percent" },
+      // X-1r/X-2r/X-3r（total_amount）已下线：移除 StackedProgress Upper 常量基数派生；UsageSplit 模板改由插件自行决定上限或隐含 100%。
       { "target": "booster_used_amount", "op": "subtract", "operands": [ "booster_total_amount", "balance_amount" ], "whenPresent": "booster_total_amount" },
-      { "target": "total_cost", "op": "add", "operands": [ "subscription_price", "booster_used_amount" ], "whenPresent": "booster_used_amount" },
+      { "target": "total_cost", "op": "coalesce", "operands": [ "booster_used_amount" ], "whenPresent": "booster_used_amount" },
       { "target": "subscription_active", "op": "constant", "value": true, "whenPresent": "subscription_tier" },
       { "target": "today_used_count", "op": "sumRequestDetail", "column": "count", "window": "1d", "aggregate": "day" }
     ],
@@ -184,14 +184,13 @@
         "display": "i18n:plugin.Kimi.chart.overview",
         "kind": "Number",
         "defaultOrder": 1,
-        "tooltip": { "fields": [ "chat_used_percent", "code_used_percent", "balance_amount", "monthly_cost", "total_cost", "subscription_price" ] },
+        "tooltip": { "fields": [ "chat_used_percent", "code_used_percent", "balance_amount", "monthly_cost", "total_cost" ] },
         "dataGroups": [
           { "id": "km.usage.chat", "display": "i18n:plugin.Kimi.group.chatUsage", "fields": [ { "fieldName": "chat_used_percent", "role": "Value" } ] },
           { "id": "km.usage.code", "display": "i18n:plugin.Kimi.group.codeUsage", "fields": [ { "fieldName": "code_used_percent", "role": "Value" } ] },
           { "id": "km.booster.balance", "display": "i18n:plugin.Kimi.group.boosterBalance", "defaultVisible": false, "fields": [ { "fieldName": "balance_amount", "role": "Value" } ] },
           { "id": "km.booster.monthly", "display": "i18n:plugin.Kimi.group.boosterMonthly", "defaultVisible": false, "fields": [ { "fieldName": "monthly_cost", "role": "Value" } ] },
-          { "id": "km.cost.total", "display": "i18n:plugin.Kimi.group.totalCost", "defaultVisible": false, "fields": [ { "fieldName": "total_cost", "role": "Value" } ] },
-          { "id": "km.price", "display": "i18n:plugin.Kimi.group.price", "defaultVisible": false, "fields": [ { "fieldName": "subscription_price", "role": "Value" } ] }
+          { "id": "km.cost.total", "display": "i18n:plugin.Kimi.group.totalCost", "defaultVisible": false, "fields": [ { "fieldName": "total_cost", "role": "Value" } ] }
         ]
       },
       // ===== Bar 类型 =====
@@ -354,7 +353,7 @@
             "fields": [
               { "fieldName": "chat_used_percent", "role": "Value" },
               { "fieldName": "code_used_percent", "role": "Value" },
-              { "fieldName": "total_amount", "role": "Upper" },
+              // X-1r/X-2r/X-3r（total_amount）已下线：移除 StackedProgress Upper 字段；运行时图表控件按 100% 隐含上限渲染。
               { "fieldName": "quota_period_end_at", "role": "Reset" }
             ]
           }
