@@ -56,7 +56,7 @@
         "fields": [
           { "path": "$.subscriptionBalance.amountUsedRatio", "target": "total_used_percent", "transform": "parsePercent" },
           { "path": "$.subscriptionBalance.kimiCodeUsedRatio", "target": "code_used_percent", "transform": "parsePercent" },
-          { "path": "$.subscriptionBalance.expireTime", "target": "quota_period_end_at", "transform": "parseDateTime" },
+          { "path": "$.subscriptionBalance.expireTime", "target": "quota_period_end_at", "transform": "toIso8601Utc" },
           { "path": "$.ratelimitCode5h.ratio", "target": "five_hour_used_percent", "transform": "parsePercent" },
           { "path": "$.ratelimitCode5h.resetTime", "target": "five_hour_reset_at", "transform": "parseDateTime" },
           { "path": "$.ratelimitCode7d.ratio", "target": "weekly_used_percent", "transform": "parsePercent" },
@@ -78,8 +78,7 @@
         "fields": [
           { "path": "$.subscription.goods.title", "target": "subscription_tier", "transform": "trim" },
           { "path": "$.subscription.goods.amounts[0].priceInCents", "target": "subscription_price", "transform": "centsToUnit" },
-          { "path": "$.subscription.nextBillingTime", "target": "subscription_next_billing_at", "transform": "parseDate" },
-          { "path": "$.subscription.currentEndTime", "target": "subscription_end_at", "transform": "parseDate" }
+          { "path": "$.subscription.currentEndTime", "target": "subscription_end_at", "transform": "toIso8601Utc" }
         ]
       },
       {
