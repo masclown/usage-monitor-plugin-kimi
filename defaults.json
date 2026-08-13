@@ -157,7 +157,7 @@
       // X-1r/X-2r/X-3r（total_amount）已下线：移除 StackedProgress Upper 常量基数派生；UsageSplit 模板改由插件自行决定上限或隐含 100%。
       { "target": "booster_used_amount", "op": "subtract", "operands": [ "booster_total_amount", "balance_amount" ], "whenPresent": "booster_total_amount" },
       { "target": "total_cost", "op": "coalesce", "operands": [ "booster_used_amount" ], "whenPresent": "booster_used_amount" },
-      { "target": "subscription_active", "op": "constant", "value": true, "whenPresent": "subscription_tier" },
+      // X-8 subscription_active 已下线（2026-08-13）：从 computed 段移除。
       { "target": "today_used_count", "op": "sumRequestDetail", "column": "count", "window": "1d", "aggregate": "day" }
     ],
     "accountId": { "urlMatch": "GetSubscription", "path": "$.subscription.subscriptionId" }
