@@ -104,6 +104,7 @@
             "itemsPath": "$.actions",
             "mode": "objects",
             "target": "request_detail",
+            "append": true,
             "itemFields": [
               { "path": "$.id", "target": "request_id", "transform": "trim" },
               { "path": "$.timestamp", "target": "occurred_at", "transform": "trim" },
@@ -136,6 +137,7 @@
             "itemsPath": "$.unifiedRequests",
             "mode": "objects",
             "target": "request_detail",
+            "append": true,
             "itemFields": [
               { "path": "$.requestId", "target": "request_id", "transform": "trim" },
               { "path": "$.requestTime", "target": "occurred_at", "transform": "trim" },
