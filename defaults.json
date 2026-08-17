@@ -4,7 +4,7 @@
   "providerId": "Kimi",
   "displayName": "Kimi",
   "meta": {
-    "version": "1.1.0",
+    "version": "1.2.0",
     "author": "UsageMonitor",
     "description": "Query Kimi membership usage (total / 5h / 7d windows, Chat/Code split, booster wallet, daily credit usage)",
     "iconUrl": "https://raw.githubusercontent.com/MoonshotAI/kimi-code/main/docs/.vitepress/theme/Kimi.png",
@@ -111,6 +111,28 @@
               { "path": "$.feature", "target": "channel", "transform": "trim" },
               { "path": "$.feature", "target": "task_type", "transform": "trim" },
               { "path": "$.items[0].amountRatio", "target": "used_percent", "transform": "parsePercent" }
+            ]
+          },
+          // req-新迷你堆叠柱状图：按 feature (channel) × day 透视 amountRatio，产物键 mini_series_group:km.daily.credit_*
+          // App 层 ProviderUsageViewModel.ExtractMiniSeriesFromExtra 识别该组并合并为堆叠多序列缓存。
+          // valueField.Target 写为 "_" 前缀（私有内部键，不参与卡片图表或字段白名单），避免与卡片 daily_credit_percent 字段冲突。
+          // seriesNames 兏底：接口响应中未出现的 feature 仍以 0 值占位，确保始终有 3 个 series（避免 seriesNames.Count < 2 被丢弃）。
+          // dateField 显式指定 timestamp：避免自动探测遇到 time/timestamp/date 同名冲突。
+          // seriesNamePath 抓取 title 字段（如 "Plugin: 中免日周J胜率"）并应用 takeBeforeColon transform 推导出
+          // 显示名 "Plugin" / "Agent PPT" / "Kimi Code"。seriesNames 兏底直接用友好名（与 transform 后一致）。
+          // valueField.Target（"_km_stacked_total"）是聚合私有键，不会再作为显示系列名出现。
+          {
+            "itemsPath": "$.actions",
+            "mode": "groupPivot",
+            "seriesNamePath": "$.title",
+            "seriesNameTransform": "takeBeforeColon",
+            "seriesNames": ["Plugin", "Agent PPT", "Kimi Code"],
+            "op": "sum",
+            "bucket": "day",
+            "dateField": "timestamp",
+            "target": "mini_series_group:km.daily.credit",
+            "itemFields": [
+              { "path": "$.items[0].amountRatio", "target": "_km_stacked_total", "transform": "parsePercent" }
             ]
           }
         ]
@@ -478,6 +500,34 @@
           { "id": "km.taskbar.weekly", "display": "i18n:plugin.Kimi.group.taskbarWeekly", "fields": [ { "fieldName": "weekly_used_percent", "role": "Value" } ] },
           { "id": "km.taskbar.total", "display": "i18n:plugin.Kimi.group.taskbarTotal", "fields": [ { "fieldName": "total_used_percent", "role": "Value" } ] },
           { "id": "km.taskbar.todayUsed", "display": "i18n:plugin.Kimi.group.taskbarTodayUsed", "fields": [ { "fieldName": "today_used_count", "role": "Value" } ] }
+        ]
+      },
+      // ===== MiniStackedBarChart：每日额度按 channel（Code / Agent Swarm / K2.6）堆叠显示 =====
+      // 数据源：ListBalanceActions groupPivot 产物 mini_series_group:km.daily.credit_*
+      {
+        "chartId": "km.mini.stackedBar",
+        "display": "i18n:plugin.Kimi.chart.dailyCredit",
+        "kind": "MiniStackedBarChart",
+        "width": 140,
+        "slicer": { "mode": "DataGroup", "interaction": "Scroll", "default": "sdk.template.dailyCreditPercent" },
+        "tooltip": {
+          "fields": [
+            "__date__",
+            "__provider_name__",
+            "__refresh_countdown__"
+          ]
+        },
+        "dataGroups": [
+          {
+            "id": "sdk.template.dailyCreditPercent",
+            "display": "i18n:plugin.Kimi.group.dailyCreditFeature",
+            "stackedGroupKey": "km.daily.credit",
+            "seriesDisplayNames": {
+              "FEATURE_CODING": "Code",
+              "FEATURE_SWARM": "Agent Swarm",
+              "FEATURE_CHAT": "K2.6"
+            }
+          }
         ]
       }
     ]
