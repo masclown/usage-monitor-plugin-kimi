@@ -508,7 +508,7 @@
         "chartId": "km.mini.stackedBar",
         "display": "i18n:plugin.Kimi.chart.dailyCredit",
         "kind": "MiniStackedBarChart",
-        "width": 140,
+        "width": 100,
         "slicer": { "mode": "DataGroup", "interaction": "Scroll", "default": "sdk.template.dailyCreditPercent" },
         "tooltip": {
           "fields": [
