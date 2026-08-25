@@ -257,6 +257,27 @@
           }
         ]
       },
+      // ===== StackedProgress 类型 =====
+      {
+        "chartId": "km.chart.usageSplit",
+        "display": "i18n:plugin.Kimi.chart.usageSplit",
+        "kind": "StackedProgress",
+        "defaultOrder": 3,
+        "unit": "%",
+        "colors": ["#B8C4CE", "#1A88FF"],
+        "tooltip": { "fields": [ "chat_used_percent", "code_used_percent", "total_used_percent" ] },
+        "dataGroups": [
+          {
+            "id": "km.usageSplit",
+            "fields": [
+              { "fieldName": "chat_used_percent", "role": "Value" },
+              { "fieldName": "code_used_percent", "role": "Value" },
+              // X-1r/X-2r/X-3r（total_amount）已下线：移除 StackedProgress Upper 字段；运行时图表控件按 100% 隐含上限渲染。
+              { "fieldName": "quota_period_end_at", "role": "Reset" }
+            ]
+          }
+        ]
+      },
       // ===== StackedBar 类型 =====
       {
         "chartId": "km.chart.dailyCredit",
@@ -336,49 +357,6 @@
           ] }
         ]
       },
-      // ===== HeatMap 类型（新增：当日用量百分比合计热力图）=====
-      {
-        "chartId": "km.chart.todayHeatmap",
-        "display": "i18n:plugin.Kimi.chart.todayHeatmap",
-        "kind": "HeatMap",
-        "defaultOrder": 7,
-        "defaultVisible": false,
-        "detailGroupBy": "channel",
-        "detailValueField": "used_percent",
-        "detailOp": "sum",
-        "lookbackDays": 90,
-        "dataGroups": [
-          {
-            "id": "km.heatmap.dailyPercent",
-            "display": "i18n:plugin.Kimi.group.dailyPercent",
-            "fields": [
-              { "fieldName": "daily_used_percent", "role": "Meta" },
-              { "fieldName": "daily_credit_percent", "role": "Value" }
-            ]
-          }
-        ]
-      },
-      // ===== StackedProgress 类型 =====
-      {
-        "chartId": "km.chart.usageSplit",
-        "display": "i18n:plugin.Kimi.chart.usageSplit",
-        "kind": "StackedProgress",
-        "defaultOrder": 3,
-        "unit": "%",
-        "colors": ["#B8C4CE", "#1A88FF"],
-        "tooltip": { "fields": [ "chat_used_percent", "code_used_percent", "total_used_percent" ] },
-        "dataGroups": [
-          {
-            "id": "km.usageSplit",
-            "fields": [
-              { "fieldName": "chat_used_percent", "role": "Value" },
-              { "fieldName": "code_used_percent", "role": "Value" },
-              // X-1r/X-2r/X-3r（total_amount）已下线：移除 StackedProgress Upper 字段；运行时图表控件按 100% 隐含上限渲染。
-              { "fieldName": "quota_period_end_at", "role": "Reset" }
-            ]
-          }
-        ]
-      },
       // ===== Curve 类型（snapshot 数据源） =====
       {
         "chartId": "km.chart.totalUsedTrend",
@@ -442,6 +420,28 @@
             { "fieldName": "weekly_used_percent", "role": "Value" }
           ]
         }]
+      },
+      // ===== HeatMap 类型（当日用量百分比合计热力图）=====
+      {
+        "chartId": "km.chart.todayHeatmap",
+        "display": "i18n:plugin.Kimi.chart.todayHeatmap",
+        "kind": "HeatMap",
+        "defaultOrder": 7,
+        "defaultVisible": false,
+        "detailGroupBy": "channel",
+        "detailValueField": "used_percent",
+        "detailOp": "sum",
+        "lookbackDays": 90,
+        "dataGroups": [
+          {
+            "id": "km.heatmap.dailyPercent",
+            "display": "i18n:plugin.Kimi.group.dailyPercent",
+            "fields": [
+              { "fieldName": "daily_used_percent", "role": "Meta" },
+              { "fieldName": "daily_credit_percent", "role": "Value" }
+            ]
+          }
+        ]
       }
     ]
   },
