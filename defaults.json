@@ -96,7 +96,7 @@
           "nextTokenPath": "$.nextPageToken",
           "tokenParam": "page_token",
           "itemsProperty": "actions",
-          "maxPages": 60,
+          "maxPages": 200,
           "maxPagesTemplate": "{config:MaxPages}"
         },
         "arrays": [
