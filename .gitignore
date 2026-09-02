@@ -1,0 +1,22 @@
+# 临时文件
+*.tmp
+*.swp
+.DS_Store
+Thumbs.db
+
+# 编辑器
+.vscode/
+.idea/
+*.user
+*.suo
+
+# 构建/调试残留（防御性，主项目 publish 不应污染插件仓）
+bin/
+obj/
+*.zip
+*.log
+
+# 系统敏感文件（防御性）
+secrets/
+*.key
+*.pem
