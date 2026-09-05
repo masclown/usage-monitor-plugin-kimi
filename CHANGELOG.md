@@ -1,5 +1,9 @@
 # Changelog
 
+## usage-monitor-plugin-kimi 1.4.0 (2026-09-05)
+
+- 移除 meta.iconUrl / meta.iconUrlDark，logo 改为运行时从网页 favicon 抓取（宿主按主题选择可渲染资源）。
+
 ## usage-monitor-plugin-kimi 1.3.0 (2026-09-05)
 
 - 新增迷你多圆环图 `km.mini.multiRing`（MiniMultiRingChart）：5h / 周 / 总用量三个百分比同心多圆环，循环切换数据组。
