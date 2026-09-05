@@ -1,5 +1,10 @@
 # Changelog
 
+## usage-monitor-plugin-kimi 1.3.0 (2026-09-05)
+
+- 新增迷你多圆环图 `km.mini.multiRing`（MiniMultiRingChart）：5h / 周 / 总用量三个百分比同心多圆环，循环切换数据组。
+- 修复多圆环图首次启用时数据组默认勾选：未配置时默认全选所有数据组，避免退化为单环。
+
 ## usage-monitor-plugin-kimi 1.2.0 (2026-09-05)
 
 - 新增迷你堆叠柱状图 `km.mini.stackedBar`：按 feature(channel) x day 透视 `amountRatio`，产物 `mini_series_group:km.daily.credit_*`。

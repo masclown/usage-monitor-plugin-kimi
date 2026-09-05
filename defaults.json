@@ -4,7 +4,7 @@
   "providerId": "Kimi",
   "displayName": "Kimi",
   "meta": {
-    "version": "1.2.0",
+    "version": "1.3.0",
     "author": "UsageMonitor",
     "description": "Query Kimi membership usage (total / 5h / 7d windows, Chat/Code split, booster wallet, daily credit usage)",
     "iconUrl": "https://raw.githubusercontent.com/MoonshotAI/kimi-code/main/docs/.vitepress/theme/Kimi.png",
