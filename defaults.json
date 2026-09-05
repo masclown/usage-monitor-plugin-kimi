@@ -116,7 +116,7 @@
           // req-新迷你堆叠柱状图：按 feature (channel) × day 透视 amountRatio，产物键 mini_series_group:km.daily.credit_*
           // App 层 ProviderUsageViewModel.ExtractMiniSeriesFromExtra 识别该组并合并为堆叠多序列缓存。
           // valueField.Target 写为 "_" 前缀（私有内部键，不参与卡片图表或字段白名单），避免与卡片 daily_credit_percent 字段冲突。
-          // 注：移除 seriesNames 兏底（避免未出现的 feature 被 0 值占位、误导用户）。API 返回什么 feature 就展示什么。
+          // 注：移除 seriesNames 兜底（避免未出现的 feature 被 0 值占位、误导用户）。API 返回什么 feature 就展示什么。
           // valueField.Target（"_km_stacked_total"）是聚合私有键，不会再作为显示系列名出现。
           {
             "itemsPath": "$.actions",
@@ -474,6 +474,30 @@
           { "id": "km.taskbar.weekly", "display": "i18n:plugin.Kimi.group.taskbarWeekly", "fields": [ { "fieldName": "weekly_used_percent", "role": "Value" } ] },
           { "id": "km.taskbar.total", "display": "i18n:plugin.Kimi.group.taskbarTotal", "fields": [ { "fieldName": "total_used_percent", "role": "Value" } ] },
           { "id": "km.taskbar.todayUsed", "display": "i18n:plugin.Kimi.group.taskbarTodayUsed", "fields": [ { "fieldName": "today_used_count", "role": "Value" } ] }
+        ]
+      },
+      // ===== MiniMultiRingChart：5h / 周 / 总用量三项百分比同心多圆环，便于与单环/文本对比样式 =====
+      // 复用 km.taskbar.5h / weekly / total 三个数据组；循环切成 5h→周→总用量。
+      {
+        "chartId": "km.mini.multiRing",
+        "display": "i18n:plugin.Kimi.mini.multiRing",
+        "kind": "MiniMultiRingChart",
+        "slicer": { "mode": "DataGroup", "interaction": "Scroll", "default": "km.taskbar.5h" },
+        "tooltip": {
+          "fields": [
+            "__provider_name__",
+            "five_hour_used_percent",
+            "weekly_used_percent",
+            "total_used_percent",
+            "today_used_count",
+            "__refresh_countdown__"
+          ]
+        },
+        "colorTiers": { "ref": "global:usage-tier-default" },
+        "dataGroups": [
+          { "id": "km.taskbar.5h", "display": "i18n:plugin.Kimi.group.taskbar5h", "defaultVisible": true, "fields": [ { "fieldName": "five_hour_used_percent", "role": "Value" } ] },
+          { "id": "km.taskbar.weekly", "display": "i18n:plugin.Kimi.group.taskbarWeekly", "defaultVisible": true, "fields": [ { "fieldName": "weekly_used_percent", "role": "Value" } ] },
+          { "id": "km.taskbar.total", "display": "i18n:plugin.Kimi.group.taskbarTotal", "defaultVisible": true, "fields": [ { "fieldName": "total_used_percent", "role": "Value" } ] }
         ]
       },
       {
